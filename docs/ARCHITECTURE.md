@@ -189,6 +189,78 @@ class Agent:
     def invoke(self, prompt: str, config: AgentConfig) -> AgentResult: ...
 ```
 
+### Data models
+
+#### `Task`
+
+Produced by `TaskSource.fetch_task()`; consumed by `prompt_builder.py`, `post_run.py`, and `logger.py`. All resolution of label_rule / actor_rule / source / project config overrides happens inside the task source before returning — `Task` carries only the resolved values.
+
+```python
+@dataclass
+class Task:
+    task_id: str                          # UUID v4, generated at selection time
+    source: str                           # "grafana-alerts" | "gh-delegated" | "proactive-improvement"
+    description: str                      # human-readable; inserted into prompt section 2
+    permitted_actions: list[PermittedAction]  # effective set; inserted into prompt section 3
+
+    # GitHub item reference — populated at selection time for gh-delegated;
+    # None for grafana-alerts and proactive-improvement (no source item exists yet)
+    repo: str | None          # "owner/repo"
+    item_type: str | None     # "issue" | "pr"
+    item_number: int | None
+    item_url: str | None
+
+    # Label transitions — post_run.py only; None for sources with no pre-existing item
+    source_label: str | None  # label to remove on success (gh-delegated label_rules only; None for actor_rules and other sources)
+    done_label: str | None    # label to apply on success (gh-delegated only; None for other sources)
+```
+
+For `gh-delegated` tasks, `repo`, `item_type`, `item_number`, and `item_url` are always populated — the item exists before the agent runs, so `store.py` writes the `items_touched` row at task-selection time. For `grafana-alerts` and `proactive-improvement`, these fields are `None` at selection time; `items_touched` rows are written after the run from `items_created` in `AgentResult`.
+
+#### `AgentConfig`
+
+Carries the resolved agent invocation parameters. Produced by the picker alongside `Task`; passed to `Agent.invoke()`.
+
+```python
+@dataclass
+class AgentConfig:
+    agent: str      # "claude-code" (only supported value in v1)
+    model: str      # e.g. "claude-sonnet-4-6" — passed through to CLI as --model
+    max_turns: int  # passed to claude as --max-turns
+    timeout_s: int  # subprocess wall-clock timeout
+```
+
+#### `AgentResult`
+
+Returned by `Agent.invoke()`; parsed from the Claude Code CLI's JSON response. Consumed by `post_run.py` and `logger.py`.
+
+```python
+@dataclass
+class AgentResult:
+    outcome: str                    # "success" | "failure" | "partial" — from structured_output
+    summary: str                    # agent self-reported summary
+    actions_taken: list[str]        # human-readable action strings
+    items_created: list[ItemRef]    # GitHub items the agent created (for items_touched)
+    failure_reason: str | None
+
+    # Top-level response fields (from Claude Code CLI JSON)
+    is_error: bool
+    num_turns: int
+    total_cost_usd: float
+    duration_ms: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+
+@dataclass
+class ItemRef:
+    item_type: str    # "issue" | "pr"
+    item_number: int
+```
+
+`post_run.py` treats `is_error == True` or `outcome != "success"` as a failure, regardless of what `outcome` says, and applies `ai-failed` accordingly.
+
 ### Label State Machine
 
 No in-progress label is used during a run — the project lock (`project_locks` table) is the sole concurrency guard. Labels are only written by `post_run.py` after the agent subprocess exits.
@@ -885,13 +957,4 @@ Example top-level response shape (abridged — verified output):
 The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
 `actions_taken` remains a human-readable string array — used for the digest summary and the run record, not for outcome matching.
-
-### Outstanding questions
-
-_Unresolved gaps to address before implementation begins._
-
-**Data models**
-
-- **`Task` object** — `TaskSource.fetch_task()` returns `Task | None` but the `Task` dataclass is never defined. Minimum fields needed: `task_id`, `source`, `description`, `item_url` (nullable), `label_rule` / `actor_rule` reference (for post-run label transitions). Define before any task source module is written.
-
 
