@@ -287,6 +287,82 @@ Host machine (single server or dev machine)
 * SQLite is opened in WAL mode to handle concurrent writers across projects safely.
 * `labro list-locks` shows all held locks with age; `labro unlock <project>` removes a lock manually.
 
+### Persistence / SQLite Schema
+
+Three tables. All timestamps are ISO 8601 UTC strings. WAL mode is enabled at connection time.
+
+```sql
+-- runs: one row per harness run, including skipped runs where no task was selected
+CREATE TABLE runs (
+    run_id              TEXT    PRIMARY KEY,            -- UUID v4
+    project             TEXT    NOT NULL,
+    task_source         TEXT,                           -- NULL when outcome = 'skipped' (no task found)
+    task_description    TEXT,
+    item_url            TEXT,                           -- GitHub URL of the source item, if any
+    agent               TEXT,                           -- e.g. "claude-code"
+    model               TEXT,
+    started_at          TEXT    NOT NULL,               -- ISO 8601 UTC
+    ended_at            TEXT,
+    duration_s          REAL,
+    outcome             TEXT    NOT NULL
+                            CHECK (outcome IN ('success', 'failure', 'skipped')),
+    turns_used          INTEGER,
+    total_cost_usd      REAL,
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    cache_read_tokens   INTEGER,
+    cache_write_tokens  INTEGER,
+    summary             TEXT,                           -- agent self-reported summary
+    actions_taken       TEXT,                           -- JSON array of strings
+    failure_reason      TEXT
+);
+
+CREATE INDEX idx_runs_project    ON runs (project);
+CREATE INDEX idx_runs_started_at ON runs (started_at);
+CREATE INDEX idx_runs_outcome    ON runs (outcome);
+
+-- project_locks: at most one row per project while a run is in progress
+CREATE TABLE project_locks (
+    project     TEXT    PRIMARY KEY,
+    locked_at   TEXT    NOT NULL    -- ISO 8601 UTC; compared against timeout_s for stale-lock detection
+);
+
+-- items_touched: GitHub items acted on during a run; one row per item per run.
+-- Written by the harness at run time (for gh-delegated: at task-selection time;
+-- for other sources: from items_created in the agent's structured output).
+-- Outcome signal columns are NULL until the daily digest job collects them.
+CREATE TABLE items_touched (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id                  TEXT    NOT NULL    REFERENCES runs (run_id),
+    repo                    TEXT    NOT NULL,   -- "owner/repo"
+    item_type               TEXT    NOT NULL    CHECK (item_type IN ('issue', 'pr')),
+    item_number             INTEGER NOT NULL,
+    -- Outcome signals — populated by the digest job, not the run loop
+    outcome_state           TEXT    CHECK (outcome_state IN (
+                                        'merged',
+                                        'closed_completed',
+                                        'closed_not_planned',
+                                        'closed_unmerged',
+                                        'open'
+                                    )),
+    follow_up_commits       INTEGER,            -- commits on the PR branch after the agent's push, before merge; PRs only
+    thumbs_up               INTEGER,            -- count of 👍 reactions on Labro comments
+    thumbs_down             INTEGER,            -- count of 👎 reactions on Labro comments
+    signals_collected_at    TEXT                -- ISO 8601 UTC; NULL = not yet collected by digest job
+);
+
+CREATE INDEX idx_items_touched_run_id    ON items_touched (run_id);
+CREATE INDEX idx_items_touched_repo_item ON items_touched (repo, item_type, item_number);
+```
+
+**Schema decisions:**
+
+- Token usage fields (`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`) are stored as flat columns, not as a JSON blob, so they can be aggregated directly in SQL without JSON extraction.
+- `actions_taken` is a JSON array string — used for display only (digest summary, `labro review`), not for outcome matching, so SQL querying is not required.
+- `outcome_state` values correspond to: GitHub PR merged (`merged`), PR closed without merge (`closed_unmerged`), issue closed as completed (`closed_completed`), issue closed as not planned (`closed_not_planned`), still open (`open`). `closed_completed` and `closed_not_planned` map to GitHub's `state_reason` field on the issue close event.
+- No `ON DELETE CASCADE` — run records are append-only. `items_touched` rows reference their parent `run_id` for auditability; orphaned rows are not a concern at the current scale.
+- Periodic purge of runs older than N days (see Risks) will require a corresponding delete from `items_touched`.
+
 ### Error Handling
 
 * Agent subprocess timeout → logged as failure; `ai-failed` label applied.
@@ -553,7 +629,6 @@ _Unresolved gaps to address before implementation begins._
 **Data models**
 
 - **`Task` object** — `TaskSource.fetch_task()` returns `Task | None` but the `Task` dataclass is never defined. Minimum fields needed: `task_id`, `source`, `description`, `item_url` (nullable), `label_rule` / `actor_rule` reference (for post-run label transitions). Define before any task source module is written.
-- **SQLite schema** — `store.py` has no `CREATE TABLE` statements anywhere. Three tables are implied: `runs`, `project_locks`, `items_touched`. Column types, indexes, and constraints need to be specified before `store.py` is implemented.
 
 **Label state machine**
 
