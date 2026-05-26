@@ -74,7 +74,7 @@ The **baseline window** is the first 4 weeks of continuous operation on at least
 | **Satisfaction ratio** (explicit sentiment) — 👍 ÷ (👍 + 👎) on Labro comments | GitHub reactions (REQ-23) | — | ≥ 75% positive |
 | **Agent self-reported success rate** (prompt quality) — runs the agent reports as success ÷ all runs | agent output (REQ-15) | — | ≥ 75% success |
 
-Self-reported success is *not* a measure of real usefulness (it is a leading, subjective hint per the [success signal model](#epic-c-observability--logging)); it is tracked here specifically as a signal of whether the harness's prompts and task scoping are working — including whether operators are labelling up tasks of appropriate complexity for the agent (over-scoped tasks the agent cannot complete will depress this rate). A low self-report rate points at the harness or at task selection; a high self-report rate paired with a low merge rate points at agent quality.
+Self-reported success is *not* a measure of real usefulness (it is a leading, subjective hint — see the Success Signal Model table in the Functional Requirements section); it is tracked here specifically as a signal of whether the harness's prompts and task scoping are working — including whether operators are labelling up tasks of appropriate complexity for the agent (over-scoped tasks the agent cannot complete will depress this rate). A low self-report rate points at the harness or at task selection; a high self-report rate paired with a low merge rate points at agent quality.
 
 **Supporting metrics (tracked for diagnosis and cost control, no fixed target in v1):**
 
@@ -99,8 +99,6 @@ Self-reported success is *not* a measure of real usefulness (it is a leading, su
 ---
 
 ## User Stories & Functional Requirements
-
-### Epic A: Task Selection & Scheduling
 
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
@@ -149,8 +147,6 @@ Self-reported success is *not* a measure of real usefulness (it is a leading, su
 
 > **v1 policy — no autonomous PR approval.** Labro agents may not `approve` PRs in v1/MVP, per Design Principle #5 (suggest over act). The `approve` action category still exists in the config schema (REQ-12) so it can be granted later once trust is established, but it is not enabled for any task source in v1.
 
-### Epic B: Agent Execution
-
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
 | **REQ-09** | As an operator, I want to configure which model to use at the task-source level (with a project-level default fallback) so I can route simpler tasks to cheaper models and reserve more capable models for complex work. | P0 | Each task source in config optionally declares a model; if absent, the project-level default applies. The v1 agent is Claude Code CLI; the model parameter is passed through to the Claude Code invocation. |
@@ -159,14 +155,10 @@ Self-reported success is *not* a measure of real usefulness (it is a leading, su
 | **REQ-12** | As an operator, I want to define a permitted action set in config at both the project level and the task-source level so I control the blast radius of autonomous runs with fine-grained precision. | P0 | Config declares which GitHub write action categories are enabled (e.g. `comment`, `approve`, `open-pr`, `merge`, `push`) at the project level as a default; each task source may optionally override with its own permitted action set. Permitted actions govern side-effectful GitHub operations only — read operations, web searches, MCP tool calls, and local file operations are always unrestricted. Enforcement is via the prompt only (v1) — the permitted action set is communicated to the agent as an instruction. A `gh` wrapper for hard runtime enforcement is a candidate for v1.1 if prompt-only proves insufficient. |
 | **REQ-13** | As an operator, I want the agent to run in a sandboxed environment so mistakes don't affect my main dev environment. | P1 | Agent runs inside Docker; file system access scoped to cloned repo. |
 
-### Epic B2: Task State Management
-
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
 | **REQ-20** | As an operator, I want the harness to transition GitHub labels as a deterministic post-run step so task state is always consistent and items are not re-selected on future runs. | P0 | Applies to `gh-delegated` tasks (GitHub issues/PRs that carry Labro labels). On successful completion: harness applies the configured done label (e.g. `ai-dev-done`) and removes the source label. On failure: harness applies `ai-failed` and posts a comment with the agent's self-reported failure reason; item is skipped on all subsequent runs until the operator manually clears the label. Label transitions are configured per task source. Does not apply to `grafana-alerts` — those tasks have no GitHub item to label; dedup for alerts is handled via REQ-05a. |
 | **REQ-21** | As an operator, I want Labro to send a single daily digest across all configured projects so I can assess system health without manually inspecting logs. | P1 | Digest fires once per day on a fixed schedule (independent of any project's cron). Delivered via Slack incoming webhook (`SLACK_WEBHOOK_URL` env var). Content covers all projects in a single summary: runs fired, tasks selected per source, tasks skipped (and why), token spend, and any failure labels applied. Digest is a health and cost signal — not a duplicate of ambient GitHub/Slack notifications generated by agent actions. |
-
-### Epic C: Observability & Logging
 
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
@@ -190,8 +182,6 @@ Labro distinguishes three signals; only the first is available at run time, so t
 | 👍 / 👎 reaction | lagging, subjective | GitHub reactions API (REQ-23) | one click | explicit operator sentiment |
 
 Labels remain reserved for Labro's own lifecycle state (REQ-20); human sentiment is captured via reactions and close-reason, not labels, to keep the two families from colliding in the UI.
-
-### Epic D: Configuration & Project Support
 
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
