@@ -166,9 +166,9 @@ Harness
 
 | Subcommand | Description |
 | :--- | :--- |
-| `labro run <project>` | Trigger a single run for a project immediately (bypasses scheduler). |
-| `labro init` | Bootstrap all configured projects: creates required GitHub labels in each repo if absent. Idempotent — safe to re-run. Labels created: `ai-contributed`, `ai-failed`, `ai-proactive-suggestion`, plus any configured done/source labels. `ai-alert:<rule-uid>` labels are created dynamically on first alert fire, not by `init`. |
-| `labro check` | Pre-flight health check: validates config, checks all required env vars are set, verifies GitHub token scopes, and confirms required labels exist in each configured repo. Reports pass/fail per check. Safe to run at any time — makes no writes. |
+| `labro run <project>` | Trigger a single run for a project immediately (bypasses scheduler). Accepts `--dry-run` flag: runs task selection and prompt construction but does not acquire a lock, prepare the repo, invoke the agent, write run records, or apply label transitions. Prints resolved task, agent config, and full prompt text to stdout — useful for inspecting configuration before spending tokens. |
+| `labro init` | Bootstrap all configured projects: creates required GitHub labels in each repo if absent. Idempotent — safe to re-run. Labels created: `ai-contributed` (blue `#0075ca`), `ai-failed` (yellow `#e4e669`, description "remove to retry"), `ai-proactive-suggestion` (grey `#cfd3d7`), plus any configured done labels (green `#0e8a16`) and source labels (purple `#7057ff`). `ai-alert:<rule-uid>` labels are created dynamically by `post_run.py` on first alert success, not by `init`; they use blue `#0075ca` with description `"Labro alert tracker: <rule-uid>"`. |
+| `labro check` | Pre-flight health check: validates config, checks all required env vars are set, verifies GitHub token has `repo` or `public_repo` scope (via `gh auth status`; may produce false negatives for fine-grained PATs), and confirms required labels exist in each configured repo. Reports pass/fail per check. Safe to run at any time — makes no writes. |
 | `labro list-locks` | Show all currently held project locks with `project`, `locked_at`, and age. |
 | `labro unlock <project>` | Manually release a stale lock for a project. |
 | `labro review` | Print a table of recent run records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `task_source`, `outcome`, `turns_used`, `total_cost_usd`, `task_description` (truncated). Failures include `failure_reason`. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|skipped>`. Plain text to stdout. |
@@ -203,19 +203,19 @@ class Task:
     description: str                      # human-readable; inserted into prompt section 2
     permitted_actions: list[PermittedAction]  # effective set; inserted into prompt section 3
 
-    # GitHub item reference — populated at selection time for gh-delegated;
-    # None for grafana-alerts and proactive-improvement (no source item exists yet)
-    repo: str | None          # "owner/repo"
-    item_type: str | None     # "issue" | "pr"
+    # GitHub item reference
+    repo: str                  # "owner/repo" — always the project's configured repo
+    item_type: str | None      # "issue" | "pr" — None for grafana-alerts and proactive-improvement (no source item exists yet)
     item_number: int | None
     item_url: str | None
 
     # Label transitions — post_run.py only; None for sources with no pre-existing item
-    source_label: str | None  # label to remove on success (gh-delegated label_rules only; None for actor_rules and other sources)
-    done_label: str | None    # label to apply on success (gh-delegated only; None for other sources)
+    source_label: str | None       # label to remove on success (gh-delegated label_rules only; None for actor_rules and other sources)
+    done_label: str | None         # label to apply on success (gh-delegated only; None for other sources)
+    grafana_rule_uid: str | None   # rule UID for grafana-alerts tasks; post_run.py applies ai-alert:<rule-uid> to items_created
 ```
 
-For `gh-delegated` tasks, `repo`, `item_type`, `item_number`, and `item_url` are always populated — the item exists before the agent runs, so `store.py` writes the `items_touched` row at task-selection time. For `grafana-alerts` and `proactive-improvement`, these fields are `None` at selection time; `items_touched` rows are written after the run from `items_created` in `AgentResult`.
+For all tasks, `repo` is always set to the project's configured repo — every task belongs to exactly one project. For `gh-delegated` tasks, `item_type`, `item_number`, and `item_url` are also populated — the item exists before the agent runs, so `store.py` writes the `items_touched` row at task-selection time. For `grafana-alerts` and `proactive-improvement`, `item_type`, `item_number`, and `item_url` are `None` at selection time; `items_touched` rows are written after the run using `task.repo` + each entry in `items_created` from `AgentResult`.
 
 #### `AgentConfig`
 
@@ -259,7 +259,7 @@ class ItemRef:
     item_number: int
 ```
 
-`post_run.py` treats `is_error == True` or `outcome != "success"` as a failure, regardless of what `outcome` says, and applies `ai-failed` accordingly.
+`post_run.py` treats `is_error == True` or `outcome != "success"` as a failure and applies `ai-failed` accordingly. A `"partial"` agent outcome is stored as `"failure"` in the `runs` table — the distinction is preserved in `summary` and `failure_reason` for operator review, but no harness logic branches on `partial` vs `failure`.
 
 ### Label State Machine
 
@@ -299,14 +299,14 @@ No source item exists at run start. The tracking issue is created (or not) by th
 | :--- | :--- | :--- |
 | **Eligible** | No open issue with `ai-alert:<rule-uid>` | Source returns task |
 | **Skipped — already tracked** | Open issue exists with `ai-alert:<rule-uid>` | Source returns no task; logs `skipped: already tracking #N` |
-| **Issue created (success)** | Agent creates tracking issue | Agent applies `ai-alert:<rule-uid>`; `post_run.py` applies `ai-contributed` to issue |
+| **Issue created (success)** | Agent creates tracking issue | `post_run.py` applies `ai-alert:<rule-uid>` (using `task.grafana_rule_uid`) and `ai-contributed` to issue |
 | **Failure before issue created** | No tracking issue | No label transition; failure logged; alert retried on every subsequent run (accepted risk — surfaced via digest failure rate) |
 | **Failure after issue created** | Tracking issue exists | `post_run.py` applies `ai-failed` to issue + `ai-contributed`; posts failure comment; future runs still skip (dedup on `ai-alert:<rule-uid>` ignores `ai-failed`) |
 | **Alert cleared (issue open)** | Alert no longer firing | `grafana-alerts` source posts "alert cleared" comment; leaves issue open for operator to close |
 
 #### `proactive-improvement`
 
-No source item — the agent creates items from scratch. `ai-proactive-suggestion` is applied by `post_run.py` (not by the agent), so the open-suggestion cap is reliable regardless of agent prompt compliance.
+No source item — the agent creates items from scratch. `ai-proactive-suggestion` is applied by `post_run.py` (not by the agent), so the open-suggestion cap is reliable regardless of agent prompt compliance. The prompt explicitly instructs the agent to open at most one issue or PR per run. `post_run.py` enforces this: only the first entry in `items_created` receives `ai-proactive-suggestion`; any additional entries receive `ai-contributed` only and a warning is logged. This keeps the cap count accurate regardless of agent behaviour.
 
 | Phase | GitHub state | Harness action |
 | :--- | :--- | :--- |
@@ -322,7 +322,7 @@ No source item — the agent creates items from scratch. `ai-proactive-suggestio
 | :--- | :--- | :--- | :--- |
 | `ai-contributed` | `post_run.py` | Marks every item Labro acted on; query surface | — |
 | `ai-failed` | `post_run.py` | Blocks re-pickup; cleared by operator to retry | `ai-<source>-done` (shouldn't coexist — failure precedes done) |
-| `ai-alert:<rule-uid>` | Agent (on issue create) | Dedup key for `grafana-alerts` | — |
+| `ai-alert:<rule-uid>` | `post_run.py` (on success, from `task.grafana_rule_uid`) | Dedup key for `grafana-alerts` | — |
 | `ai-proactive-suggestion` | `post_run.py` | Cap counter for open suggestions | — |
 | `<done_label>` (e.g. `ai-dev-done`) | `post_run.py` | Marks successful completion; blocks re-pickup | Source label (removed on success) |
 | Source labels (e.g. `ai-dev`, `ai-review`) | Operator | Trigger pickup for `gh-delegated` label_rules | Done label (removed on success) |
@@ -334,10 +334,16 @@ No source item — the agent creates items from scratch. `ai-proactive-suggestio
 _What happens during a single harness run?_
 
 ```
-Scheduler triggers run(project)
+Scheduler triggers run(project)   [or: labro run <project> [--dry-run]]
     │
     ▼
 Config loaded → project config resolved
+    │
+    ▼
+--dry-run? → task selection + prompt construction → print task / agent config / prompt → exit (no lock, no repo prep, no agent, no SQLite writes)
+    │
+    ▼
+Disabled check: /data/LABRO_DISABLED lockfile present? → log skipped: harness disabled → exit
     │
     ▼
 Lock acquired (INSERT into project_locks)
@@ -364,7 +370,7 @@ PromptBuilder constructs prompt
     │
     ▼
 Agent.invoke(prompt, agent_config)
-  → subprocess: claude -p "..." --max-turns N
+  → subprocess: claude -p --max-turns N (prompt passed via stdin, not as CLI arg — avoids ARG_MAX limits)
   → stdout/stderr captured
     │
     ▼
@@ -455,7 +461,7 @@ exec crond -f -l 2
 
 * GitHub token scoped to minimum required permissions per project.
 * Secrets never written to config or run records. No output sanitisation pass: secrets (`GH_TOKEN`, `ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
-* Agent runs with file system access scoped to the cloned repo directory only.
+* Agent is invoked with its working directory set to `/repos/<project-name>`, which scopes its default context to the cloned repo. This is a convention, not enforced isolation — Claude Code CLI can navigate to other paths within the container (e.g. `/data/labro.db`, `/config/labro.toml`, other repos under `/repos/`). The Docker container boundary is the real filesystem sandbox. See Risks.
 * Permitted Action Set communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-permitted-action-enforcement.md).
 
 ### Observability & Logging
@@ -471,7 +477,9 @@ exec crond -f -l 2
 
 #### Phase 1 — Outcome signal collection
 
-Records `digest_start = now()`. Queries items eligible for signal collection:
+Records `digest_start = now()`. Once a row's `signals_collected_at` is set, it is permanently excluded from future Phase 1 runs — signals are collected once only, not re-collected if the digest later fails in Phase 2–4. This is intentional: signal data is retained in `items_touched` regardless of whether it reached Slack, and the next digest's Phase 2 window will cover the stats. No retry loop is needed in Phase 1.
+
+Queries items eligible for signal collection:
 
 ```sql
 SELECT it.*, r.project, r.task_source, r.started_at
@@ -485,7 +493,7 @@ For each row: reads current GitHub state via `gh api` (PR state, issue close rea
 
 #### Phase 2 — Run stats aggregation
 
-All queries use `started_at >= :digest_start - interval '24 hours'` as the window. Results are grouped by project for the message.
+`window_start` is determined from the last *successful* digest: `SELECT fired_at FROM digests WHERE outcome = 'success' ORDER BY fired_at DESC LIMIT 1`. If no prior successful digest exists, falls back to `digest_start - 24 hours`. This ensures runs from a day where the digest failed are not silently dropped — they appear in the next successful digest's window instead (which may cover more than 24 hours).
 
 ```sql
 -- Runs per project/source/outcome
@@ -543,7 +551,7 @@ Plain Slack mrkdwn (no Block Kit). Four sections separated by `---` dividers.
   (omit "Collected this digest" sub-section if nothing collected)
 
 ---
-*Awaiting your verdict* (last 7 days, no reaction yet)
+*Awaiting your verdict* (last 7 days, no reaction yet — items older than 7 days without a reaction are not surfaced; outcome signals continue to be collected passively)
   • <{url}|{project} #{number}> — "{summary}" ({task_source}, {date})
   ...
   (omit section if no items)
@@ -569,7 +577,7 @@ Only successful runs are listed — failed runs are surfaced in the Runs section
 
 Single HTTP POST to `SLACK_WEBHOOK_URL`. If the POST fails, the error is logged to stderr and the digest is marked failed in SQLite (a `digests` table: `digest_id`, `fired_at`, `outcome`, `error`). No retry — the next scheduled digest will cover the window. A failed digest does not prevent outcome signals already written in Phase 1 from being retained.
 
-The `digests` table also serves as the scheduling anchor: `labro digest --dry-run` prints the assembled message without posting.
+The `digests` table also serves as the scheduling anchor: `labro digest --dry-run` skips Phase 1 (no `signals_collected_at` writes) and Phase 4 (no Slack POST), assembling and printing the message from already-collected signals only. No `digests` row is written. Zero side effects.
 
 ```sql
 CREATE TABLE digests (
@@ -601,7 +609,7 @@ CREATE TABLE runs (
     project             TEXT    NOT NULL,
     task_source         TEXT,                           -- NULL when outcome = 'skipped' (no task found)
     task_description    TEXT,
-    item_url            TEXT,                           -- GitHub URL of the source item, if any
+    item_url            TEXT,                           -- GitHub URL of the *source* item selected by the picker (gh-delegated only); NULL for grafana-alerts and proactive-improvement — agent-created items are in items_touched, not here
     agent               TEXT,                           -- e.g. "claude-code"
     model               TEXT,
     started_at          TEXT    NOT NULL,               -- ISO 8601 UTC
@@ -617,7 +625,8 @@ CREATE TABLE runs (
     cache_write_tokens  INTEGER,
     summary             TEXT,                           -- agent self-reported summary
     actions_taken       TEXT,                           -- JSON array of strings
-    failure_reason      TEXT
+    failure_reason      TEXT    -- for skipped runs: harness-authored structured string (e.g. "skipped: run in progress", "skipped: source error — grafana-alerts") — safe to GROUP BY in digest;
+                                -- for failed runs: may include agent-authored prose — display only, not aggregated
 );
 
 CREATE INDEX idx_runs_project    ON runs (project);
@@ -661,7 +670,7 @@ CREATE INDEX idx_items_touched_repo_item ON items_touched (repo, item_type, item
 CREATE TABLE digests (
     digest_id    TEXT    PRIMARY KEY,   -- UUID v4
     fired_at     TEXT    NOT NULL,      -- ISO 8601 UTC
-    window_start TEXT    NOT NULL,      -- fired_at - 24h
+    window_start TEXT    NOT NULL,      -- fired_at of last successful digest (or fired_at - 24h if no prior success)
     outcome      TEXT    NOT NULL CHECK (outcome IN ('success', 'failure')),
     error        TEXT                   -- NULL on success
 );
@@ -691,7 +700,7 @@ Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery
 ### Error Handling
 
 * Agent subprocess timeout → logged as failure; `ai-failed` label applied.
-* Task source fetch failure → logged as warning; picker moves to next source.
+* Task source fetch failure (exception) → logged as warning with reason `skipped: source error — <source_name>`; picker moves to next source. Distinct from `skipped: no task found` so the digest surfaces broken sources as a separate count rather than silently counting them as quiet runs.
 * GitHub API errors during agent execution → logged; run aborted cleanly.
 * Label transition failure (post-run) → logged as `outcome=failure` with `failure_reason="label transition failed"`; `ai-failed` applied as best-effort fallback. If that also fails, the run record is written with the failure noted and the item is left in a dirty label state. No retry — the digest surfaces the failure and the operator resolves it manually.
 * SQLite write failure (logger) → failure logged to stderr; lock released unconditionally in a `finally` block. Run record may be lost. A frozen project is a worse outcome than a missing record.
@@ -703,6 +712,7 @@ Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery
 * Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` and `ANTHROPIC_API_KEY` are always required; `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
 * Required GitHub labels are checked at startup. If any are missing, the harness exits with: "Required label(s) missing in <repo> — run `labro init` to create them." `labro init` creates all required labels idempotently; `labro check` reports label status without writing.
 * Config is the only file an operator needs to edit to add a project.
+* Emergency pause: create `/data/LABRO_DISABLED` on the host to halt all runs immediately (checked before lock acquisition); remove it to resume. No container restart required.
 
 #### `labro.toml` schema (annotated reference)
 
@@ -755,7 +765,8 @@ Do not modify files under db/migrations/ directly.
 # ── grafana-alerts ─────────────────────────────────────────────────────────────
 [[projects.task_sources]]
 type         = "grafana-alerts"
-min_severity = "critical"          # "info" | "warning" | "critical" — lower bound filter
+min_severity = "critical"          # "info" | "warning" | "critical" — lower bound filter; alerts with no severity label are treated as "info"
+                                   # when multiple alerts are eligible: highest severity first, then oldest startsAt as tiebreaker
 model        = "claude-sonnet-4-6" # optional per-source model override
 # GRAFANA_TOKEN env var used for API auth
 
@@ -766,8 +777,14 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "create_issue"]
 # ── gh-delegated ───────────────────────────────────────────────────────────────
 [[projects.task_sources]]
 type = "gh-delegated"
-# Selection: when multiple items match across all rules, oldest by created_at is picked.
-# label_rules and actor_rules are evaluated together as a single candidate pool.
+# Rule resolution: label_rules and actor_rules are evaluated in config declaration order
+# (label_rules first if not interleaved). First matching rule for a given item determines
+# its done_label, permitted_actions, and source_label. An item matching multiple rules is
+# governed by the first match — later rules are not consulted for that item.
+# Selection: all matching items across all rules form a candidate pool; oldest by GitHub
+# item created_at is picked. Note: label application time would be more precise for
+# label_rules (picks by when the operator requested AI work, not when the issue was filed)
+# but requires extra API calls per candidate — deferred to a future version.
 
 # Label-based eligibility: each label entry may declare its own permitted_actions.
 # If absent, falls back to source-level then project-level permitted_actions.
@@ -861,6 +878,7 @@ _Testability and quality gates for the architecture._
 | Risk | Likelihood | Impact | Mitigation |
 | :--- | :--- | :--- | :--- |
 | Agent takes actions outside permission envelope | Low–Medium | High | Prompt-only enforcement (v1); audit logs enable detection; `gh` wrapper as hard stop in v1.1 if needed. Risk accepted based on observed Claude Code instruction-following. |
+| Agent accesses files outside the project repo | Low | Low–Medium | Working directory scoping is convention only; Docker is the real boundary. Agent could read `/data/labro.db` or other repos under `/repos/`. Accepted in v1 — single-operator personal tooling. Consider read-only bind mounts for `/config/` and `/data/` in v1.1 if this becomes a concern. |
 | Agent self-reporting is unreliable | High | Medium | Accept for v1; track as metric; consider downstream outcome checks in v1.1. |
 | SQLite file grows unboundedly | Low | Low | Add a periodic purge of run records older than N days before sustained operation. |
 | `gh` CLI auth token expires | Medium | High | Monitor token expiry; surface in daily digest. |
@@ -868,9 +886,7 @@ _Testability and quality gates for the architecture._
 
 ---
 
-## Design Notes (WIP / TODO)
-
-_Parking lot for decisions not yet formalised into the sections above._
+## Design Notes
 
 ### Prompt structure (`prompt_builder.py`)
 
@@ -878,7 +894,7 @@ Each prompt passed to the agent has four sections, in order:
 
 1. **Role + harness context** — a short paragraph explaining that the agent is operating autonomously on behalf of Labro, on a schedule, with no human present. It should act decisively within its permitted actions or explicitly report that it cannot complete the task — it must not ask clarifying questions or wait for input.
 
-2. **Task** — the task description from the task source. For `gh-delegated`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: the selected improvement target and any strategy parameters.
+2. **Task** — the task description from the task source. For `gh-delegated`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: depends on `selection_strategy` — `harness-random` passes a single pre-selected target; `agent-chooses` passes the full target list with an explicit instruction to pick exactly one and open at most one issue or PR.
 
 3. **Permitted actions** — an explicit enumeration of the *GitHub write operations* the agent may and may not perform in this run (derived from the effective permitted action set). Scoped narrowly to side-effectful GitHub actions only — read operations, web searches, MCP tool calls (e.g. context7, web fetch), and local file operations are always unrestricted. Example: "You may: post a comment on a GitHub issue or PR, open a pull request. You must not: merge a pull request, approve a pull request, push directly to the default branch."
 
@@ -888,7 +904,7 @@ Each prompt passed to the agent has four sections, in order:
 
 `claude -p` supports `--output-format json` combined with `--json-schema`, which causes the model to populate a `structured_output` field in the JSON response according to the provided schema. The top-level response also includes `total_cost_usd`, `num_turns`, `duration_ms`, `is_error`, and `usage` (token breakdown) — all directly usable for logging without parsing prose. **Verified against Claude Code CLI as of 2026-05-26.**
 
-Example invocation:
+Example invocation (prompt passed via stdin to avoid ARG_MAX limits):
 
 ```bash
 echo "<prompt>" | claude -p \
@@ -952,7 +968,7 @@ Example top-level response shape (abridged — verified output):
 }
 ```
 
-**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `duration_ms`, `usage`, and `structured_output` verbatim into the SQLite run record. Failure detection uses `is_error == true` OR `subtype != "success"`. The `modelUsage` object (keyed by model name) is available for per-model cost breakdown in the digest — store it as a JSON blob in the run record if multi-model reporting is needed later.
+**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `duration_ms`, `usage`, and `structured_output` verbatim into the SQLite run record. Failure detection uses `is_error == true` OR `subtype != "success"`. The `modelUsage` object is ignored — the flat token/cost columns in `runs` are sufficient for v1, where each run uses exactly one model.
 
 The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
