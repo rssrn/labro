@@ -344,6 +344,122 @@ Host machine (single server or dev machine)
 * Daily digest queries SQLite across all projects: runs fired, tasks per source, skips, token spend, failures.
 * Outcome signals (PR merged, issue closed, reactions) are collected by the daily digest job — not the run loop. The digest records its own start time (`digest_start`), then queries `items_touched JOIN runs WHERE runs.ended_at < :digest_start AND items_touched.signals_collected_at IS NULL`. Only runs that completed before the digest fired are eligible — any run still in progress at digest time is skipped and will be picked up on the next digest. This avoids lock-polling and keeps the digest stateless with respect to project run state. The `ai-contributed` label remains the query surface for ad-hoc GitHub lookups. See [ADR-002](adr/0002-github-as-state-store.md).
 
+### Digest spec
+
+`digest.py` runs once per day on a schedule independent of all project crons (configured in `[digest]` in `labro.toml`). It executes four phases in order: collect outcome signals → aggregate run stats → assemble Slack message → POST to `SLACK_WEBHOOK_URL`.
+
+#### Phase 1 — Outcome signal collection
+
+Records `digest_start = now()`. Queries items eligible for signal collection:
+
+```sql
+SELECT it.*, r.project, r.task_source, r.started_at
+FROM items_touched it
+JOIN runs r ON r.run_id = it.run_id
+WHERE r.ended_at < :digest_start
+  AND it.signals_collected_at IS NULL
+```
+
+For each row: reads current GitHub state via `gh api` (PR state, issue close reason, follow-up commits, 👍/👎 reactions on Labro comments). Writes `outcome_state`, `follow_up_commits`, `thumbs_up`, `thumbs_down`, `signals_collected_at = now()` back to `items_touched`. Failures here are logged and skipped — the row stays uncollected and will be retried next digest.
+
+#### Phase 2 — Run stats aggregation
+
+All queries use `started_at >= :digest_start - interval '24 hours'` as the window. Results are grouped by project for the message.
+
+```sql
+-- Runs per project/source/outcome
+SELECT project, task_source, outcome, COUNT(*) AS n
+FROM runs
+WHERE started_at >= :window_start
+GROUP BY project, task_source, outcome;
+
+-- Failure reasons (for failed + skipped rows)
+SELECT project, outcome, failure_reason, COUNT(*) AS n
+FROM runs
+WHERE started_at >= :window_start
+  AND outcome IN ('failure', 'skipped')
+GROUP BY project, outcome, failure_reason;
+
+-- Cost by project and model
+SELECT project, model,
+       SUM(total_cost_usd)                              AS cost_usd,
+       SUM(input_tokens + output_tokens)                AS total_tokens,
+       SUM(cache_read_tokens)                           AS cache_read_tokens
+FROM runs
+WHERE started_at >= :window_start
+GROUP BY project, model;
+```
+
+#### Phase 3 — Slack message structure
+
+Plain Slack mrkdwn (no Block Kit). Four sections separated by `---` dividers.
+
+```
+*Labro Digest — {date}*
+
+---
+*Runs (last 24h)*
+  • {project}: {n} run(s) — {n} success, {n} failure, {n} skipped
+    └ skipped: {reason} × {n}
+    └ failed: {reason} (run_id: {id})
+  ...
+  (omit project if 0 runs)
+
+---
+*Cost (last 24h)*
+  • {project}: ${cost} — {model} ({tokens} tokens, {cache}% cache)
+  Total: ${total}
+  (omit section if $0 spend)
+
+---
+*Outcome signals*
+  Collected this digest:
+  • {project} #{number} ({type}) — {outcome_state} [link]
+  ...
+  All-time: {merged} merged · {closed_not_planned} not planned · {closed_completed} completed · {open} open
+  PR merge rate: {merged}/{merged+closed_unmerged} · Human override rate: {pct}% had follow-up commits
+  Satisfaction: {thumbs_up}👍 {thumbs_down}👎 ({rated} rated) — ratio: {ratio}%
+  (omit "Collected this digest" sub-section if nothing collected)
+
+---
+*Awaiting your verdict* (last 7 days, no reaction yet)
+  • <{url}|{project} #{number}> — "{summary}" ({task_source}, {date})
+  ...
+  (omit section if no items)
+```
+
+The "Awaiting your verdict" query:
+
+```sql
+SELECT it.repo, it.item_type, it.item_number, it.item_url,
+       r.project, r.task_source, r.summary, r.started_at
+FROM items_touched it
+JOIN runs r ON r.run_id = it.run_id
+WHERE (it.thumbs_up IS NULL OR it.thumbs_up = 0)
+  AND (it.thumbs_down IS NULL OR it.thumbs_down = 0)
+  AND r.started_at >= :seven_days_ago
+  AND r.outcome = 'success'
+ORDER BY r.started_at DESC;
+```
+
+Only successful runs are listed — failed runs are surfaced in the Runs section instead.
+
+#### Phase 4 — Delivery
+
+Single HTTP POST to `SLACK_WEBHOOK_URL`. If the POST fails, the error is logged to stderr and the digest is marked failed in SQLite (a `digests` table: `digest_id`, `fired_at`, `outcome`, `error`). No retry — the next scheduled digest will cover the window. A failed digest does not prevent outcome signals already written in Phase 1 from being retained.
+
+The `digests` table also serves as the scheduling anchor: `labro digest --dry-run` prints the assembled message without posting.
+
+```sql
+CREATE TABLE digests (
+    digest_id   TEXT    PRIMARY KEY,    -- UUID v4
+    fired_at    TEXT    NOT NULL,       -- ISO 8601 UTC
+    window_start TEXT   NOT NULL,       -- fired_at - 24h
+    outcome     TEXT    NOT NULL CHECK (outcome IN ('success', 'failure')),
+    error       TEXT                    -- NULL on success
+);
+```
+
 ### Concurrency Control
 
 * Runs for different projects are fully independent and may execute concurrently — each cron invocation is a separate process with its own working directory under `/repos/`.
@@ -419,6 +535,15 @@ CREATE TABLE items_touched (
 
 CREATE INDEX idx_items_touched_run_id    ON items_touched (run_id);
 CREATE INDEX idx_items_touched_repo_item ON items_touched (repo, item_type, item_number);
+
+-- digests: one row per digest firing; used by the digest job as a scheduling anchor
+CREATE TABLE digests (
+    digest_id    TEXT    PRIMARY KEY,   -- UUID v4
+    fired_at     TEXT    NOT NULL,      -- ISO 8601 UTC
+    window_start TEXT    NOT NULL,      -- fired_at - 24h
+    outcome      TEXT    NOT NULL CHECK (outcome IN ('success', 'failure')),
+    error        TEXT                   -- NULL on success
+);
 ```
 
 **Schema decisions:**
@@ -706,10 +831,6 @@ _Unresolved gaps to address before implementation begins._
 **Data models**
 
 - **`Task` object** — `TaskSource.fetch_task()` returns `Task | None` but the `Task` dataclass is never defined. Minimum fields needed: `task_id`, `source`, `description`, `item_url` (nullable), `label_rule` / `actor_rule` reference (for post-run label transitions). Define before any task source module is written.
-
-**Digest spec**
-
-- `digest.py` is named but its output format, Slack message structure, SQL queries, and firing schedule are unspecified. Minimum needed: which fields are aggregated, what the Slack message looks like, and how outcome signals (from `items_touched`) are surfaced vs. run-time stats.
 
 **`entrypoint.sh` / crontab generation**
 
