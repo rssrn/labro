@@ -301,7 +301,7 @@ No source item exists at run start. The tracking issue is created (or not) by th
 | **Eligible** | No open issue with `ai-alert:<rule-uid>` | Source returns task |
 | **Skipped — already tracked** | Open issue exists with `ai-alert:<rule-uid>` | Source returns no task; logs `skipped: already tracking #N` |
 | **Issue created (success)** | Agent creates tracking issue | `post_run.py` applies `ai-alert:<rule-uid>` (using `task.grafana_rule_uid`) and `ai-contributed` to issue |
-| **Failure before issue created** | No tracking issue | No label transition; failure logged; alert retried on every subsequent run (accepted risk — surfaced via digest failure rate) |
+| **Failure before issue created** | No tracking issue | No label transition; failure logged; alert retried on every subsequent run (accepted risk — surfaced via digest failure rate). **Dedup gap:** if the agent creates the tracking issue but `structured_output` is malformed, incomplete, or the run aborts between issue creation and response delivery, `post_run.py` never applies `ai-alert:<rule-uid>` — the alert fires again next run and creates a second tracking issue. The dedup check is only as reliable as the label application path. Persistent alerts can silently accumulate duplicate tracking issues; operators should check for duplicate `ai-contributed` issues if an alert fires repeatedly. |
 | **Failure after issue created** | Tracking issue exists | `post_run.py` applies `ai-failed` to issue + `ai-contributed`; posts failure comment; future runs still skip (dedup on `ai-alert:<rule-uid>` ignores `ai-failed`) |
 | **Alert cleared (issue open)** | Alert no longer firing | `grafana-alerts` source posts "alert cleared" comment; leaves issue open for operator to close |
 
@@ -622,7 +622,7 @@ CREATE TABLE digests (
 * Runs for different projects are fully independent and may execute concurrently — each cron invocation is a separate process with its own working directory under `/repos/`.
 * Per-project locks prevent concurrent runs for the *same* project. Locks are held in a SQLite `project_locks` table (`project`, `locked_at`).
 * A run begins by attempting to INSERT a lock row; if one already exists, the run exits immediately and logs `skipped: run in progress`.
-* Stale locks (process crash, container kill) are detected by age: any lock older than the configured run timeout is treated as stale and overwritten on the next attempt.
+* Stale locks (process crash, container kill) are detected by age: a lock is treated as stale if its age exceeds `timeout_s + 60` seconds. The 60-second grace period closes the race window where a cron tick fires just as a previous run's subprocess has been killed but its `finally` block has not yet released the lock — without the grace period, the new run would see a lock older than `timeout_s`, overwrite it, and both runs would proceed simultaneously for the same project.
 * SQLite is opened in WAL mode to handle concurrent writers across projects safely.
 * `labro list-locks` shows all held locks with age; `labro unlock <project>` removes a lock manually.
 
@@ -870,7 +870,7 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 
 - `permitted_actions` — string allow-list validated against an enum. `permitted_actions = ["comment_on_issue", "open_pr"]`. Pydantic validates each entry against the `PermittedAction` enum; unknown strings are a hard config error.
 - `model` — passed through opaquely to the CLI; not validated at config load time. Avoids needing schema updates when new model names are released; the CLI surfaces an error if the value is unrecognised.
-- `timeout_s` — single value used both as the subprocess wall-clock timeout and as the stale-lock age threshold. No separate key.
+- `timeout_s` — subprocess wall-clock timeout in seconds. The stale-lock age threshold in `store.py` is `timeout_s + 60` (fixed 60-second grace period; not configurable). No separate config key — operators set `timeout_s`; the grace period is an implementation detail of `store.py`.
 - `daily_budget_usd` — optional float; omit or set `0.0` to disable. Checked after lock acquisition by querying `SUM(total_cost_usd)` from `runs` for the current UTC date. Skips with a structured reason string so it aggregates cleanly in the digest alongside other skip reasons.
 - `gh-delegated` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
 
@@ -912,7 +912,7 @@ Quality gates are enforced via pre-commit hooks (`.pre-commit-config.yaml`). Fas
 | `post_run.py` — label state machine | Unit | `gh` CLI calls mocked; assert exact label add/remove sequence per state machine path |
 | `store.py` / `logger.py` | Unit | SQLite in-memory (`:memory:`); no mocking needed — real schema exercised |
 | `digest.py` — stats aggregation + message assembly | Unit | SQLite in-memory; HTTP POST mocked; assert message structure and `digests` table state |
-| `runner.py` / `agents/claude_code.py` | Integration | Subprocess invoked against `claude --help` or a no-op fixture; JSON response shape validated |
+| `runner.py` / `agents/claude_code.py` | Integration | Subprocess invoked against `claude --help` or a no-op fixture; JSON response shape validated — must assert on top-level fields (`is_error`, `num_turns`, `total_cost_usd`) **and** on `structured_output` shape specifically (required fields present, `outcome` within enum, `items_created` is an array of `{item_type, number}`) |
 | Live GitHub + live agent | Explicit out of scope | `labro run --dry-run` is the manual integration test; no automated test hits real GitHub or spends tokens |
 
 #### Coverage policy
@@ -960,6 +960,8 @@ _Testability and quality gates for the architecture._
 | `store.py` lock contention | Project already locked (non-stale) | `INSERT` fails; returns `False`; no second lock row created. |
 | `store.py` stale lock | Lock age > `timeout_s` | Existing row overwritten; new lock acquired; run proceeds. |
 | `gh` call uses `shell=False` | Any subprocess invocation | All `subprocess` calls use list-form args; no `shell=True` anywhere in codebase (enforced by bandit B602). |
+| `runner.py` receives malformed `structured_output` | CLI response missing required fields or invalid `outcome` enum value | `runner.py` fails loudly with a descriptive error (logged as `failure`); run record written with `failure_reason`; does not silently produce a garbage record or treat as success. |
+| `store.py` stale-lock detection | Lock age is between `timeout_s` and `timeout_s + 60` (within grace period) | Lock is treated as **not** stale; new run exits with `skipped: run in progress`; only one run proceeds. |
 
 ---
 
@@ -973,6 +975,10 @@ _Testability and quality gates for the architecture._
 | SQLite file grows unboundedly | Low | Low | Add a periodic purge of run records older than N days before sustained operation. |
 | `gh` CLI auth token expires | Medium | High | Monitor token expiry; surface in daily digest. |
 | Runaway agent session costs | Medium | Medium | `--max-turns` for Claude Code CLI; configurable timeout for all agents. |
+| GitHub API rate limits exhausted | Low–Medium | Medium | Authenticated limit is 5 000 req/hour. At 10 projects × hourly runs × ~8 calls/run = 1 920 calls/day — well under the ceiling for normal operation. Risk increases if `grafana-alerts` checks for an open tracking issue every run during a persistent alert storm, or if `items_touched` rows accumulate with pagination across many AI-labelled issues. Mitigation: surface remaining rate-limit headroom in the daily digest (one `gh api rate_limit` call at digest time); add pagination awareness in `grafana_alerts.py` before sustained multi-project operation. |
+| `claude` CLI update silently changes response shape | Medium | High | `structured_output` format is a single point of failure for the result pipeline. Mitigation: pin the `claude` CLI version in the Dockerfile; `runner.py` must schema-validate `structured_output` before use and fail loudly if the shape is unexpected. See Design Notes. |
+| `grafana-alerts` dedup gap creates duplicate tracking issues | Low–Medium | Low–Medium | If the agent creates a tracking issue but `structured_output` is malformed or the run aborts before delivery, `post_run.py` never applies `ai-alert:<rule-uid>` — the alert fires again next run and creates a second issue. Accepted risk for v1; digest failure rate surfaces repeated failures. Operators should check for duplicate `ai-contributed` issues if a persistent alert recurs unexpectedly. |
+| `agent-chooses` runs have higher cost than `harness-random` | Medium | Low–Medium | The `agent-chooses` strategy passes the full target list and lets the agent pick scope; broad targets (e.g. `architecture-review`, `competitor-analysis`) routinely consume more turns and tokens than narrowly-scoped `harness-random` or `gh-delegated` runs. The global `max_turns` and `timeout_s` apply equally to all strategies — there is no per-strategy cap. Mitigation: `daily_budget_usd` limits exposure per project per day; digest cost reporting surfaces unexpectedly expensive proactive runs. Per-strategy turn/cost overrides are a v1.1 candidate if the global cap proves too coarse. |
 
 ---
 
@@ -1059,6 +1065,12 @@ Example top-level response shape (abridged — verified output):
 ```
 
 **Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `duration_ms`, `usage`, and `structured_output` verbatim into the SQLite run record. Failure detection uses `is_error == true` OR `subtype != "success"`. The `modelUsage` object is ignored — the flat token/cost columns in `runs` are sufficient for v1, where each run uses exactly one model.
+
+**Version pinning and schema validation requirements:** The entire result pipeline depends on `claude -p --output-format json --json-schema` producing the shape above. Three safeguards are required:
+
+1. **Pin the `claude` CLI version in the Dockerfile.** An unpinned `claude` upgrade could silently change the response shape and break every run. Pin to a specific released version; update deliberately.
+2. **Schema-validate `structured_output` in `runner.py` before use.** After JSON-parsing the CLI response, `runner.py` must validate that `structured_output` contains the expected fields (`outcome`, `summary`, `actions_taken`, `items_created`) and that `outcome` is one of the declared enum values. A missing or malformed `structured_output` must fail loudly with a clear error — not silently produce a garbage run record or swallow the run as a success.
+3. **Integration test must cover `structured_output` specifically.** The `runner.py` integration test (see §8 Testing) must assert on the shape of `structured_output` in the parsed response, not just top-level fields.
 
 The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
