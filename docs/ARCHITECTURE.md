@@ -282,7 +282,9 @@ Task selected (or no task → run ends, logged as "skipped")
 repo.py prepares working copy
   ├── repo absent → git clone; read default branch via `gh repo view`
   └── repo present → checkout default branch + git pull
-      └── dirty? → log warning (surfaced in digest) + git reset --hard + git clean -fd
+      └── dirty? → capture `git status --short` output
+                 → log warning with file list (surfaced in digest)
+                 → git reset --hard + git clean -fd → continue
     │
     ▼
 PromptBuilder constructs prompt
@@ -553,6 +555,19 @@ CREATE TABLE digests (
 - `outcome_state` values correspond to: GitHub PR merged (`merged`), PR closed without merge (`closed_unmerged`), issue closed as completed (`closed_completed`), issue closed as not planned (`closed_not_planned`), still open (`open`). `closed_completed` and `closed_not_planned` map to GitHub's `state_reason` field on the issue close event.
 - No `ON DELETE CASCADE` — run records are append-only. `items_touched` rows reference their parent `run_id` for auditability; orphaned rows are not a concern at the current scale.
 - Periodic purge of runs older than N days (see Risks) will require a corresponding delete from `items_touched`.
+
+### Dirty-repo recovery
+
+A dirty working copy on run entry means the previous run left uncommitted changes. This happens via two paths:
+
+| Cause | Lock state on next run | How recovery reaches repo.py |
+| :--- | :--- | :--- |
+| **Agent hit `--max-turns` mid-edit** (most common) | Lock released normally by `finally` block | No stale lock; run proceeds directly to `repo.py` |
+| **Container killed / process crash** | Lock is stale (age > `timeout_s`) | Stale lock overwritten first; run then proceeds to `repo.py` |
+
+In both cases `repo.py` detects the dirty state via `git status --porcelain`, captures the file list, logs a warning (included in the run record and surfaced in the digest), then executes `git reset --hard && git clean -fd` before proceeding. The uncommitted changes are discarded — there is no attempt to salvage them, since the previous run was already recorded as a failure and the agent will re-attempt the work on the current task.
+
+Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery mechanism for either cause. The primary mechanisms are: `--max-turns` terminating the agent cleanly (turn limit) and stale-lock detection (container kill). The dirty-repo check is the final safety net that ensures every run starts from a known-clean state.
 
 ### Error Handling
 
@@ -835,10 +850,6 @@ _Unresolved gaps to address before implementation begins._
 **`entrypoint.sh` / crontab generation**
 
 - The entrypoint reads `labro.toml` and writes `/etc/cron.d/labro`, but the generated format is unspecified. Open questions: does each project get one cron entry or two (run + digest)? What `PATH` and env vars does the generated crontab export? What user does the cron job run as inside the container?
-
-**Dirty-repo recovery**
-
-- The runtime view specifies `git reset --hard + git clean -fd` on a dirty working copy, but does not explain _why_ the repo would be dirty (agent crash mid-run while the lock was still held?). If the lock is held at crash time, the next run should hit the stale-lock path and log a warning — clarify whether dirty-repo recovery is a belt-and-suspenders guard or the primary recovery path, and document the expected sequence.
 
 **Secret sanitisation**
 
