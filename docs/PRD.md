@@ -52,8 +52,8 @@ Several tools exist in this space. None were disqualifying — the rationale for
 ## Goals & Success Metrics
 
 ### Business Goals
-* **Steady-state usefulness:** Labro runs daily on at least one real project, completing tasks without requiring operator intervention most of the time.
-* **Trust-building signal:** Observability data is sufficient to make an informed decision about whether and when to expand agent permissions — the logs should answer "is this working?" without manual inspection of agent output.
+* **Framework adds value:** Labro runs daily on at least one real project and produces work the operator judges worth keeping. Success is measured by accepted output — not by whether the operator ever expands agent permissions. A human-in-the-loop deployment where every action is reviewed before merge is a fully successful outcome.
+* **Answers "is this working?" without manual inspection:** Observability data is sufficient to judge whether Labro is adding value from the digest and logs alone, without reading raw agent output. (Whether this confidence later leads an operator to expand permissions is optional and operator-driven, not a goal of the system.)
 * **Zero-config project addition:** Onboarding a new project requires only a config change; no code changes to the harness.
 * **Cost awareness:** Token and time costs per task are captured and queryable, so the operator can make informed decisions about run frequency, task scope, and agent model selection.
 
@@ -66,14 +66,28 @@ Several tools exist in this space. None were disqualifying — the rationale for
 
 ### Key Performance Indicators (KPIs)
 
-| Metric | Current State | Target (after 4 weeks of operation) |
-| :--- | :--- | :--- |
-| Tasks completed per week | 0 (not yet running) | TBD — baseline first |
-| Agent success rate (self-reported) | — | TBD |
-| Token cost per task | — | TBD |
-| Human override rate (tasks needing correction) | — | TBD — track to reduce; captured via follow-up commits before merge (REQ-22) |
+The **baseline window** is the first 4 weeks of continuous operation on at least one real project. Three headline metrics define "is the framework adding value?" — each targets **75%** over the baseline window. They are deliberately independent: the objective metric measures whether work lands, the sentiment metric measures whether the operator likes it, and the self-report metric measures whether our prompts are sound.
 
-> _KPI targets intentionally left open until baseline data is collected._
+| Metric | Source | Current State | Target (baseline window) |
+| :--- | :--- | :--- | :--- |
+| **PR merge rate** (objective acceptance) — AI-opened PRs merged ÷ AI-opened PRs closed | native GitHub state (REQ-22) | 0 (not yet running) | ≥ 75% merged |
+| **Satisfaction ratio** (explicit sentiment) — 👍 ÷ (👍 + 👎) on Labro comments | GitHub reactions (REQ-23) | — | ≥ 75% positive |
+| **Agent self-reported success rate** (prompt quality) — runs the agent reports as success ÷ all runs | agent output (REQ-15) | — | ≥ 75% success |
+
+Self-reported success is *not* a measure of real usefulness (it is a leading, subjective hint per the [success signal model](#epic-c-observability--logging)); it is tracked here specifically as a signal of whether the harness's prompts and task scoping are working — including whether operators are labelling up tasks of appropriate complexity for the agent (over-scoped tasks the agent cannot complete will depress this rate). A low self-report rate points at the harness or at task selection; a high self-report rate paired with a low merge rate points at agent quality.
+
+**Supporting metrics (tracked for diagnosis and cost control, no fixed target in v1):**
+
+| Metric | Source |
+| :--- | :--- |
+| Tasks completed per week (throughput) | run logs (REQ-14) |
+| Tasks selected vs. skipped, per source (which sources actually fire) | run logs (REQ-21) |
+| Human override rate — follow-up commits on AI PRs before merge | native GitHub state (REQ-22) |
+| Issue close reason: `completed` vs. `not planned` (useful vs. noise) | native GitHub state (REQ-22) |
+| Failure rate — `ai-labro-failed` labels applied | run logs (REQ-20) |
+| Token cost per task and per accepted outcome, by agent/model | run logs (REQ-17) |
+
+> _The three 75% headline targets are initial judgement calls, not baselined figures; revisit after the first baseline window with real data._
 
 ---
 
@@ -172,7 +186,7 @@ Labro distinguishes three signals; only the first is available at run time, so t
 | Agent self-report | leading, subjective | agent output (REQ-15) | none | "the agent believed it succeeded" — a hint, not ground truth |
 | PR merged / issue closed | lagging, objective | native GitHub state (REQ-22) | zero (normal review) | the work survived contact with the operator |
 | Issue closed `not planned` | lagging, objective | native GitHub state (REQ-22) | one click | the task was noise |
-| Follow-up commits before merge | lagging, objective | native GitHub state (REQ-22) | zero | needed correction → feeds **human override rate** KPI |
+| Follow-up commits before merge | lagging, objective | native GitHub state (REQ-22) | zero | needed correction → feeds the **human override rate** supporting metric |
 | 👍 / 👎 reaction | lagging, subjective | GitHub reactions API (REQ-23) | one click | explicit operator sentiment |
 
 Labels remain reserved for Labro's own lifecycle state (REQ-20); human sentiment is captured via reactions and close-reason, not labels, to keep the two families from colliding in the UI.
@@ -228,4 +242,15 @@ Labro is a headless, operator-facing tool. There is no end-user UI.
 
 * [x] **Resolved:** How should real task success be measured beyond agent self-reporting? **Decision:** v1 uses a passive-first signal model (see [Success signal model](#epic-c-observability--logging), REQ-22/REQ-23). Ground truth comes from native GitHub state Labro reads on subsequent runs — PR merged, issue close reason, and follow-up commits before merge — which require no operator bookkeeping. Explicit satisfaction is captured via 👍/👎 reactions, prompted inside the daily digest rather than a separate reminder. Agent self-report is retained as a leading hint only. Open follow-on: tune how many runs/hours to wait before treating a "no outcome yet" item as inconclusive.
 * [ ] **Risk:** Agent may take actions outside the configured permission set. v1 enforces permissions at invocation time only — track violations in observability logs and consider runtime enforcement in v1.1.
+* [ ] **Open — cold-start experience:** What do the first few runs on a brand-new project look like before any labels, issues, or signals exist? `proactive-improvement` fires with zero setup, so a fresh project may immediately start generating suggestions/PRs as its first impression. Consider an observe-only or dry-run first-run mode so operators can tune before Labro acts.
+* [ ] **Open — proactive-improvement noise control:** The only throttle is the open-issue cap on `ai-proactive-suggestion` (REQ-07). Unresolved: (1) the cap counts issues, not PRs, so `open-pr` proactive output is uncapped; (2) is the cap per-target or across all targets? (3) do stale proactive issues age out, or accumulate against the cap indefinitely?
+* [ ] **Open — digest vs. ambient notification overlap:** The "awaiting your verdict" digest section (REQ-23) points back to the same items the operator already received GitHub notifications for. For a solo operator this risks feeling redundant. Validate the digest adds signal rather than duplicating ambient notifications.
+* [ ] **Open — maximum-autonomy composition:** `surprise-me` + `agent-chooses` + `open-pr` composes to "agent picks its own unconstrained focus and raises a PR," which sits in tension with Design Principle #5 (suggest over act). Decide whether `surprise-me` is PR-capable in v1 or suggestion-only.
+* [ ] **Open — failure handling is single-shot:** On failure the harness applies `ai-labro-failed` + comment and stops (REQ-20). Undefined: does the next run retry, skip permanently, or wait for the operator to clear the label? Specifically, how do REQ-05a (alert dedup) and REQ-20 interact when an alert-triage task fails — could a still-firing production alert go silent after one failed attempt?
+* [ ] **Open — overlapping runs:** If an agent run exceeds its project's cron interval (hourly default), what is the intended behaviour — skip, queue, or run in parallel? Affects cost and duplicate-action risk.
+* [ ] **Open — `email` output mode under-specified:** REQ-08 lists `email` as a proactive-improvement output mode but never defines it — who configures the recipient, what the message contains, and how it relates to the daily digest's email (REQ-21). Specify or drop for v1.
+* [ ] **Open — tasks per run (one vs. many):** REQ-06 says a source "returns all matching items ranked," but REQ-02 says the picker outputs "a single task." Confirm whether a run handles one item or many — one-item-per-run means a 5-PR Dependabot backlog takes 5 cron cycles to clear.
+* [ ] **Open — kill switch:** There is no documented global or per-project pause/disable for when the operator is away or something misbehaves. For an unsupervised system acting on real repos, a v1 "stop" mechanism is a reasonable expectation.
+* [ ] **Open — strategy-work cadence:** `competitor-analysis` and `surprise-me` are product-strategy work, not project hygiene, yet sit in the same priority stack as maintenance tasks. Confirm they belong there rather than on a separate, less frequent cadence.
+* [ ] **Open — absent reactions:** Confirm that the *absence* of a 👍/👎 reaction (REQ-23) is treated as explicitly neutral and does not skew the satisfaction ratio — likely the common case, since most operators won't react most of the time.
 
