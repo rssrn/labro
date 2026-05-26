@@ -335,7 +335,7 @@ Host machine (single server or dev machine)
 ### Security
 
 * GitHub token scoped to minimum required permissions per project.
-* Secrets never written to logs; agent output sanitised before persistence.
+* Secrets never written to config or run records. No output sanitisation pass: secrets (`GH_TOKEN`, `ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
 * Agent runs with file system access scoped to the cloned repo directory only.
 * Permitted Action Set communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-permitted-action-enforcement.md).
 
@@ -851,7 +851,4 @@ _Unresolved gaps to address before implementation begins._
 
 - The entrypoint reads `labro.toml` and writes `/etc/cron.d/labro`, but the generated format is unspecified. Open questions: does each project get one cron entry or two (run + digest)? What `PATH` and env vars does the generated crontab export? What user does the cron job run as inside the container?
 
-**Secret sanitisation**
-
-- Section 8 states "agent output sanitised before persistence" but does not specify how. Options: regex against known token patterns, a deny-list of env var names, or stripping lines that match `GH_TOKEN`/`ANTHROPIC_API_KEY` patterns. Needs a concrete spec before `logger.py` is written.
 
