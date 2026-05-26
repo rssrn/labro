@@ -25,7 +25,11 @@
 
 ## 1. Introduction & Goals
 
-_Brief restatement of what Labro is and the top 3–5 quality goals this architecture must satisfy. Reference the PRD rather than duplicating it._
+Labro is a self-hosted agent harness that runs AI coding agents on a schedule to perform autonomous maintenance work on software projects — triaging issues, reviewing PRs, investigating alerts, and proposing improvements. See the [PRD](PRD.md) for full product context and requirements.
+
+The harness is deliberately not smart: it selects a task, constructs a scoped prompt, invokes an agent subprocess, records the result, and transitions GitHub labels. All reasoning is delegated to the agent. This separation keeps the harness deterministic, auditable, and independently testable.
+
+This document describes the architecture that satisfies the quality goals below and the constraints in Section 2. Significant design decisions are captured as ADRs in `docs/adr/`.
 
 ### Quality Goals
 
@@ -54,7 +58,7 @@ _Hard constraints the architecture must respect — technical, organisational, o
 | :--- | :--- |
 | Python 3.12+ | Operator preference; strong ecosystem for CLI tooling and subprocess management. |
 | Docker runtime | Sandboxing; reproducible environment; `gh` CLI and agent CLIs pre-installed. |
-| No external database (v1) | Operational simplicity; structured JSON log files are the initial persistence layer. |
+| No external database service | Operational simplicity; SQLite is the persistence layer — a single bind-mounted file, no server process required. |
 | `gh` CLI for GitHub actions | Consistent auth model (`GH_TOKEN`); avoids a separate GitHub SDK dependency. |
 | Claude Code CLI and Aider as v1 agents | Both are CLI-invocable; harness treats them as black boxes invoked via subprocess. |
 
@@ -114,23 +118,23 @@ _Top-level deployable units. (C4 Level 2)_
 │                                                              │
 │  ┌──────────────┐   ┌──────────────┐   ┌─────────────────┐  │
 │  │   Scheduler  │   │    Harness   │   │   Agent CLIs    │  │
-│  │  (cron/APSch │──▶│  (Python)    │──▶│  claude / aider │  │
-│  │   eduler)    │   │              │   │  (subprocesses) │  │
+│  │  (system     │──▶│  (Python)    │──▶│  claude / aider │  │
+│  │   cron)      │   │              │   │  (subprocesses) │  │
 │  └──────────────┘   └──────┬───────┘   └─────────────────┘  │
 │                            │                                 │
 │                    ┌───────▼───────┐                         │
-│                    │  Log Store    │                         │
-│                    │  (JSON files) │                         │
+│                    │     Store     │                         │
+│                    │   (SQLite)    │                         │
 │                    └───────────────┘                         │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 | Container | Technology | Responsibility |
 | :--- | :--- | :--- |
-| Scheduler | APScheduler or system cron | Fires harness runs per project on configured cron schedules; fires daily digest. |
+| Scheduler | System cron (inside container) | Fires harness runs per project on configured cron schedules; fires daily digest. Crontab is generated from `labro.toml` by the Docker entrypoint at container start — operator edits config only. |
 | Harness | Python 3.12 | Task selection, prompt construction, agent invocation, label transitions, logging. |
 | Agent CLIs | Claude Code CLI, Aider | Execute the task; interact with GitHub via `gh`; make code changes. |
-| Log Store | JSON files on disk | Persist structured run logs; queried by digest and review CLI. |
+| Store | SQLite (single bind-mounted file) | Persist structured run records; queried by digest and review CLI. |
 
 ---
 
@@ -147,6 +151,7 @@ Harness
 │   ├── gh_delegated.py
 │   └── proactive_improvement.py
 ├── picker.py         Priority-stack evaluator → selects one task
+├── repo.py           Repo preparation: clone or pull to default branch
 ├── prompt_builder.py Constructs agent prompt from task + permissions
 ├── agents/           Agent abstraction layer
 │   ├── base.py       Abstract agent interface
@@ -154,9 +159,20 @@ Harness
 │   └── aider.py
 ├── runner.py         Invokes agent subprocess; captures output
 ├── post_run.py       Label transitions; failure comments
-├── logger.py         Structured JSON run logging
-└── digest.py         Daily digest generation and delivery
+├── store.py          SQLite access layer (run records, locks, outcome signals)
+├── logger.py         Writes run record to SQLite via store.py
+├── digest.py         Daily digest generation and delivery
+└── cli.py            Operator CLI entry point (labro subcommands)
 ```
+
+### CLI subcommands
+
+| Subcommand | Description |
+| :--- | :--- |
+| `labro run <project>` | Trigger a single run for a project immediately (bypasses scheduler). |
+| `labro list-locks` | Show all currently held project locks with `project`, `locked_at`, and age. |
+| `labro unlock <project>` | Manually release a stale lock for a project. |
+| `labro review` | Tail and summarise recent run records from SQLite (REQ-16). |
 
 ### Key Interfaces
 
@@ -188,12 +204,22 @@ Scheduler triggers run(project)
 Config loaded → project config resolved
     │
     ▼
+Lock acquired (INSERT into project_locks)
+  └── already locked? → log skipped: run in progress → exit
+    │
+    ▼
 Picker iterates priority stack
     ├── TaskSource.is_available()?  No → next source
     └── TaskSource.fetch_task()?   None → next source
     │
     ▼
 Task selected (or no task → run ends, logged as "skipped")
+    │
+    ▼
+repo.py prepares working copy
+  ├── repo absent → git clone; read default branch via `gh repo view`
+  └── repo present → checkout default branch + git pull
+      └── dirty? → log warning (surfaced in digest) + git reset --hard + git clean -fd
     │
     ▼
 PromptBuilder constructs prompt
@@ -210,7 +236,7 @@ post_run.py
   └── failure → apply ai-failed, post failure comment, apply ai-contributed
     │
     ▼
-logger.py → write structured JSON run log
+logger.py → write run record to SQLite (via store.py) → release lock (DELETE from project_locks)
 ```
 
 ---
@@ -223,16 +249,18 @@ _How Labro is deployed and operated._
 Host machine (single server or dev machine)
 └── Docker container
     ├── /app/              Labro source code
+    │   └── entrypoint.sh  Generates crontab from labro.toml; starts crond
     ├── /config/           labro.toml (bind-mounted from host)
-    ├── /logs/             Run logs (bind-mounted from host)
-    ├── /repos/            Cloned project repos (ephemeral or cached)
+    ├── /data/             labro.db — SQLite store (bind-mounted from host)
+    ├── /repos/            Cloned project repos (bind-mounted from host)
     └── env: GH_TOKEN, ANTHROPIC_API_KEY, GRAFANA_TOKEN, ...
 ```
 
 * Container is built from a `Dockerfile` in the repo root.
-* Config and logs live on the host via bind mounts (survives container restarts).
+* `entrypoint.sh` reads `labro.toml` at container start, writes `/etc/cron.d/labro`, then starts `crond`. Adding a project requires only a config change and a container restart.
+* Config, data, and repos live on the host via bind mounts (survives container restarts).
 * Secrets are injected as environment variables (not baked into the image).
-* Cron runs inside the container; no host-level cron required.
+* `labro run <project>` invokes a single run on demand without the scheduler — useful during development and debugging.
 
 ---
 
@@ -243,14 +271,21 @@ Host machine (single server or dev machine)
 * GitHub token scoped to minimum required permissions per project.
 * Secrets never written to logs; agent output sanitised before persistence.
 * Agent runs with file system access scoped to the cloned repo directory only.
-* Permission envelope enforced at prompt-construction time (v1); runtime enforcement is a v1.1 goal.
+* Permitted Action Set communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-permitted-action-enforcement.md).
 
 ### Observability & Logging
 
-* Every run produces a structured JSON log entry regardless of outcome.
-* Log fields: `run_id`, `project`, `task_source`, `task_description`, `agent`, `model`, `started_at`, `ended_at`, `duration_s`, `token_usage`, `turns_used`, `outcome` (`success` | `failure` | `skipped`), `actions_taken`, `failure_reason`.
-* Daily digest aggregates across all projects: runs fired, tasks per source, skips, token spend, failures.
-* Outcome signals (PR merged, issue closed, reactions) are read from GitHub state via the `ai-contributed` marker label — no sidecar index required. See [ADR-002](adr/0002-github-as-state-store.md).
+* Every run produces a structured record written to SQLite regardless of outcome.
+* Run record fields: `run_id`, `project`, `task_source`, `task_description`, `agent`, `model`, `started_at`, `ended_at`, `duration_s`, `token_usage`, `turns_used`, `outcome` (`success` | `failure` | `skipped`), `actions_taken`, `failure_reason`.
+* Daily digest queries SQLite across all projects: runs fired, tasks per source, skips, token spend, failures.
+* Outcome signals (PR merged, issue closed, reactions) are collected by the daily digest job — not the run loop. The digest queries the `items_touched` SQLite table, reads current GitHub state, and writes signals back against the originating `run_id`. The `ai-contributed` label remains the query surface for ad-hoc GitHub lookups. See [ADR-002](adr/0002-github-as-state-store.md).
+
+### Concurrency Control
+
+* Per-project locks are held in a SQLite `project_locks` table (`project`, `locked_at`).
+* A run begins by attempting to INSERT a lock row; if one already exists, the run exits immediately and logs `skipped: run in progress`.
+* Stale locks (process crash, container kill) are detected by age: any lock older than the configured run timeout is treated as stale and overwritten on the next attempt.
+* `labro list-locks` shows all held locks with age; `labro unlock <project>` removes a lock manually.
 
 ### Error Handling
 
@@ -274,6 +309,8 @@ _Record significant decisions here, or link to individual ADR files in `docs/adr
 | :--- | :--- | :--- | :--- |
 | [ADR-001](adr/0001-toml-config-format.md) | Use TOML for configuration file format (`labro.toml`) | Accepted | 2026-05-26 |
 | [ADR-002](adr/0002-github-as-state-store.md) | Use GitHub labels as the state store for outcome tracking; universal `ai-contributed` marker label | Accepted | 2026-05-26 |
+| [ADR-003](adr/0003-prompt-only-permitted-action-enforcement.md) | Prompt-only enforcement for permitted action set in v1; no `gh` wrapper script | Accepted | 2026-05-26 |
+| [ADR-004](adr/0004-sqlite-persistence.md) | Use SQLite as the persistence layer; no external database service | Accepted | 2026-05-26 |
 
 > _Use `docs/adr/NNN-title.md` for decisions that need more context than a table row._
 
@@ -297,9 +334,9 @@ _Testability and quality gates for the architecture._
 
 | Risk | Likelihood | Impact | Mitigation |
 | :--- | :--- | :--- | :--- |
-| Agent takes actions outside permission envelope | Medium | High | Enforce at prompt level (v1); audit logs enable detection; runtime enforcement in v1.1. |
+| Agent takes actions outside permission envelope | Low–Medium | High | Prompt-only enforcement (v1); audit logs enable detection; `gh` wrapper as hard stop in v1.1 if needed. Risk accepted based on observed Claude Code instruction-following. |
 | Agent self-reporting is unreliable | High | Medium | Accept for v1; track as metric; consider downstream outcome checks in v1.1. |
-| Log files grow unboundedly | Low | Low | Add log rotation (size/age) before sustained daily operation. |
+| SQLite file grows unboundedly | Low | Low | Add a periodic purge of run records older than N days before sustained operation. |
 | `gh` CLI auth token expires | Medium | High | Monitor token expiry; surface in daily digest. |
 | Runaway agent session costs | Medium | Medium | `--max-turns` for Claude Code CLI; configurable timeout for all agents. |
 
@@ -321,12 +358,23 @@ echo "<prompt>" | claude -p \
   --json-schema '{
     "type": "object",
     "properties": {
-      "outcome":         { "type": "string", "enum": ["success", "failure", "partial"] },
-      "summary":         { "type": "string" },
-      "actions_taken":   { "type": "array", "items": { "type": "string" } },
-      "failure_reason":  { "type": "string" }
+      "outcome":        { "type": "string", "enum": ["success", "failure", "partial"] },
+      "summary":        { "type": "string" },
+      "actions_taken":  { "type": "array", "items": { "type": "string" } },
+      "items_created":  {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_type": { "type": "string", "enum": ["issue", "pr"] },
+            "number":    { "type": "integer" }
+          },
+          "required": ["item_type", "number"]
+        }
+      },
+      "failure_reason": { "type": "string" }
     },
-    "required": ["outcome", "summary", "actions_taken"]
+    "required": ["outcome", "summary", "actions_taken", "items_created"]
   }'
 ```
 
@@ -347,11 +395,16 @@ Example top-level response shape (abridged):
   },
   "structured_output": {
     "outcome": "success",
-    "summary": "Reviewed PR #42 and left a comment requesting a change.",
-    "actions_taken": ["gh pr review 42 --comment"],
+    "summary": "Opened a PR fixing the null pointer in the auth handler.",
+    "actions_taken": ["git commit -m 'fix null pointer in auth handler'", "gh pr create"],
+    "items_created": [{"item_type": "pr", "number": 43}],
     "failure_reason": null
   }
 }
 ```
 
-**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `usage`, and `structured_output` verbatim into the run log. The `structured_output` schema effectively defines the contract between the harness and the agent for self-reporting. This significantly simplifies the "agent self-reporting is unreliable" risk — the schema enforces the shape of the report even if the content is still agent-generated.
+**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `usage`, and `structured_output` verbatim into the SQLite run record.
+
+The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
+
+`actions_taken` remains a human-readable string array — used for the digest summary and the run record, not for outcome matching.
