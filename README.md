@@ -16,3 +16,6 @@ Labro is currently in the design phase. The following documents define the produ
 
 - **[Product Requirements Document](docs/PRD.md)** — problem statement, design principles, functional requirements, and success metrics.
 - **[Architecture](docs/ARCHITECTURE.md)** — system context, component design, runtime flow, and architectural decisions.
+- **[Domain Glossary](CONTEXT.md)** — canonical definitions for terms used across all Labro documents and code.
+
+### [Architectural Decision Records](docs/adr/)
