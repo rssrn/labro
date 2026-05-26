@@ -627,7 +627,7 @@ Each prompt passed to the agent has four sections, in order:
 
 ### `claude -p` structured output for agent result parsing
 
-`claude -p` supports `--output-format json` combined with `--json-schema`, which causes the model to populate a `structured_output` field in the JSON response according to the provided schema. The top-level response also includes `total_cost_usd`, `num_turns`, `duration_ms`, and `usage` (token breakdown) — all directly usable for logging without parsing prose.
+`claude -p` supports `--output-format json` combined with `--json-schema`, which causes the model to populate a `structured_output` field in the JSON response according to the provided schema. The top-level response also includes `total_cost_usd`, `num_turns`, `duration_ms`, `is_error`, and `usage` (token breakdown) — all directly usable for logging without parsing prose. **Verified against Claude Code CLI as of 2026-05-26.**
 
 Example invocation:
 
@@ -657,20 +657,31 @@ echo "<prompt>" | claude -p \
   }'
 ```
 
-Example top-level response shape (abridged):
+Example top-level response shape (abridged — verified output):
 
 ```json
 {
   "type": "result",
   "subtype": "success",
+  "is_error": false,
   "num_turns": 2,
   "total_cost_usd": 0.01439205,
   "duration_ms": 5250,
+  "result": "<prose response text>",
   "usage": {
     "input_tokens": 3,
     "output_tokens": 108,
     "cache_read_input_tokens": 41156,
     "cache_creation_input_tokens": 111
+  },
+  "modelUsage": {
+    "claude-sonnet-4-6": {
+      "inputTokens": 3,
+      "outputTokens": 108,
+      "cacheReadInputTokens": 41156,
+      "cacheCreationInputTokens": 111,
+      "costUSD": 0.01439205
+    }
   },
   "structured_output": {
     "outcome": "success",
@@ -682,7 +693,7 @@ Example top-level response shape (abridged):
 }
 ```
 
-**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `usage`, and `structured_output` verbatim into the SQLite run record.
+**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `duration_ms`, `usage`, and `structured_output` verbatim into the SQLite run record. Failure detection uses `is_error == true` OR `subtype != "success"`. The `modelUsage` object (keyed by model name) is available for per-model cost breakdown in the digest — store it as a JSON blob in the run record if multi-model reporting is needed later.
 
 The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
@@ -707,10 +718,6 @@ _Unresolved gaps to address before implementation begins._
 **Dirty-repo recovery**
 
 - The runtime view specifies `git reset --hard + git clean -fd` on a dirty working copy, but does not explain _why_ the repo would be dirty (agent crash mid-run while the lock was still held?). If the lock is held at crash time, the next run should hit the stale-lock path and log a warning — clarify whether dirty-repo recovery is a belt-and-suspenders guard or the primary recovery path, and document the expected sequence.
-
-**`--json-schema` flag on `claude -p`**
-
-- The structured output invocation in this document uses `--json-schema`. This flag name and behaviour should be verified against the current Claude Code CLI docs before `runner.py` is built around it. If the flag differs, the entire result-parsing strategy changes.
 
 **Secret sanitisation**
 
