@@ -841,6 +841,13 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 - `timeout_s` — single value used both as the subprocess wall-clock timeout and as the stale-lock age threshold. No separate key.
 - `gh-delegated` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
 
+### Documentation
+
+- **`README.md`** (repo root) — operator quickstart: what Labro is, prerequisites, installation, first-run (`labro init` + `labro check`), and a pointer to `docs/` for full reference. This is the entry point for anyone running the project from source; it should be sufficient to get a first run working without reading the architecture doc.
+- **`CLAUDE.md` at managed repo roots** — per-project agent instruction contract. Claude Code reads it automatically when invoked in the repo directory; section 4 of every agent prompt explicitly instructs the agent to read it. Operators write this file in each managed repo to encode project conventions, no-go zones, and style rules. It is the primary mechanism for operator-to-agent communication at the per-project level, separate from `labro.toml` which governs harness behaviour.
+- **`docs/adr/NNN-title.md`** — architectural decisions that need more context than a table row. Write an ADR when a non-obvious decision is made that affects the system's structure, constraints, or quality properties. `NNN` is a zero-padded sequence number; Section 9 maintains the index. ADRs are append-only — update status to `Superseded` rather than editing the original.
+- **`docs/ARCHITECTURE.md`, `docs/PRD.md`, `docs/ROADMAP.md`** — design and planning docs maintained alongside the code. No auto-generated API docs are planned: Labro is a CLI tool with no library surface, and the annotated `labro.toml` reference in §8 Configuration serves as the operator API reference.
+
 ### Testing & Static Analysis
 
 Quality gates are enforced via pre-commit hooks (`.pre-commit-config.yaml`). Fast, file-scoped checks run pre-commit; slow or project-wide checks run pre-push.

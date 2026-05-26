@@ -30,6 +30,7 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | `Task` data model | Full schema; `item_type`/`item_number`/`item_url` populated for `gh-delegated` items |
 | `AgentConfig` data model | Fully defined; used by dry-run output |
 | `cli.py` — `labro run <project> --dry-run` | Prints resolved task + agent config + full prompt to stdout; exits cleanly |
+| `README.md` | Scaffold: project overview, prerequisites, installation, first-run (`labro init` + `labro check` + `labro run --dry-run`), pointer to `docs/`. Documentation entry point exists before side-effectful code ships |
 
 **Explicitly out of scope:**
 - `AgentResult`, `runner.py`, `agents/claude_code.py` — no agent invocation
@@ -59,6 +60,7 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | `logger.py` | Write run records to SQLite; release lock unconditionally in `finally` block |
 | `post_run.py` | Label transitions for both `gh-delegated` rule types: label_rules (remove source label on success; keep on failure) and actor_rules (no source label to remove). Both paths apply done_label on success, `ai-failed` on failure, `ai-contributed` in all cases. Failure comment posted on both rule types. Extended in M5 (`ai-alert:<rule-uid>`) and M6 (`ai-proactive-suggestion` enforcement) |
 | `cli.py` — `labro run <project>` (non-dry-run) | Full run; `LABRO_DISABLED` lockfile check added here |
+| `README.md` | Add full run loop section: required env vars (`GH_TOKEN`, `ANTHROPIC_API_KEY`), `LABRO_DISABLED` emergency pause; update quickstart to cover a real (non-dry-run) invocation |
 
 ---
 
@@ -75,6 +77,7 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | `cli.py` — `labro review` | Tabular run history from SQLite; `--limit`, `--project`, `--outcome` flags; token and time costs shown per run and aggregated by agent/model (REQ-17) |
 | `cli.py` — `labro list-locks` | Show held project locks with age |
 | `cli.py` — `labro unlock <project>` | Manual stale-lock release |
+| `README.md` | Document all CLI subcommands (`init`, `check`, `review`, `list-locks`, `unlock`) with flags; add troubleshooting section covering common startup failures (missing labels, missing env vars, stale locks) |
 
 ---
 
@@ -89,6 +92,7 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | `entrypoint.sh` | Exports env to `/etc/labro-env`; generates `/etc/cron.d/labro` from `labro.toml`; execs `crond -f` |
 | Crontab generation | Per-project entries + digest entry; disabled projects omitted; format documented in ARCHITECTURE.md §7 |
 | Docker bind-mount layout | `/config/`, `/data/`, `/repos/` verified and documented |
+| `README.md` | Add Docker deployment section: image build, bind-mount layout, container restart workflow for adding or modifying a project |
 
 ---
 
@@ -102,6 +106,7 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | :--- | :--- |
 | `task_sources/grafana_alerts.py` | Alert fetch; severity filter; dedup via open issue carrying `ai-alert:<rule-uid>`; alert-cleared comment path |
 | `post_run.py` — `ai-alert:<rule-uid>` application | Extends M2 post-run logic; applies label from `task.grafana_rule_uid` on first-alert success |
+| `README.md` | Document `grafana-alerts` config block (`min_severity`, `permitted_actions`) and `GRAFANA_TOKEN` env var |
 
 ---
 
@@ -115,6 +120,7 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | :--- | :--- |
 | `task_sources/proactive_improvement.py` | Open-suggestion cap check; target selection (`agent-chooses` + `harness-random` strategies) |
 | `post_run.py` — `ai-proactive-suggestion` enforcement | Extends M5 post-run logic; first `items_created` entry only; logs warning and applies `ai-contributed` only to extras |
+| `README.md` | Document `proactive-improvement` config block (`selection_strategy`, `max_open_suggestions`, `targets`) |
 
 ---
 
@@ -130,6 +136,7 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | `digest.py` | All four phases: outcome signal collection, run stats aggregation, Slack message assembly, HTTP POST delivery |
 | `cli.py` — `labro digest [--dry-run]` | `--dry-run` skips Phase 1 (no `signals_collected_at` writes) and Phase 4 (no Slack POST); no `digests` row written |
 | `items_touched` outcome signal columns populated | Columns exist in schema from M2; collection logic (`outcome_state`, `follow_up_commits`, `thumbs_up`, `thumbs_down`, `signals_collected_at`) implemented here |
+| `README.md` | Document digest setup: `[digest]` config block, `SLACK_WEBHOOK_URL` env var, `labro digest --dry-run` for testing before live delivery |
 
 ---
 
