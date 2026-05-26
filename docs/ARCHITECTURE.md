@@ -841,6 +841,44 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 - `timeout_s` — single value used both as the subprocess wall-clock timeout and as the stale-lock age threshold. No separate key.
 - `gh-delegated` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
 
+### Testing & Static Analysis
+
+Quality gates are enforced via pre-commit hooks (`.pre-commit-config.yaml`). Fast, file-scoped checks run pre-commit; slow or project-wide checks run pre-push.
+
+#### Toolchain
+
+| Tool | Stage | Purpose |
+| :--- | :--- | :--- |
+| **ruff** (lint + format) | pre-commit | Style, imports, fast bug patterns; auto-fixes applied |
+| **mypy** (strict) | pre-commit | Full type checking; strict mode enforced from day one — clean-slate start makes this tractable, and Labro's dataclass-heavy model benefits from it |
+| **bandit** | pre-commit | SAST; skips `B404`/`B603`/`B607` (subprocess by name, list-arg form — the safe pattern); `B602` (`shell=True`) is **not** skipped and is a hard error |
+| **shellcheck** | pre-commit | Lints `entrypoint.sh`; sub-second; catches quoting, unset-variable, and pipeline errors in the crontab-generation script |
+| **check-toml** | pre-commit | Validates `labro.toml` syntax before config parsing is attempted |
+| **pytest** (+ pytest-cov) | pre-commit | Unit tests; coverage floor starts at 70% in M1, raised 5 pp per milestone as new components land |
+| **pip-audit** | pre-push | OSV-based dependency vulnerability scan; once-per-day marker avoids redundant scans on repeated pushes |
+
+**`shell=False` rule:** all subprocess calls must use list-form args with `shell=False` (the Python default). This is a hard architectural rule — not a lint suggestion — because task descriptions and label names may contain operator-controlled text that would be injectable if passed through a shell. Enforced by bandit `B602` (not skipped) and code review.
+
+#### Test boundaries
+
+| Layer | Test approach | Mocking strategy |
+| :--- | :--- | :--- |
+| `config/` — schema validation | Unit | None — pure Pydantic; test valid and invalid TOML inputs including unknown `permitted_actions` values |
+| `picker.py` — priority stack | Unit | `TaskSource.fetch_task` stubbed to return `Task \| None` per scenario |
+| `prompt_builder.py` — four-section prompt | Unit | None — pure function; assert all four sections present, correct ordering, permitted actions enumerated |
+| `task_sources/gh_delegated.py` | Unit | `gh` CLI calls mocked via `subprocess` fixture; fixture responses are real `gh api` JSON payloads captured once |
+| `task_sources/grafana_alerts.py` | Unit | HTTP client mocked; fixture responses from real Grafana API captures |
+| `task_sources/proactive_improvement.py` | Unit | `gh` CLI mocked; cap-check and target-selection paths exercised |
+| `post_run.py` — label state machine | Unit | `gh` CLI calls mocked; assert exact label add/remove sequence per state machine path |
+| `store.py` / `logger.py` | Unit | SQLite in-memory (`:memory:`); no mocking needed — real schema exercised |
+| `digest.py` — stats aggregation + message assembly | Unit | SQLite in-memory; HTTP POST mocked; assert message structure and `digests` table state |
+| `runner.py` / `agents/claude_code.py` | Integration | Subprocess invoked against `claude --help` or a no-op fixture; JSON response shape validated |
+| Live GitHub + live agent | Explicit out of scope | `labro run --dry-run` is the manual integration test; no automated test hits real GitHub or spends tokens |
+
+#### Coverage policy
+
+Coverage is measured over all non-integration modules. The floor starts at 70% in M1 and increases by 5 percentage points per milestone as new components are added. `runner.py` and `agents/` are excluded from the coverage floor — those paths are exercised by integration tests only.
+
 ---
 
 ## 9. Architectural Decisions
@@ -871,6 +909,16 @@ _Testability and quality gates for the architecture._
 | Required env var missing | Startup | Hard exit with descriptive error naming the missing var; no runs attempted. |
 | Required GitHub label missing | Startup | Hard exit: "Required label(s) missing in <repo> — run `labro init`"; no runs attempted. |
 | New project added to config | Config change only | Project picked up on next scheduler cycle; no code change required. |
+| Unknown `permitted_actions` value in config | Config load | Pydantic validation error; hard exit naming the invalid value and valid alternatives. |
+| `picker.py` receives all-`None` task sources | All sources return `None` | Returns `(None, None)`; no `AgentConfig` constructed; run logged as `skipped`. |
+| `prompt_builder.py` called with a task | Any `Task` input | Output contains exactly four sections in order; permitted actions section enumerates only the effective `permitted_actions`; no section is empty. |
+| `post_run.py` label_rule success path | Agent returns `outcome="success"` | Source label removed; done label applied; `ai-contributed` applied; no `ai-failed`; no failure comment. |
+| `post_run.py` label_rule failure path | Agent returns `outcome="failure"` | Source label kept; `ai-failed` applied; `ai-contributed` applied; failure comment posted. |
+| `post_run.py` actor_rule success path | Agent returns `outcome="success"` | Done label applied; `ai-contributed` applied; no source label to remove; no `ai-failed`. |
+| `store.py` lock acquisition | Project not currently locked | `INSERT` succeeds; `project_locks` row present with correct `project` and `locked_at`. |
+| `store.py` lock contention | Project already locked (non-stale) | `INSERT` fails; returns `False`; no second lock row created. |
+| `store.py` stale lock | Lock age > `timeout_s` | Existing row overwritten; new lock acquired; run proceeds. |
+| `gh` call uses `shell=False` | Any subprocess invocation | All `subprocess` calls use list-form args; no `shell=True` anywhere in codebase (enforced by bandit B602). |
 
 ---
 

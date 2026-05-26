@@ -17,6 +17,9 @@ Each milestone produces a runnable, testable increment. Every source file and da
 
 | Component | Notes |
 | :--- | :--- |
+| `pyproject.toml` | Project metadata; `[project.optional-dependencies] dev` block: ruff, mypy (strict), bandit, pytest, pytest-cov, pip-audit; tool config sections for ruff, mypy, bandit, pytest (70% coverage floor, `runner.py` and `agents/` excluded from floor) |
+| `.pre-commit-config.yaml` | Full hook config: ruff + mypy + bandit + shellcheck + check-toml (pre-commit stages); pip-audit with once-per-day marker (pre-push stage) |
+| `tests/` scaffold | `tests/test_config.py`, `tests/test_picker.py`, `tests/test_prompt_builder.py`; quality gate in place before any side-effectful code is written in M2 |
 | Docker image | Python 3.12, `gh` CLI, `claude` CLI pre-installed; `gh` availability satisfies REQ-11. Container image is the sandbox envelope for REQ-13 — agent execution inside the container is completed in M2 |
 | `config/` — config loader + Pydantic schema | Full schema validated; only `gh-delegated` label_rules exercised in M1 |
 | `task_sources/base.py` | `TaskSource` abstract base class |
@@ -34,6 +37,8 @@ Each milestone produces a runnable, testable increment. Every source file and da
 - `repo.py` — no repo preparation
 - `post_run.py` — no label transitions
 - Actor rules in `gh-delegated`
+
+**Coverage floor at M1 completion:** 70% across `config/`, `picker.py`, `prompt_builder.py`, `task_sources/gh_delegated.py`. Floor rises 5 pp each milestone; see ARCHITECTURE.md §8 Testing & Static Analysis for full policy.
 
 ---
 
