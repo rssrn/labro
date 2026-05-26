@@ -4,6 +4,7 @@
 * **Author:** Ross Arnold
 * **Date:** 2026-05-26
 * **PRD:** [docs/PRD.md](PRD.md)
+* **Roadmap:** [docs/ROADMAP.md](ROADMAP.md)
 
 ---
 
