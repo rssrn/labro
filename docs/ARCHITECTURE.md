@@ -189,6 +189,72 @@ class Agent:
     def invoke(self, prompt: str, config: AgentConfig) -> AgentResult: ...
 ```
 
+### Label State Machine
+
+No in-progress label is used during a run — the project lock (`project_locks` table) is the sole concurrency guard. Labels are only written by `post_run.py` after the agent subprocess exits.
+
+`ai-contributed` is applied to every GitHub item that Labro acts on, regardless of outcome. It is the query surface for ad-hoc GitHub lookups and is never removed by the harness.
+
+#### `gh-delegated` — label_rules
+
+The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` label gates re-pickup on failure; the source label is kept so the operator need only remove `ai-failed` to retry.
+
+| Phase | Labels on item | Harness action |
+| :--- | :--- | :--- |
+| **Eligible** | Has source label (e.g. `ai-dev`) AND NOT `ai-failed` | Picker selects item |
+| **Skipped — failed** | Has `ai-failed` | Picker ignores; operator removes `ai-failed` to re-enable |
+| **Skipped — done** | Has done label (e.g. `ai-dev-done`) | Picker ignores (source label already removed) |
+| **Success** | — | Remove source label; apply done label; apply `ai-contributed` |
+| **Failure** | — | Keep source label; apply `ai-failed`; apply `ai-contributed`; post failure comment |
+
+#### `gh-delegated` — actor_rules
+
+No source label to remove — the done label is the "already processed" gate.
+
+| Phase | Labels on item | Harness action |
+| :--- | :--- | :--- |
+| **Eligible** | Opened by configured actor AND NOT has done label AND NOT `ai-failed` | Picker selects item |
+| **Skipped — done** | Has done label | Picker ignores |
+| **Skipped — failed** | Has `ai-failed` | Picker ignores |
+| **Success** | — | Apply done label; apply `ai-contributed` |
+| **Failure** | — | Apply `ai-failed`; apply `ai-contributed`; post failure comment |
+
+#### `grafana-alerts`
+
+No source item exists at run start. The tracking issue is created (or not) by the agent. Dedup is purely on the presence of an open issue carrying `ai-alert:<rule-uid>` — `ai-failed` does not affect dedup.
+
+| Phase | GitHub state | Harness / agent action |
+| :--- | :--- | :--- |
+| **Eligible** | No open issue with `ai-alert:<rule-uid>` | Source returns task |
+| **Skipped — already tracked** | Open issue exists with `ai-alert:<rule-uid>` | Source returns no task; logs `skipped: already tracking #N` |
+| **Issue created (success)** | Agent creates tracking issue | Agent applies `ai-alert:<rule-uid>`; `post_run.py` applies `ai-contributed` to issue |
+| **Failure before issue created** | No tracking issue | No label transition; failure logged; alert retried on every subsequent run (accepted risk — surfaced via digest failure rate) |
+| **Failure after issue created** | Tracking issue exists | `post_run.py` applies `ai-failed` to issue + `ai-contributed`; posts failure comment; future runs still skip (dedup on `ai-alert:<rule-uid>` ignores `ai-failed`) |
+| **Alert cleared (issue open)** | Alert no longer firing | `grafana-alerts` source posts "alert cleared" comment; leaves issue open for operator to close |
+
+#### `proactive-improvement`
+
+No source item — the agent creates items from scratch. `ai-proactive-suggestion` is applied by `post_run.py` (not by the agent), so the open-suggestion cap is reliable regardless of agent prompt compliance.
+
+| Phase | GitHub state | Harness action |
+| :--- | :--- | :--- |
+| **Eligible** | Open `ai-proactive-suggestion` issues < `max_open_suggestions` | Source returns task |
+| **Skipped — cap reached** | Open `ai-proactive-suggestion` issues ≥ cap | Source returns no task |
+| **Success — issue created** | Agent creates suggestion issue | `post_run.py` applies `ai-proactive-suggestion` + `ai-contributed` to the issue (from `items_created`) |
+| **Success — PR opened** | Agent opens PR | `post_run.py` applies `ai-contributed` to PR; does NOT apply `ai-proactive-suggestion` (PRs are not counted by the cap) |
+| **Failure** | No item created | No label transition; failure logged |
+
+#### Label inventory
+
+| Label | Applied by | Purpose | Mutually exclusive with |
+| :--- | :--- | :--- | :--- |
+| `ai-contributed` | `post_run.py` | Marks every item Labro acted on; query surface | — |
+| `ai-failed` | `post_run.py` | Blocks re-pickup; cleared by operator to retry | `ai-<source>-done` (shouldn't coexist — failure precedes done) |
+| `ai-alert:<rule-uid>` | Agent (on issue create) | Dedup key for `grafana-alerts` | — |
+| `ai-proactive-suggestion` | `post_run.py` | Cap counter for open suggestions | — |
+| `<done_label>` (e.g. `ai-dev-done`) | `post_run.py` | Marks successful completion; blocks re-pickup | Source label (removed on success) |
+| Source labels (e.g. `ai-dev`, `ai-review`) | Operator | Trigger pickup for `gh-delegated` label_rules | Done label (removed on success) |
+
 ---
 
 ## 6. Runtime View
@@ -229,8 +295,8 @@ Agent.invoke(prompt, agent_config)
     │
     ▼
 post_run.py
-  ├── success → apply done label, remove source label, apply ai-contributed
-  └── failure → apply ai-failed, post failure comment, apply ai-contributed
+  ├── success → remove source label; apply done label; apply ai-contributed
+  └── failure → keep source label; apply ai-failed; apply ai-contributed; post failure comment
     │
     ▼
 logger.py → write run record to SQLite (via store.py) → release lock (DELETE from project_locks)
@@ -629,10 +695,6 @@ _Unresolved gaps to address before implementation begins._
 **Data models**
 
 - **`Task` object** — `TaskSource.fetch_task()` returns `Task | None` but the `Task` dataclass is never defined. Minimum fields needed: `task_id`, `source`, `description`, `item_url` (nullable), `label_rule` / `actor_rule` reference (for post-run label transitions). Define before any task source module is written.
-
-**Label state machine**
-
-- The label lifecycle is described in prose across several sections but there is no single table or diagram showing: which labels trigger pickup per source, which are removed on completion, which are applied on failure, and which are mutually exclusive. A state-transition table per task source should be added to Section 5 or Section 8 before post_run.py is implemented.
 
 **Digest spec**
 
