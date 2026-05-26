@@ -342,7 +342,7 @@ Host machine (single server or dev machine)
 * Every run produces a structured record written to SQLite regardless of outcome.
 * Run record fields: `run_id`, `project`, `task_source`, `task_description`, `agent`, `model`, `started_at`, `ended_at`, `duration_s`, `token_usage`, `turns_used`, `outcome` (`success` | `failure` | `skipped`), `actions_taken`, `failure_reason`.
 * Daily digest queries SQLite across all projects: runs fired, tasks per source, skips, token spend, failures.
-* Outcome signals (PR merged, issue closed, reactions) are collected by the daily digest job — not the run loop. The digest queries the `items_touched` SQLite table, reads current GitHub state, and writes signals back against the originating `run_id`. The `ai-contributed` label remains the query surface for ad-hoc GitHub lookups. See [ADR-002](adr/0002-github-as-state-store.md).
+* Outcome signals (PR merged, issue closed, reactions) are collected by the daily digest job — not the run loop. The digest records its own start time (`digest_start`), then queries `items_touched JOIN runs WHERE runs.ended_at < :digest_start AND items_touched.signals_collected_at IS NULL`. Only runs that completed before the digest fired are eligible — any run still in progress at digest time is skipped and will be picked up on the next digest. This avoids lock-polling and keeps the digest stateless with respect to project run state. The `ai-contributed` label remains the query surface for ad-hoc GitHub lookups. See [ADR-002](adr/0002-github-as-state-store.md).
 
 ### Concurrency Control
 
@@ -716,6 +716,3 @@ _Unresolved gaps to address before implementation begins._
 
 - Section 8 states "agent output sanitised before persistence" but does not specify how. Options: regex against known token patterns, a deny-list of env var names, or stripping lines that match `GH_TOKEN`/`ANTHROPIC_API_KEY` patterns. Needs a concrete spec before `logger.py` is written.
 
-**Outcome signal collection timing**
-
-- The digest collects outcome signals from `items_touched` by reading current GitHub state. No minimum age is specified before collection runs. If a PR is merged within minutes of the run (e.g. operator was watching), it will be captured on the next digest — this is fine. But if the digest fires before the agent has finished (overlapping runs on different projects), `items_touched` may be incomplete. Clarify whether the digest job waits for all project locks to be clear before collecting signals, or collects signals only for runs completed before the digest window.
