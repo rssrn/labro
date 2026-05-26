@@ -27,4 +27,5 @@ Use SQLite (`labro.db`) as the sole persistence layer. The file is bind-mounted 
 
 * `store.py` owns the schema and all read/write access; no other module touches SQLite directly.
 * The bind-mount path is `/data/labro.db` inside the container.
+* The database must be opened in WAL mode (`PRAGMA journal_mode=WAL`) to support concurrent writers across simultaneous project runs.
 * A periodic purge of records older than N days should be added before sustained daily operation to prevent unbounded growth.

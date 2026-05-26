@@ -22,7 +22,7 @@ A single GitHub repository configured in `labro.toml`. Each project has its own 
 A single unit of work selected by the Picker for a given run. Produced by exactly one Task Source. A run produces at most one task; if no task is found, the run is logged as `skipped`.
 
 **Task Source**
-A pluggable module that knows how to find work for a given project. Built-in sources: `grafana-alerts`, `gh-delegated`, `proactive-improvement`. Each source implements `is_available()` and `fetch_task()`.
+A pluggable module that knows how to find work for a given project. Built-in sources: `grafana-alerts`, `gh-delegated`, `proactive-improvement`. Each source implements a single `fetch_task()` method, returning a `Task` or `None`.
 
 **Priority Stack**
 An ordered list of Task Sources declared per project in config. The Picker evaluates sources top-to-bottom and takes the first task returned. Earlier entries represent higher-priority work.
@@ -37,10 +37,10 @@ A row in the SQLite `project_locks` table (`project`, `locked_at`) held for the 
 A pre-agent step (`repo.py`) that ensures the working copy is on the project's default branch (read from GitHub) and clean before the agent is invoked. If the repo is absent, it is cloned. If it is present but dirty (uncommitted changes or untracked files from a previous run), the harness logs a warning, resets hard, and surfaces the anomaly in the daily digest.
 
 **Permitted Action Set**
-The set of action categories (e.g. `comment`, `open-pr`, `merge`) an agent is allowed to perform in a given run. Declared at project level; overridable per task source. Communicated to the agent via the prompt (v1); no runtime enforcement mechanism. See [[adr-003-prompt-only-enforcement]].
+The set of GitHub write action categories (e.g. `comment`, `open-pr`, `merge`) an agent is allowed to perform in a given run. Governs side-effectful GitHub operations only — read operations, web searches, MCP tool calls, and local file operations are always unrestricted. Declared at project level; overridable per task source. Communicated to the agent via the prompt (v1); no runtime enforcement mechanism. See [[adr-003-prompt-only-enforcement]].
 
 **Agent**
-An AI coding CLI (Claude Code CLI or Aider in v1) invoked as a subprocess by the harness. Treated as a black box; interacts with GitHub via the `gh` wrapper.
+An AI coding CLI invoked as a subprocess by the harness. Claude Code CLI is the sole v1 agent. Treated as a black box; interacts with GitHub via `gh`.
 
 **Run**
 A single execution cycle for one project: task selected → prompt constructed → agent invoked → post-run actions → result logged.
@@ -55,7 +55,7 @@ The result of a run: `success`, `failure`, or `skipped`.
 The agent's own structured assessment of whether it succeeded and what actions it took. A leading, subjective signal — not ground truth.
 
 **Daily Digest**
-A scheduled summary (email or Slack) covering all projects: runs fired, tasks selected per source, skips, token spend, failures, and outcome signals for prior runs. The primary "is this working?" signal for the operator. Also owns outcome signal collection: queries the `items_touched` table, reads current GitHub state for each item, and writes outcome signals back to SQLite before generating the report.
+A scheduled Slack summary (delivered via incoming webhook) covering all projects: runs fired, tasks selected per source, skips, token spend, failures, and outcome signals for prior runs. The primary "is this working?" signal for the operator. Also owns outcome signal collection: queries the `items_touched` table, reads current GitHub state for each item, and writes outcome signals back to SQLite before generating the report.
 
 **Permitted Actions**
 See *Permitted Action Set*.

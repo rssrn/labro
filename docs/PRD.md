@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Labro is a self-hosted agent harness that runs AI coding agents on a schedule to do useful, unsupervised work on software projects — triaging issues, reviewing PRs, fixing bugs, and proposing improvements. Named after cleaner wrasse fish stations on coral reefs (_Labroides dimidiatus_), which provide a designated, high-value, symbiotic service to reef inhabitants, Labro acts as an always-available autonomous worker that keeps projects healthy with minimal human supervision. The operator chooses which agent and model to use per project or task type, enabling cost-conscious decisions such as routing simpler tasks to a cheaper model via Aider while reserving more capable (and expensive) models for complex work.
+Labro is a self-hosted agent harness that runs AI coding agents on a schedule to do useful, unsupervised work on software projects — triaging issues, reviewing PRs, fixing bugs, and proposing improvements. Named after cleaner wrasse fish stations on coral reefs (_Labroides dimidiatus_), which provide a designated, high-value, symbiotic service to reef inhabitants, Labro acts as an always-available autonomous worker that keeps projects healthy with minimal human supervision. The operator chooses which model to use per project or task type, enabling cost-conscious decisions such as routing simpler tasks to a cheaper model while reserving more capable (and expensive) models for complex work.
 
 ---
 
@@ -60,7 +60,7 @@ Several tools exist in this space. None were disqualifying — the rationale for
 ### Non-Goals (Out of Scope for v1)
 * Multi-user or team features — Labro is personal tooling first.
 * A web UI or dashboard — observability via logs/files initially.
-* Support for agents beyond Claude Code CLI and Aider — architecture should allow others later, but these two are the v1 targets.
+* Support for agents beyond Claude Code CLI — architecture should allow others later, but Claude Code is the sole v1 target.
 * Real-time event-driven triggering — cron scheduling is sufficient for v1.
 * Mobile notifications or alerting integrations.
 
@@ -136,8 +136,8 @@ Self-reported success is *not* a measure of real usefulness (it is a leading, su
 
 **Example priority stack (Ross's first project):**
 1. `grafana-alerts` — firing production alert → Claude Sonnet (needs reasoning and context)
-2. `gh-delegated` — issues/PRs labelled `ai-analysis`, `ai-dev`, or `ai-review`; OR opened by `dependabot[bot]` → Aider + cheap model for Dependabot; Claude for labelled issues
-3. `proactive-improvement` — agent proposes something useful when no urgent work exists (output: GitHub issue or PR where a concrete change is warranted) → Aider + cheap model
+2. `gh-delegated` — issues/PRs labelled `ai-analysis`, `ai-dev`, or `ai-review`; OR opened by `dependabot[bot]` → Claude Code (cheaper model for Dependabot, capable model for labelled issues)
+3. `proactive-improvement` — agent proposes something useful when no urgent work exists (output: GitHub issue or PR where a concrete change is warranted) → Claude Code + cheaper model
 
 **Example permitted actions (Ross's first project):**
 
@@ -153,10 +153,10 @@ Self-reported success is *not* a measure of real usefulness (it is a leading, su
 
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
-| **REQ-09** | As an operator, I want to configure which agent and model to use at the task-source level (with a project-level default fallback) so I can route simpler tasks to cheaper agents and reserve more capable models for complex work. | P0 | Each task source in config optionally declares an agent and model; if absent, the project-level default applies. Config supports at minimum: Claude Code CLI and Aider, each with a configurable model parameter. |
+| **REQ-09** | As an operator, I want to configure which model to use at the task-source level (with a project-level default fallback) so I can route simpler tasks to cheaper models and reserve more capable models for complex work. | P0 | Each task source in config optionally declares a model; if absent, the project-level default applies. The v1 agent is Claude Code CLI; the model parameter is passed through to the Claude Code invocation. |
 | **REQ-10** | As an operator, I want the selected agent invoked with the constructed task prompt and its output captured so the harness can log outcomes regardless of which agent ran. | P0 | Harness abstracts agent invocation; stdout/stderr captured for all supported agents. |
 | **REQ-11** | As an operator, I want the agent to have access to `gh` CLI commands so it can act on GitHub (comment, open PRs, push fixes). | P0 | The real `gh` CLI is available to the agent in the container. Authenticated via `GH_TOKEN`. |
-| **REQ-12** | As an operator, I want to define a permitted action set in config at both the project level and the task-source level so I control the blast radius of autonomous runs with fine-grained precision. | P0 | Config declares which action categories are enabled (e.g. `comment`, `approve`, `open-pr`, `merge`, `push`) at the project level as a default; each task source may optionally override with its own permitted action set. Enforcement is via the prompt only (v1) — the permitted action set is communicated to the agent as an instruction. A `gh` wrapper for hard runtime enforcement is a candidate for v1.1 if prompt-only proves insufficient. |
+| **REQ-12** | As an operator, I want to define a permitted action set in config at both the project level and the task-source level so I control the blast radius of autonomous runs with fine-grained precision. | P0 | Config declares which GitHub write action categories are enabled (e.g. `comment`, `approve`, `open-pr`, `merge`, `push`) at the project level as a default; each task source may optionally override with its own permitted action set. Permitted actions govern side-effectful GitHub operations only — read operations, web searches, MCP tool calls, and local file operations are always unrestricted. Enforcement is via the prompt only (v1) — the permitted action set is communicated to the agent as an instruction. A `gh` wrapper for hard runtime enforcement is a candidate for v1.1 if prompt-only proves insufficient. |
 | **REQ-13** | As an operator, I want the agent to run in a sandboxed environment so mistakes don't affect my main dev environment. | P1 | Agent runs inside Docker; file system access scoped to cloned repo. |
 
 ### Epic B2: Task State Management
@@ -164,7 +164,7 @@ Self-reported success is *not* a measure of real usefulness (it is a leading, su
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
 | **REQ-20** | As an operator, I want the harness to transition GitHub labels as a deterministic post-run step so task state is always consistent and items are not re-selected on future runs. | P0 | Applies to `gh-delegated` tasks (GitHub issues/PRs that carry Labro labels). On successful completion: harness applies the configured done label (e.g. `ai-dev-done`) and removes the source label. On failure: harness applies `ai-failed` and posts a comment with the agent's self-reported failure reason; item is skipped on all subsequent runs until the operator manually clears the label. Label transitions are configured per task source. Does not apply to `grafana-alerts` — those tasks have no GitHub item to label; dedup for alerts is handled via REQ-05a. |
-| **REQ-21** | As an operator, I want Labro to send a single daily digest across all configured projects so I can assess system health without manually inspecting logs. | P1 | Digest fires once per day on a fixed schedule (independent of any project's cron). Delivered via email or Slack (configurable). Content covers all projects in a single summary: runs fired, tasks selected per source, tasks skipped (and why), token spend, and any failure labels applied. Digest is a health and cost signal — not a duplicate of ambient GitHub/Slack notifications generated by agent actions. |
+| **REQ-21** | As an operator, I want Labro to send a single daily digest across all configured projects so I can assess system health without manually inspecting logs. | P1 | Digest fires once per day on a fixed schedule (independent of any project's cron). Delivered via Slack incoming webhook (`SLACK_WEBHOOK_URL` env var). Content covers all projects in a single summary: runs fired, tasks selected per source, tasks skipped (and why), token spend, and any failure labels applied. Digest is a health and cost signal — not a duplicate of ambient GitHub/Slack notifications generated by agent actions. |
 
 ### Epic C: Observability & Logging
 
@@ -208,7 +208,7 @@ Labro is a headless, operator-facing tool. There is no end-user UI.
 
 * **Operator interface:** Config file + structured log files + daily digest.
 * **Operator touchpoints:** Two distinct channels surface Labro's activity:
-  * **Daily digest (async, pull):** Email or Slack summary of runs, task selections, skips, costs, and failures. This is the primary "is this working?" signal — health and cost visibility, not action replay.
+  * **Daily digest (async, pull):** Slack summary of runs, task selections, skips, costs, and failures. This is the primary "is this working?" signal — health and cost visibility, not action replay.
   * **Ambient notifications (real-time, push):** Agent actions on GitHub and Slack generate their own notifications (GitHub mentions, issue assignments, PR activity, Slack namechecks). These are not mediated by Labro; they surface through the operator's normal channels.
 * **Trust expansion:** Permitted actions are expanded manually by the operator, informed by observability data. Labro does not prompt for permission upgrades.
 * **Key operator flow:**
@@ -226,8 +226,8 @@ Labro is a headless, operator-facing tool. There is no end-user UI.
 ## Technical & Constraints
 
 * **Runtime:** Docker container; Python 3.12+.
-* **Supported agents (v1):** Claude Code CLI (`claude -p`) and [Aider](https://aider.chat/). Both are invoked via CLI with a constructed prompt; the harness abstracts the difference. Agent and model are configurable per project and optionally per task source.
-* **GitHub integration:** A generated `gh` wrapper script (not the real `gh` binary) is placed on `$PATH` in the agent container, parameterized by the effective permitted action set for the run (see REQ-11, REQ-12). Authenticated via `GH_TOKEN` environment variable.
+* **Supported agents (v1):** Claude Code CLI (`claude -p`) only. Model is configurable per project and optionally per task source. The agent abstraction layer in the harness is designed to support additional agents in future versions without code changes to the core.
+* **GitHub integration:** The real `gh` CLI is available to the agent in the container, authenticated via `GH_TOKEN`. Permitted action enforcement in v1 is prompt-only — the permitted action set is communicated to the agent as an instruction; there is no runtime wrapper script blocking disallowed calls. A `gh` wrapper for hard enforcement is a candidate for a future version if prompt-only proves insufficient (see REQ-12).
 * **Scheduling:** System cron inside the Docker container, configurable frequency per project (default: hourly). The Docker entrypoint reads `labro.toml` at container start and writes the crontab — adding a project requires only a config change and a container restart. Runs can also be triggered on demand via `labro run <project>`. Concurrency is controlled via a `project_locks` SQLite table: a run acquires a lock on start and releases it on completion. If a lock is already held when the next tick fires, the tick exits immediately and logs `skipped: run in progress` — no queuing, no parallel execution. Stale locks (from crashes) are cleared automatically if older than the configured run timeout. `labro list-locks` and `labro unlock <project>` allow manual inspection and recovery. A high skip rate in the digest signals the cron interval needs widening or `--max-turns` tightening.
 * **Persistence:** Structured run records stored in SQLite (`labro.db`); bind-mounted from host so data survives container restarts. No external database service required.
 * **Security/Privacy:** GitHub token scoped to minimum required permissions. No secrets stored in logs. Agent output sanitised before logging.

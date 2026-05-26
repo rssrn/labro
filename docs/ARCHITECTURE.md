@@ -60,7 +60,7 @@ _Hard constraints the architecture must respect — technical, organisational, o
 | Docker runtime | Sandboxing; reproducible environment; `gh` CLI and agent CLIs pre-installed. |
 | No external database service | Operational simplicity; SQLite is the persistence layer — a single bind-mounted file, no server process required. |
 | `gh` CLI for GitHub actions | Consistent auth model (`GH_TOKEN`); avoids a separate GitHub SDK dependency. |
-| Claude Code CLI and Aider as v1 agents | Both are CLI-invocable; harness treats them as black boxes invoked via subprocess. |
+| Claude Code CLI as v1 agent | CLI-invocable; harness treats it as a black box invoked via subprocess. Agent abstraction layer supports adding further agents in future versions. |
 
 ---
 
@@ -73,27 +73,26 @@ _Who and what does Labro interact with? (C4 Level 1)_
 │                         Operator                                │
 │  (configures projects, reads daily digest, expands permissions) │
 └────────────────────────────┬────────────────────────────────────┘
-                             │ config + logs
+                             │ config + logs + digest
                              ▼
                     ┌────────────────┐
                     │     Labro      │
                     │ (agent harness)│
-                    └────┬──────┬───┘
-                         │      │
-              ┌──────────┘      └──────────┐
-              ▼                            ▼
-   ┌──────────────────┐        ┌───────────────────┐
-   │   GitHub API     │        │   Grafana API     │
-   │ (issues, PRs,    │        │ (firing alerts)   │
-   │  labels, gh CLI) │        └───────────────────┘
-   └──────────────────┘
-              │
-              ▼
-   ┌──────────────────┐
-   │  AI Agent CLI    │
-   │ (Claude Code or  │
-   │  Aider)          │
-   └──────────────────┘
+                    └──┬──────┬───┬──┘
+                       │      │   │
+          ┌────────────┘      │   └──────────────┐
+          ▼                   ▼                  ▼
+┌──────────────────┐  ┌───────────────┐  ┌─────────────┐
+│   GitHub API     │  │  Grafana API  │  │    Slack    │
+│ (issues, PRs,    │  │ (firing       │  │  (incoming  │
+│  labels, gh CLI) │  │  alerts)      │  │   webhook)  │
+└──────────────────┘  └───────────────┘  └─────────────┘
+          │
+          ▼
+┌──────────────────┐
+│  Claude Code CLI │
+│  (subprocess)    │
+└──────────────────┘
 ```
 
 **External systems:**
@@ -103,8 +102,7 @@ _Who and what does Labro interact with? (C4 Level 1)_
 | GitHub | Source of tasks (issues, PRs, Dependabot); target of agent actions (comments, PRs, labels). |
 | Grafana | Source of firing alert tasks. |
 | Claude Code CLI | Agent: invoked for complex reasoning tasks. |
-| Aider | Agent: invoked for lower-cost, simpler tasks. |
-| Email / Slack | Delivery channel for daily digest. |
+| Slack | Delivery channel for daily digest (incoming webhook). |
 
 ---
 
@@ -118,7 +116,7 @@ _Top-level deployable units. (C4 Level 2)_
 │                                                              │
 │  ┌──────────────┐   ┌──────────────┐   ┌─────────────────┐  │
 │  │   Scheduler  │   │    Harness   │   │   Agent CLIs    │  │
-│  │  (system     │──▶│  (Python)    │──▶│  claude / aider │  │
+│  │  (system     │──▶│  (Python)    │──▶│  claude         │  │
 │  │   cron)      │   │              │   │  (subprocesses) │  │
 │  └──────────────┘   └──────┬───────┘   └─────────────────┘  │
 │                            │                                 │
@@ -133,7 +131,7 @@ _Top-level deployable units. (C4 Level 2)_
 | :--- | :--- | :--- |
 | Scheduler | System cron (inside container) | Fires harness runs per project on configured cron schedules; fires daily digest. Crontab is generated from `labro.toml` by the Docker entrypoint at container start — operator edits config only. |
 | Harness | Python 3.12 | Task selection, prompt construction, agent invocation, label transitions, logging. |
-| Agent CLIs | Claude Code CLI, Aider | Execute the task; interact with GitHub via `gh`; make code changes. |
+| Agent CLI | Claude Code CLI | Executes the task; interacts with GitHub via `gh`; makes code changes. |
 | Store | SQLite (single bind-mounted file) | Persist structured run records; queried by digest and review CLI. |
 
 ---
@@ -152,11 +150,10 @@ Harness
 │   └── proactive_improvement.py
 ├── picker.py         Priority-stack evaluator → selects one task
 ├── repo.py           Repo preparation: clone or pull to default branch
-├── prompt_builder.py Constructs agent prompt from task + permissions
+├── prompt_builder.py Constructs agent prompt from task + permissions + project context
 ├── agents/           Agent abstraction layer
 │   ├── base.py       Abstract agent interface
-│   ├── claude_code.py
-│   └── aider.py
+│   └── claude_code.py
 ├── runner.py         Invokes agent subprocess; captures output
 ├── post_run.py       Label transitions; failure comments
 ├── store.py          SQLite access layer (run records, locks, outcome signals)
@@ -170,9 +167,11 @@ Harness
 | Subcommand | Description |
 | :--- | :--- |
 | `labro run <project>` | Trigger a single run for a project immediately (bypasses scheduler). |
+| `labro init` | Bootstrap all configured projects: creates required GitHub labels in each repo if absent. Idempotent — safe to re-run. Labels created: `ai-contributed`, `ai-failed`, `ai-proactive-suggestion`, plus any configured done/source labels. `ai-alert:<rule-uid>` labels are created dynamically on first alert fire, not by `init`. |
+| `labro check` | Pre-flight health check: validates config, checks all required env vars are set, verifies GitHub token scopes, and confirms required labels exist in each configured repo. Reports pass/fail per check. Safe to run at any time — makes no writes. |
 | `labro list-locks` | Show all currently held project locks with `project`, `locked_at`, and age. |
 | `labro unlock <project>` | Manually release a stale lock for a project. |
-| `labro review` | Tail and summarise recent run records from SQLite (REQ-16). |
+| `labro review` | Print a table of recent run records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `task_source`, `outcome`, `turns_used`, `total_cost_usd`, `task_description` (truncated). Failures include `failure_reason`. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|skipped>`. Plain text to stdout. |
 
 ### Key Interfaces
 
@@ -180,7 +179,6 @@ Harness
 
 ```python
 class TaskSource:
-    def is_available(self, project: ProjectConfig) -> bool: ...
     def fetch_task(self, project: ProjectConfig) -> Task | None: ...
 ```
 
@@ -209,7 +207,6 @@ Lock acquired (INSERT into project_locks)
     │
     ▼
 Picker iterates priority stack
-    ├── TaskSource.is_available()?  No → next source
     └── TaskSource.fetch_task()?   None → next source
     │
     ▼
@@ -237,6 +234,7 @@ post_run.py
     │
     ▼
 logger.py → write run record to SQLite (via store.py) → release lock (DELETE from project_locks)
+  └── SQLite write failure? → log to stderr; release lock unconditionally (finally block); run record may be lost
 ```
 
 ---
@@ -253,7 +251,7 @@ Host machine (single server or dev machine)
     ├── /config/           labro.toml (bind-mounted from host)
     ├── /data/             labro.db — SQLite store (bind-mounted from host)
     ├── /repos/            Cloned project repos (bind-mounted from host)
-    └── env: GH_TOKEN, ANTHROPIC_API_KEY, GRAFANA_TOKEN, ...
+    └── env: GH_TOKEN, ANTHROPIC_API_KEY, GRAFANA_TOKEN, SLACK_WEBHOOK_URL, ...
 ```
 
 * Container is built from a `Dockerfile` in the repo root.
@@ -282,21 +280,27 @@ Host machine (single server or dev machine)
 
 ### Concurrency Control
 
-* Per-project locks are held in a SQLite `project_locks` table (`project`, `locked_at`).
+* Runs for different projects are fully independent and may execute concurrently — each cron invocation is a separate process with its own working directory under `/repos/`.
+* Per-project locks prevent concurrent runs for the *same* project. Locks are held in a SQLite `project_locks` table (`project`, `locked_at`).
 * A run begins by attempting to INSERT a lock row; if one already exists, the run exits immediately and logs `skipped: run in progress`.
 * Stale locks (process crash, container kill) are detected by age: any lock older than the configured run timeout is treated as stale and overwritten on the next attempt.
+* SQLite is opened in WAL mode to handle concurrent writers across projects safely.
 * `labro list-locks` shows all held locks with age; `labro unlock <project>` removes a lock manually.
 
 ### Error Handling
 
 * Agent subprocess timeout → logged as failure; `ai-failed` label applied.
 * Task source fetch failure → logged as warning; picker moves to next source.
-* GitHub API errors → logged; run aborted cleanly.
+* GitHub API errors during agent execution → logged; run aborted cleanly.
+* Label transition failure (post-run) → logged as `outcome=failure` with `failure_reason="label transition failed"`; `ai-failed` applied as best-effort fallback. If that also fails, the run record is written with the failure noted and the item is left in a dirty label state. No retry — the digest surfaces the failure and the operator resolves it manually.
+* SQLite write failure (logger) → failure logged to stderr; lock released unconditionally in a `finally` block. Run record may be lost. A frozen project is a worse outcome than a missing record.
 
 ### Configuration
 
 * Single TOML file (`labro.toml`) declares all projects. Parsed with `tomllib` (stdlib); validated with Pydantic at startup. See [ADR-001](adr/0001-toml-config-format.md).
 * Invalid config is a hard failure with a clear error message; no runs attempted.
+* Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` and `ANTHROPIC_API_KEY` are always required; `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
+* Required GitHub labels are checked at startup. If any are missing, the harness exits with: "Required label(s) missing in <repo> — run `labro init` to create them." `labro init` creates all required labels idempotently; `labro check` reports label status without writing.
 * Config is the only file an operator needs to edit to add a project.
 
 ---
@@ -326,6 +330,8 @@ _Testability and quality gates for the architecture._
 | Agent exceeds max turns | Turn limit hit | Run terminated; logged as `failure`; `ai-failed` applied. |
 | GitHub API returns 403 | Label transition call | Error logged; run marked failed; no retry in same run. |
 | Config file is invalid TOML | Startup | Hard exit with descriptive error; no runs attempted. |
+| Required env var missing | Startup | Hard exit with descriptive error naming the missing var; no runs attempted. |
+| Required GitHub label missing | Startup | Hard exit: "Required label(s) missing in <repo> — run `labro init`"; no runs attempted. |
 | New project added to config | Config change only | Project picked up on next scheduler cycle; no code change required. |
 
 ---
@@ -345,6 +351,18 @@ _Testability and quality gates for the architecture._
 ## Design Notes (WIP / TODO)
 
 _Parking lot for decisions not yet formalised into the sections above._
+
+### Prompt structure (`prompt_builder.py`)
+
+Each prompt passed to the agent has four sections, in order:
+
+1. **Role + harness context** — a short paragraph explaining that the agent is operating autonomously on behalf of Labro, on a schedule, with no human present. It should act decisively within its permitted actions or explicitly report that it cannot complete the task — it must not ask clarifying questions or wait for input.
+
+2. **Task** — the task description from the task source. For `gh-delegated`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: the selected improvement target and any strategy parameters.
+
+3. **Permitted actions** — an explicit enumeration of the *GitHub write operations* the agent may and may not perform in this run (derived from the effective permitted action set). Scoped narrowly to side-effectful GitHub actions only — read operations, web searches, MCP tool calls (e.g. context7, web fetch), and local file operations are always unrestricted. Example: "You may: post a comment on a GitHub issue or PR, open a pull request. You must not: merge a pull request, approve a pull request, push directly to the default branch."
+
+4. **Project context** — repo name, default branch, and an instruction to read `CLAUDE.md` at the repo root for project-specific conventions and constraints. Claude Code reads `CLAUDE.md` automatically when invoked in the repo directory; the prompt reinforces this as an explicit instruction. Any additional project-level context declared in `labro.toml` is appended here.
 
 ### `claude -p` structured output for agent result parsing
 
