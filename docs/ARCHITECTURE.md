@@ -303,6 +303,125 @@ Host machine (single server or dev machine)
 * Required GitHub labels are checked at startup. If any are missing, the harness exits with: "Required label(s) missing in <repo> — run `labro init` to create them." `labro init` creates all required labels idempotently; `labro check` reports label status without writing.
 * Config is the only file an operator needs to edit to add a project.
 
+#### `labro.toml` schema (annotated reference)
+
+```toml
+# labro.toml — annotated reference configuration
+# All fields are required unless marked (optional).
+
+# ── Global: digest ─────────────────────────────────────────────────────────────
+[digest]
+enabled = true
+cron    = "0 8 * * *"   # 5-field cron; runs inside the container (UTC)
+# Delivery target: SLACK_WEBHOOK_URL env var — no secret in config
+
+# ── Global: defaults ───────────────────────────────────────────────────────────
+# All fields optional; per-project and per-source blocks override these values.
+[defaults]
+model     = "claude-opus-4-7"   # passed to claude via --model
+max_turns = 20                  # --max-turns ceiling for Claude Code CLI
+timeout_s = 600                 # subprocess wall-clock timeout in seconds
+
+# ── Project ────────────────────────────────────────────────────────────────────
+# Repeat [[projects]] for each managed repo.
+[[projects]]
+name    = "my-api"          # unique slug; used in run records, CLI output, lock keys
+repo    = "my-org/my-api"   # GitHub "owner/repo"
+cron    = "0 * * * *"       # how often the scheduler fires a run for this project
+enabled = true              # optional; default true — set false to pause without removing
+
+# Per-project agent overrides (optional — inherit from [defaults] if absent)
+model     = "claude-sonnet-4-6"
+max_turns = 30
+timeout_s = 900
+
+# Project-level default permitted_actions.
+# Inherited by any task source that does not declare its own list.
+# Resolution order (most specific wins): per-label/actor rule → source-level → project-level.
+# Valid values (PermittedAction enum): "comment_on_issue", "comment_on_pr", "open_pr",
+#   "merge_pr", "push_default", "close_issue", "create_issue"
+permitted_actions = ["comment_on_issue", "comment_on_pr"]   # conservative project default
+
+# Free-text appended to section 4 (project context) of every prompt (optional).
+context = """
+This is a Python FastAPI service. All changes must go via a pull request.
+Do not modify files under db/migrations/ directly.
+"""
+
+# Task sources — evaluated in listed order; first non-None result wins.
+# Priority is determined by order; removing an entry disables that source.
+
+# ── grafana-alerts ─────────────────────────────────────────────────────────────
+[[projects.task_sources]]
+type         = "grafana-alerts"
+min_severity = "critical"          # "info" | "warning" | "critical" — lower bound filter
+model        = "claude-sonnet-4-6" # optional per-source model override
+# GRAFANA_TOKEN env var used for API auth
+
+# Source-level list overrides project-level permitted_actions for this source only.
+permitted_actions = ["comment_on_issue", "comment_on_pr", "create_issue"]
+# create_issue: may open a tracking issue for a firing alert
+
+# ── gh-delegated ───────────────────────────────────────────────────────────────
+[[projects.task_sources]]
+type = "gh-delegated"
+# Selection: when multiple items match across all rules, oldest by created_at is picked.
+# label_rules and actor_rules are evaluated together as a single candidate pool.
+
+# Label-based eligibility: each label entry may declare its own permitted_actions.
+# If absent, falls back to source-level then project-level permitted_actions.
+[[projects.task_sources.label_rules]]
+label             = "ai-dev"        # label that makes an issue/PR eligible for pickup
+done_label        = "ai-dev-done"   # applied on success; trigger label removed
+permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
+
+[[projects.task_sources.label_rules]]
+label             = "ai-review"
+done_label        = "ai-review-done"
+permitted_actions = ["comment_on_issue", "comment_on_pr"]
+
+# Actor-based eligibility: matches open PRs/issues from a specific GitHub login.
+# No label required on the item — implicit eligibility.
+[[projects.task_sources.actor_rules]]
+actor             = "dependabot[bot]"   # exact GitHub login match
+done_label        = "ai-done"
+model             = "claude-haiku-4-5"  # route to cheaper model for routine Dependabot PRs
+permitted_actions = ["comment_on_pr", "open_pr"]
+
+# ── proactive-improvement ──────────────────────────────────────────────────────
+[[projects.task_sources]]
+type                 = "proactive-improvement"
+selection_strategy   = "agent-chooses"   # "agent-chooses" | "harness-random"
+max_open_suggestions = 3                 # source returns no task if open ai-proactive-suggestion issues ≥ this cap
+# Built-in targets (full list): "review-app-logs", "review-prometheus-metrics",
+# "competitor-analysis", "architecture-review", "security-review",
+# "test-coverage-review", "scan-todos", "surprise-me"
+targets = ["scan-todos", "test-coverage-review", "security-review"]
+
+permitted_actions = ["comment_on_issue", "open_pr"]
+
+# ── Second project (minimal — inherits [defaults] and no permitted_actions default) ──
+[[projects]]
+name = "infra"
+repo = "my-org/infra"
+cron = "0 2 * * *"
+
+[[projects.task_sources]]
+type = "gh-delegated"
+
+[[projects.task_sources.label_rules]]
+label             = "ai-todo"
+done_label        = "ai-done"
+permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
+```
+
+**Schema decisions:**
+
+- `permitted_actions` — string allow-list validated against an enum. `permitted_actions = ["comment_on_issue", "open_pr"]`. Pydantic validates each entry against the `PermittedAction` enum; unknown strings are a hard config error.
+- `model` — passed through opaquely to the CLI; not validated at config load time. Avoids needing schema updates when new model names are released; the CLI surfaces an error if the value is unrecognised.
+- `timeout_s` — single value used both as the subprocess wall-clock timeout and as the stale-lock age threshold. No separate key.
+- `gh-delegated` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
+
 ---
 
 ## 9. Architectural Decisions
@@ -426,3 +545,40 @@ Example top-level response shape (abridged):
 The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
 `actions_taken` remains a human-readable string array — used for the digest summary and the run record, not for outcome matching.
+
+### Outstanding questions
+
+_Unresolved gaps to address before implementation begins._
+
+**Data models**
+
+- **`Task` object** — `TaskSource.fetch_task()` returns `Task | None` but the `Task` dataclass is never defined. Minimum fields needed: `task_id`, `source`, `description`, `item_url` (nullable), `label_rule` / `actor_rule` reference (for post-run label transitions). Define before any task source module is written.
+- **SQLite schema** — `store.py` has no `CREATE TABLE` statements anywhere. Three tables are implied: `runs`, `project_locks`, `items_touched`. Column types, indexes, and constraints need to be specified before `store.py` is implemented.
+
+**Label state machine**
+
+- The label lifecycle is described in prose across several sections but there is no single table or diagram showing: which labels trigger pickup per source, which are removed on completion, which are applied on failure, and which are mutually exclusive. A state-transition table per task source should be added to Section 5 or Section 8 before post_run.py is implemented.
+
+**Digest spec**
+
+- `digest.py` is named but its output format, Slack message structure, SQL queries, and firing schedule are unspecified. Minimum needed: which fields are aggregated, what the Slack message looks like, and how outcome signals (from `items_touched`) are surfaced vs. run-time stats.
+
+**`entrypoint.sh` / crontab generation**
+
+- The entrypoint reads `labro.toml` and writes `/etc/cron.d/labro`, but the generated format is unspecified. Open questions: does each project get one cron entry or two (run + digest)? What `PATH` and env vars does the generated crontab export? What user does the cron job run as inside the container?
+
+**Dirty-repo recovery**
+
+- The runtime view specifies `git reset --hard + git clean -fd` on a dirty working copy, but does not explain _why_ the repo would be dirty (agent crash mid-run while the lock was still held?). If the lock is held at crash time, the next run should hit the stale-lock path and log a warning — clarify whether dirty-repo recovery is a belt-and-suspenders guard or the primary recovery path, and document the expected sequence.
+
+**`--json-schema` flag on `claude -p`**
+
+- The structured output invocation in this document uses `--json-schema`. This flag name and behaviour should be verified against the current Claude Code CLI docs before `runner.py` is built around it. If the flag differs, the entire result-parsing strategy changes.
+
+**Secret sanitisation**
+
+- Section 8 states "agent output sanitised before persistence" but does not specify how. Options: regex against known token patterns, a deny-list of env var names, or stripping lines that match `GH_TOKEN`/`ANTHROPIC_API_KEY` patterns. Needs a concrete spec before `logger.py` is written.
+
+**Outcome signal collection timing**
+
+- The digest collects outcome signals from `items_touched` by reading current GitHub state. No minimum age is specified before collection runs. If a PR is merged within minutes of the run (e.g. operator was watching), it will be captured on the next digest — this is fine. But if the digest fires before the agent has finished (overlapping runs on different projects), `items_touched` may be incomplete. Clarify whether the digest job waits for all project locks to be clear before collecting signals, or collects signals only for runs completed before the digest window.
