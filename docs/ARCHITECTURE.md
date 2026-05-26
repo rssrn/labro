@@ -351,6 +351,10 @@ Lock acquired (INSERT into project_locks)
   └── already locked? → log skipped: run in progress → exit
     │
     ▼
+daily_budget_usd configured? → query SUM(total_cost_usd) FROM runs WHERE project = :project AND DATE(started_at) = today
+  └── spend ≥ budget? → log skipped: daily budget exceeded ($X.XX of $Y.YY used) → release lock → exit
+    │
+    ▼
 Picker iterates priority stack
     └── TaskSource.fetch_task()?   None → next source
     │
@@ -518,6 +522,23 @@ SELECT project, model,
 FROM runs
 WHERE started_at >= :window_start
 GROUP BY project, model;
+
+-- Self-report vs objective outcome delta (all-time; runs where signals have been collected)
+-- false_positive: agent said success but GitHub shows closed/rejected
+-- false_negative: agent said failure but GitHub shows merged/completed
+SELECT r.project,
+       COUNT(*) FILTER (
+           WHERE r.outcome = 'success'
+             AND it.outcome_state IN ('closed_not_planned', 'closed_unmerged')
+       )                                               AS false_positives,
+       COUNT(*) FILTER (
+           WHERE r.outcome = 'failure'
+             AND it.outcome_state IN ('merged', 'closed_completed')
+       )                                               AS false_negatives,
+       COUNT(*) FILTER (WHERE it.signals_collected_at IS NOT NULL) AS signals_with_data
+FROM runs r
+JOIN items_touched it ON it.run_id = r.run_id
+GROUP BY r.project;
 ```
 
 #### Phase 3 — Slack message structure
@@ -549,6 +570,8 @@ Plain Slack mrkdwn (no Block Kit). Four sections separated by `---` dividers.
   All-time: {merged} merged · {closed_not_planned} not planned · {closed_completed} completed · {open} open
   PR merge rate: {merged}/{merged+closed_unmerged} · Human override rate: {pct}% had follow-up commits
   Satisfaction: {thumbs_up}👍 {thumbs_down}👎 ({rated} rated) — ratio: {ratio}%
+  Self-report accuracy: {false_positives} success→rejected · {false_negatives} failure→accepted ({pct}% disagreement across {n} signals)
+  (omit self-report accuracy line if fewer than 3 all-time signals with data)
   (omit "Collected this digest" sub-section if nothing collected)
 
 ---
@@ -576,9 +599,13 @@ Only successful runs are listed — failed runs are surfaced in the Runs section
 
 #### Phase 4 — Delivery
 
-Single HTTP POST to `SLACK_WEBHOOK_URL`. If the POST fails, the error is logged to stderr and the digest is marked failed in SQLite (a `digests` table: `digest_id`, `fired_at`, `outcome`, `error`). No retry — the next scheduled digest will cover the window. A failed digest does not prevent outcome signals already written in Phase 1 from being retained.
+Two steps, in order:
 
-The `digests` table also serves as the scheduling anchor: `labro digest --dry-run` skips Phase 1 (no `signals_collected_at` writes) and Phase 4 (no Slack POST), assembling and printing the message from already-collected signals only. No `digests` row is written. Zero side effects.
+1. **Write to local file** — always writes the assembled message to `/data/digest-YYYY-MM-DD.txt` (UTC date), regardless of what follows. This write happens before the Slack POST so the message is recoverable even if the webhook fails, the URL expires, or Slack rejects the payload.
+
+2. **Slack POST** — single HTTP POST to `SLACK_WEBHOOK_URL`. If the POST fails, the error is logged to stderr and the digest is marked failed in SQLite (a `digests` table: `digest_id`, `fired_at`, `outcome`, `error`). No retry — the next scheduled digest will cover the window. A failed digest does not prevent outcome signals already written in Phase 1 from being retained.
+
+The `digests` table also serves as the scheduling anchor: `labro digest --dry-run` skips Phase 1 (no `signals_collected_at` writes) and Phase 4 (no Slack POST and no file write), assembling and printing the message from already-collected signals only. No `digests` row is written. Zero side effects.
 
 ```sql
 CREATE TABLE digests (
@@ -743,9 +770,14 @@ cron    = "0 * * * *"       # how often the scheduler fires a run for this proje
 enabled = true              # optional; default true — set false to pause without removing
 
 # Per-project agent overrides (optional — inherit from [defaults] if absent)
-model     = "claude-sonnet-4-6"
-max_turns = 30
-timeout_s = 900
+model            = "claude-sonnet-4-6"
+max_turns        = 30
+timeout_s        = 900
+daily_budget_usd = 5.00   # optional; if today's total spend for this project >= this value,
+                           # the run exits after lock acquisition with:
+                           # "skipped: daily budget exceeded ($X.XX of $Y.YY used)"
+                           # Queried from runs.total_cost_usd WHERE DATE(started_at) = today.
+                           # Omit or set to 0.0 to disable.
 
 # Project-level default permitted_actions.
 # Inherited by any task source that does not declare its own list.
@@ -839,6 +871,7 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 - `permitted_actions` — string allow-list validated against an enum. `permitted_actions = ["comment_on_issue", "open_pr"]`. Pydantic validates each entry against the `PermittedAction` enum; unknown strings are a hard config error.
 - `model` — passed through opaquely to the CLI; not validated at config load time. Avoids needing schema updates when new model names are released; the CLI surfaces an error if the value is unrecognised.
 - `timeout_s` — single value used both as the subprocess wall-clock timeout and as the stale-lock age threshold. No separate key.
+- `daily_budget_usd` — optional float; omit or set `0.0` to disable. Checked after lock acquisition by querying `SUM(total_cost_usd)` from `runs` for the current UTC date. Skips with a structured reason string so it aggregates cleanly in the digest alongside other skip reasons.
 - `gh-delegated` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
 
 ### Documentation
@@ -922,6 +955,7 @@ _Testability and quality gates for the architecture._
 | `post_run.py` label_rule success path | Agent returns `outcome="success"` | Source label removed; done label applied; `ai-contributed` applied; no `ai-failed`; no failure comment. |
 | `post_run.py` label_rule failure path | Agent returns `outcome="failure"` | Source label kept; `ai-failed` applied; `ai-contributed` applied; failure comment posted. |
 | `post_run.py` actor_rule success path | Agent returns `outcome="success"` | Done label applied; `ai-contributed` applied; no source label to remove; no `ai-failed`. |
+| `daily_budget_usd` reached | Today's spend ≥ configured cap | Run logged as `skipped: daily budget exceeded ($X.XX of $Y.YY used)`; no agent invoked; lock released. |
 | `store.py` lock acquisition | Project not currently locked | `INSERT` succeeds; `project_locks` row present with correct `project` and `locked_at`. |
 | `store.py` lock contention | Project already locked (non-stale) | `INSERT` fails; returns `False`; no second lock row created. |
 | `store.py` stale lock | Lock age > `timeout_s` | Existing row overwritten; new lock acquired; run proceeds. |
