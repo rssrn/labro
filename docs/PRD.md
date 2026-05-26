@@ -2,7 +2,7 @@
 
 * **Status:** Draft
 * **Author:** Ross Arnold
-* **Date:** 2026-05-25
+* **Date:** 2026-05-26
 * **Target Release:** Continuous / no fixed date
 
 ---
@@ -71,7 +71,7 @@ Several tools exist in this space. None were disqualifying — the rationale for
 | Tasks completed per week | 0 (not yet running) | TBD — baseline first |
 | Agent success rate (self-reported) | — | TBD |
 | Token cost per task | — | TBD |
-| Human override rate (tasks needing correction) | — | TBD — track to reduce |
+| Human override rate (tasks needing correction) | — | TBD — track to reduce; captured via follow-up commits before merge (REQ-22) |
 
 > _KPI targets intentionally left open until baseline data is collected._
 
@@ -90,14 +90,15 @@ Several tools exist in this space. None were disqualifying — the rationale for
 
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
-| **REQ-01** | As an operator, I want a cron-triggered run (e.g. hourly) so the agent works without manual intervention. | P0 | Docker container with configurable cron schedule. |
+| **REQ-01** | As an operator, I want each project to have its own independently-configured cron schedule so different projects can run at different cadences with independent cost profiles. | P0 | Each project in config declares its own cron schedule; projects run independently and do not share a schedule. |
 | **REQ-02** | As an operator, I want a deterministic Python script to select the highest-priority task so the agent always has clear, actionable work. | P0 | Script outputs a single task description; priority logic is readable and editable. |
 | **REQ-03** | As an operator, I want to define the task priority stack in config (per project) so different projects and users can have different priorities without changing code. | P0 | Priority stack is an ordered list in the project config; the picker evaluates task sources top-to-bottom and takes the first match. |
 | **REQ-04** | As an operator, I want built-in task source modules I can compose in my priority stack so I don't have to write sources from scratch. | P0 | Each task source is an independently loadable module; unused sources have zero cost. |
-| **REQ-05** | As an operator, I want a `grafana-alerts` task source that detects currently-firing Grafana alerts and surfaces them as a task. | P0 | Polls Grafana API; returns highest-severity firing alert as task context. |
-| **REQ-06** | As an operator, I want a `gh-delegated` task source that finds GitHub issues/PRs eligible for AI work via: (1) explicit labels (configurable list, e.g. `ai-analysis`, `ai-dev`, `ai-review`), and (2) implicit eligibility rules (configurable, e.g. "any open PR from `dependabot[bot]`"). | P0 | Config accepts a label list and an actor/origin allowlist; source returns all matching open items ranked by age or label precedence. |
-| **REQ-07** | As an operator, I want a `proactive-improvement` task source with a configurable target list and selection strategy so I control the scope of proactive work. | P1 | Config declares: (1) an ordered list of improvement targets, (2) a selection strategy (`agent-chooses` or `harness-random`). |
-| **REQ-08** | As an operator, I want a configurable output mode for proactive improvement results so suggestions land where I want them. | P1 | Config selects output mode; v1 supports `gh-issue` (opens a GitHub issue) and `email` (sends a summary). Opening a PR is out of scope for this source in v1. |
+| **REQ-05** | As an operator, I want a `grafana-alerts` task source that detects currently-firing Grafana alerts and surfaces them as a task. | P0 | Polls Grafana API; returns highest-severity firing alert as task context. Agent behaviour for this source is triage and investigation: analyse the codebase and recent changes for likely cause, open a GitHub issue with findings, and raise a PR if a clear fix is identified. |
+| **REQ-05a** | As an operator, I want repeated firings of the same alert to be deduplicated against existing GitHub issues so a long-running alert produces one tracked issue, not one per run. | P0 | Before acting, the source checks for an open Labro-created issue fingerprinting the same alert (matched via a per-rule label, e.g. `ai-alert:<rule-uid>`, written when the issue is opened). If a matching open issue exists, the source returns no task and the run logs `skipped: already tracking <issue#>`. GitHub issue state is the single source of truth for dedup — Labro does not write back to Grafana in v1. When the alert clears, Labro posts an "alert cleared" comment on the issue but leaves it open for the operator to close, so the close reason (REQ-22) remains a clean success signal. |
+| **REQ-06** | As an operator, I want a `gh-delegated` task source that finds GitHub issues/PRs eligible for AI work via: (1) explicit labels (configurable list, e.g. `ai-analysis`, `ai-dev`, `ai-review`), and (2) implicit eligibility rules (configurable, e.g. "any open PR from `dependabot[bot]`"). | P0 | Config accepts a label list and an actor/origin allowlist; source returns all matching open items ranked by age or label precedence. Each label entry may declare its own permitted action override — e.g. `ai-dev` items get `open-pr` while `ai-review` items get `comment` only. This allows the operator to grant write access for development tasks without over-permitting review tasks. |
+| **REQ-07** | As an operator, I want a `proactive-improvement` task source with a configurable target list and selection strategy so I control the scope of proactive work. | P1 | Config declares: (1) an ordered list of improvement targets, (2) a selection strategy (`agent-chooses` or `harness-random`), (3) a maximum open issue cap. If the number of open GitHub issues labelled `ai-proactive-suggestion` meets or exceeds the configured cap, the source returns no task and the harness skips agent invocation for this source. |
+| **REQ-08** | As an operator, I want a configurable output mode for proactive improvement results so suggestions land where I want them. | P1 | Config selects output mode; v1 supports `gh-issue` (opens a GitHub issue), `email` (sends a summary), and `open-pr` (raises a PR where a concrete change is warranted). Whether `open-pr` is available is gated by the source's permitted actions; the agent raises a PR when it has a concrete, justified change and otherwise falls back to a suggestion. |
 
 **Proactive improvement: selection strategies**
 
@@ -122,9 +123,17 @@ Several tools exist in this space. None were disqualifying — the rationale for
 **Example priority stack (Ross's first project):**
 1. `grafana-alerts` — firing production alert → Claude Sonnet (needs reasoning and context)
 2. `gh-delegated` — issues/PRs labelled `ai-analysis`, `ai-dev`, or `ai-review`; OR opened by `dependabot[bot]` → Aider + cheap model for Dependabot; Claude for labelled issues
-3. `proactive-improvement` — agent proposes something useful when no urgent work exists (output: GitHub issue or email; not a PR) → Aider + cheap model
+3. `proactive-improvement` — agent proposes something useful when no urgent work exists (output: GitHub issue, email, or PR where a concrete change is warranted) → Aider + cheap model
 
-**Example permitted actions (Ross's first project):** `comment`, `approve` — no merge, no push to main.
+**Example permitted actions (Ross's first project):**
+
+| Task Source | Permitted Actions |
+| :--- | :--- |
+| `grafana-alerts` | `comment`, `open-pr` — triage and surface findings; PR only if clear fix identified |
+| `gh-delegated` | `comment` — Labro agents do not `approve` PRs in v1 (see note below) |
+| `proactive-improvement` | `comment`, `open-pr` — suggest by default; raise a PR where a concrete, justified change exists |
+
+> **v1 policy — no autonomous PR approval.** Labro agents may not `approve` PRs in v1/MVP, per Design Principle #5 (suggest over act). The `approve` action category still exists in the config schema (REQ-12) so it can be granted later once trust is established, but it is not enabled for any task source in v1.
 
 ### Epic B: Agent Execution
 
@@ -133,8 +142,15 @@ Several tools exist in this space. None were disqualifying — the rationale for
 | **REQ-09** | As an operator, I want to configure which agent and model to use at the task-source level (with a project-level default fallback) so I can route simpler tasks to cheaper agents and reserve more capable models for complex work. | P0 | Each task source in config optionally declares an agent and model; if absent, the project-level default applies. Config supports at minimum: Claude Code CLI and Aider, each with a configurable model parameter. |
 | **REQ-10** | As an operator, I want the selected agent invoked with the constructed task prompt and its output captured so the harness can log outcomes regardless of which agent ran. | P0 | Harness abstracts agent invocation; stdout/stderr captured for all supported agents. |
 | **REQ-11** | As an operator, I want the agent to have access to `gh` CLI commands so it can act on GitHub (comment, open PRs, push fixes). | P0 | `gh` is available in the container and authenticated via token. |
-| **REQ-12** | As an operator, I want to define a permitted action set in config (per project) so I control the blast radius of autonomous runs. | P0 | Config declares which action categories are enabled (e.g. `comment`, `approve`, `open-pr`, `merge`, `push`). The harness communicates permitted actions to the agent before invocation (via prompt, CLI args, or agent config — whichever is appropriate for the agent in use). |
+| **REQ-12** | As an operator, I want to define a permitted action set in config at both the project level and the task-source level so I control the blast radius of autonomous runs with fine-grained precision. | P0 | Config declares which action categories are enabled (e.g. `comment`, `approve`, `open-pr`, `merge`, `push`) at the project level as a default; each task source may optionally override with its own permitted action set. The harness communicates the effective permitted actions to the agent before invocation. |
 | **REQ-13** | As an operator, I want the agent to run in a sandboxed environment so mistakes don't affect my main dev environment. | P1 | Agent runs inside Docker; file system access scoped to cloned repo. |
+
+### Epic B2: Task State Management
+
+| ID | User Story | Priority | Acceptance Criteria |
+| :--- | :--- | :--- | :--- |
+| **REQ-20** | As an operator, I want the harness to transition GitHub labels as a deterministic post-run step so task state is always consistent and items are not re-selected on future runs. | P0 | On successful completion: harness applies the configured done label (e.g. `ai-dev-done`) and removes the source label. On failure: harness applies `ai-labro-failed` and posts a comment with the agent's self-reported failure reason. Label transitions are configured per task source. |
+| **REQ-21** | As an operator, I want Labro to send a single daily digest across all configured projects so I can assess system health without manually inspecting logs. | P1 | Digest fires once per day on a fixed schedule (independent of any project's cron). Delivered via email or Slack (configurable). Content covers all projects in a single summary: runs fired, tasks selected per source, tasks skipped (and why), token spend, and any failure labels applied. Digest is a health and cost signal — not a duplicate of ambient GitHub/Slack notifications generated by agent actions. |
 
 ### Epic C: Observability & Logging
 
@@ -144,12 +160,28 @@ Several tools exist in this space. None were disqualifying — the rationale for
 | **REQ-15** | As an operator, I want to know whether the agent believed it succeeded and what actions it took (e.g. "opened PR #42", "pushed commit abc123"). | P0 | Agent output parsed for action summary; stored alongside run log. |
 | **REQ-16** | As an operator, I want a simple way to review recent runs so I can spot failures or bad behaviour quickly. | P1 | CLI command or script to tail/summarize recent run logs. |
 | **REQ-17** | As an operator, I want token and time costs aggregated by agent and model so I can understand and control spend. | P1 | Daily/weekly summary queryable from logs; broken down by agent/model. |
+| **REQ-22** | As an operator, I want Labro to capture *outcome* signals for past tasks from passive GitHub state so I can judge real usefulness without manual bookkeeping. | P0 | On each run, for items acted on in prior runs, Labro reads native GitHub state — PR merged vs. closed-unmerged, issue close reason (`completed` vs. `not planned`), and whether the operator added commits to an AI-opened PR before merge — and records each as an outcome signal against the original run log. |
+| **REQ-23** | As an operator, I want to express explicit satisfaction with a single click so I can correct or confirm Labro's self-reported success cheaply. | P1 | Labro reads 👍/👎 reactions on its own issue/PR comments via the GitHub API and records them as a satisfaction signal against the originating run. The daily digest (REQ-21) includes an "awaiting your verdict" section listing recently-acted items with direct links, so the reaction prompt rides on the existing digest rather than a separate notification. |
+
+**Success signal model**
+
+Labro distinguishes three signals; only the first is available at run time, so the digest reports satisfaction for *previous* runs, never the current one.
+
+| Signal | Type | Source | Operator effort | Interpretation |
+| :--- | :--- | :--- | :--- | :--- |
+| Agent self-report | leading, subjective | agent output (REQ-15) | none | "the agent believed it succeeded" — a hint, not ground truth |
+| PR merged / issue closed | lagging, objective | native GitHub state (REQ-22) | zero (normal review) | the work survived contact with the operator |
+| Issue closed `not planned` | lagging, objective | native GitHub state (REQ-22) | one click | the task was noise |
+| Follow-up commits before merge | lagging, objective | native GitHub state (REQ-22) | zero | needed correction → feeds **human override rate** KPI |
+| 👍 / 👎 reaction | lagging, subjective | GitHub reactions API (REQ-23) | one click | explicit operator sentiment |
+
+Labels remain reserved for Labro's own lifecycle state (REQ-20); human sentiment is captured via reactions and close-reason, not labels, to keep the two families from colliding in the UI.
 
 ### Epic D: Configuration & Project Support
 
 | ID | User Story | Priority | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
-| **REQ-18** | As an operator, I want to configure which GitHub repos Labro monitors, with per-project priority stacks, permitted actions, and a default agent/model that individual task sources can override. | P0 | Config file supports multiple projects; each project declares a default agent/model and an ordered task source list where each source may optionally override the agent/model. |
+| **REQ-18** | As an operator, I want to configure which GitHub repos Labro monitors, with per-project cron schedules, priority stacks, permitted actions, and a default agent/model that individual task sources can override. | P0 | Config file supports multiple projects; each project declares its own cron schedule, a default agent/model, default permitted actions, and an ordered task source list where each source may optionally override the agent/model and permitted actions. |
 | **REQ-19** | As an operator, I want to be able to add a new project to Labro with minimal effort. | P1 | Adding a repo requires only config changes, no code changes. |
 
 *(Priority Scale: P0 = Critical/Launch blocking, P1 = Important/Should have, P2 = Nice to have)*
@@ -160,15 +192,20 @@ Several tools exist in this space. None were disqualifying — the rationale for
 
 Labro is a headless, operator-facing tool. There is no end-user UI.
 
-* **Operator interface:** Config file + structured log files.
+* **Operator interface:** Config file + structured log files + daily digest.
+* **Operator touchpoints:** Two distinct channels surface Labro's activity:
+  * **Daily digest (async, pull):** Email or Slack summary of runs, task selections, skips, costs, and failures. This is the primary "is this working?" signal — health and cost visibility, not action replay.
+  * **Ambient notifications (real-time, push):** Agent actions on GitHub and Slack generate their own notifications (GitHub mentions, issue assignments, PR activity, Slack namechecks). These are not mediated by Labro; they surface through the operator's normal channels.
+* **Trust expansion:** Permitted actions are expanded manually by the operator, informed by observability data. Labro does not prompt for permission upgrades.
 * **Key operator flow:**
-  1. Operator adds a repo to config
-  2. Cron triggers task picker
+  1. Operator adds a repo to config with a cron schedule, priority stack, and per-source permitted actions
+  2. Cron triggers task picker for that project
   3. Task picker evaluates priority stack and selects highest-priority task
-  4. Agent is invoked with constructed prompt (scoped to permitted actions)
+  4. Agent is invoked with constructed prompt (scoped to effective permitted actions)
   5. Agent executes (gh commands, git operations)
-  6. Run result and action summary logged
-  7. Operator optionally reviews log summary
+  6. Harness performs label transitions (success → done label; failure → `ai-labro-failed` + comment)
+  7. Run result and action summary logged
+  8. Operator receives daily digest summarising health and spend
 
 ---
 
@@ -181,6 +218,7 @@ Labro is a headless, operator-facing tool. There is no end-user UI.
 * **Logging format:** Structured JSON logs per run; stored as files initially (no external log sink required for v1).
 * **Security/Privacy:** GitHub token scoped to minimum required permissions. No secrets stored in logs. Agent output sanitised before logging.
 * **Performance:** Each run should complete within a configurable timeout and/or maximum turn count to prevent runaway agent sessions consuming excessive tokens. Where the agent supports it (e.g. Claude Code CLI's `--max-turns`), turn limiting is preferred as it bounds cost more precisely than time alone.
+* **Spend control (v1 decision):** Per-run bounds (timeout, `--max-turns`) cap a single run, but v1 deliberately has **no aggregate budget cap** that halts runs across a day/week. Spend is observe-only — captured and surfaced in logs and the daily digest (REQ-17, REQ-21) — on the basis that per-run caps plus daily visibility are sufficient for a single operator's projects. An aggregate spend ceiling is a candidate for a later version if observed cost warrants it.
 * **Dependencies:** Claude Code CLI (`claude`) must be available and authenticated in the container.
 * **Monitoring integration (v1):** Grafana alerts via Grafana HTTP API. Other alert sources (PagerDuty, Uptime Robot, etc.) are out of scope for v1 but the task source module interface should not preclude them.
 
@@ -188,5 +226,6 @@ Labro is a headless, operator-facing tool. There is no end-user UI.
 
 ## Open Questions / Risks
 
-* [ ] **Question:** How should real task success be measured beyond agent self-reporting? Self-reporting is a useful signal but not ground truth — a PR the agent approved may never get merged, or a bug it "fixed" may recur. Options: (a) a follow-up check run N hours later that looks for downstream outcomes (PR merged, issue closed); (b) accept self-reporting for v1 and treat it as a metric to validate manually during early operation.
+* [x] **Resolved:** How should real task success be measured beyond agent self-reporting? **Decision:** v1 uses a passive-first signal model (see [Success signal model](#epic-c-observability--logging), REQ-22/REQ-23). Ground truth comes from native GitHub state Labro reads on subsequent runs — PR merged, issue close reason, and follow-up commits before merge — which require no operator bookkeeping. Explicit satisfaction is captured via 👍/👎 reactions, prompted inside the daily digest rather than a separate reminder. Agent self-report is retained as a leading hint only. Open follow-on: tune how many runs/hours to wait before treating a "no outcome yet" item as inconclusive.
 * [ ] **Risk:** Agent may take actions outside the configured permission set. v1 enforces permissions at invocation time only — track violations in observability logs and consider runtime enforcement in v1.1.
+
