@@ -35,17 +35,39 @@ These principles govern every product decision in Labro. When requirements confl
 
 ## Existing Landscape & Competitive Context
 
-Several tools exist in this space. None were disqualifying — the rationale for Labro is differentiation, not novelty.
+Several tools exist in this space. None were disqualifying — the rationale for Labro is differentiation, not novelty. For the full competitive analysis and the case for self-build, see [docs/CASE-FOR-SELF-BUILD.md](CASE-FOR-SELF-BUILD.md).
+
+**PR-review bots (reactive, event-driven)**
 
 | Tool | Description | Where it falls short for Labro's use case |
 | :--- | :--- | :--- |
-| [OpenHands](https://www.openhands.dev/) (formerly OpenDevin) | Self-hostable, open-source autonomous software engineering agent. Strong SWE-Bench performance; supports many LLM providers; has a web UI and cloud offering. | General-purpose software engineering focus; no built-in concept of project-specific task priority lists, alert sources, or per-project permission envelopes. Heavyweight for personal project maintenance. |
+| [PR-Agent](https://github.com/The-PR-Agent/pr-agent) (formerly Qodo Merge; Apache 2.0, community-owned 2025) | AI-powered PR review, summarisation, and suggestions. Self-hostable with your own LLM keys. Supports GitHub, GitLab, Bitbucket, Azure DevOps. | No task selection layer, no scheduling, no proactive work, no alert integration, no permission envelopes, no outcome tracking. Event-driven (PR webhook) rather than cron/pull-based. |
+| [Sweep AI](https://docs.sweep.dev/) | GitHub issue → autonomous PR. Labels an issue; Sweep plans, commits, and opens a PR ready for review. Apache 2.0. | Effectively abandoned as a self-hosted harness (pivoted to JetBrains plugin). No scheduling, no priority queue, narrow issue→PR only. |
+| [GitHub Agentic Workflows](https://github.blog/changelog/2026-02-13-github-agentic-workflows-are-now-in-technical-preview/) | Event-driven AI agents within GitHub Actions: issue triage, PR review, CI failure analysis. | Tightly coupled to GitHub infrastructure; each workflow is independent; no cross-repo priority logic; no persistent observability. |
+
+**General autonomous coding agents (no scheduling or selection layer)**
+
+| Tool | Description | Where it falls short for Labro's use case |
+| :--- | :--- | :--- |
+| [OpenHands](https://www.openhands.dev/) (formerly OpenDevin) | Full-stack autonomous software engineering platform. Strong SWE-Bench performance; web UI; multi-user; Kubernetes-ready. Two-tier deployment: long-lived app container + per-task sandbox containers spawned via Docker socket. RFC for scheduled automations [in progress](https://github.com/OpenHands/OpenHands/issues/13275). | No task selection or priority layer; no Grafana integration; no per-source permission envelopes; heavyweight deployment model (multi-service, requires Docker socket, web UI) relative to personal project maintenance. Scheduled RFC unshipped. |
+| [SWE-agent](https://swe-agent.com/latest/) (Princeton) | Research-focused; custom Agent-Computer Interface; designed for GitHub issue → automated fix. MIT licence. | Research tool, not a harness; no scheduling, no task prioritisation, no observability, no permission model. |
 | [Cline](https://cline.bot/) | Open-source AI coding agent (VS Code extension + CLI). Explicitly supports running in cron jobs and CI pipelines. | Designed for interactive use; no task-selection layer, observability, or project config model out of the box. |
-| [GitHub Agentic Workflows](https://blog.codeinside.eu/2026/05/11/github-agentic-workflows/) | Uses GitHub Actions as the scheduling and event-trigger layer for AI agents. | Tightly coupled to GitHub's infrastructure; no persistent task-selection logic or cross-repo observability. Each workflow is independent. |
-| [Autobot](https://veelenga.github.io/how-agent-loop-and-cron-work-together-inside-autobot/) | Agent framework with built-in cron scheduling; routes scheduled tasks through the same message bus as interactive agent sessions. | General agent loop rather than a software project maintenance harness. |
+
+**Cron/scheduled agent platforms (general-purpose, not project-maintenance)**
+
+| Tool | Description | Where it falls short for Labro's use case |
+| :--- | :--- | :--- |
+| [OpenClaw](https://docs.openclaw.ai/automation/cron-jobs) | Lightweight self-hosted personal AI assistant with cron scheduling and 50+ messaging platform integrations. Cron jobs run in isolated sessions with their own model and context. | Chat-agent architecture, not a software maintenance harness; no project-aware priority lists; no multi-source task selection; no outcome tracking; no permission envelopes. |
+| [Autobot](https://veelenga.github.io/how-agent-loop-and-cron-work-together-inside-autobot/) | Agent framework with built-in cron scheduling; routes scheduled tasks through the same message bus as interactive agent sessions. | General agent loop; no software-project-specific integrations (GitHub, Grafana); no observability. |
 | [CronBox](https://www.producthunt.com/products/cronbox-2) | Cloud product specifically for scheduling AI agents on a cron basis. | Cloud-hosted (not self-hosted); closed product; no software project-specific integrations (GitHub, Grafana, etc.). |
 
-**Labro's differentiation:** a lightweight, self-hosted harness with a configurable, project-aware task-selection layer; per-project permission envelopes; and first-class observability — purpose-built for personal software project maintenance rather than general software engineering.
+**Issue triage specialists (narrow scope)**
+
+| Tool | Description | Where it falls short for Labro's use case |
+| :--- | :--- | :--- |
+| [trIAge](https://github.com/trIAgelab/trIAge) | LLM-powered issue triage, labelling, and user support for open-source communities; deployable as a self-hosted GitHub App. | Triage only — no code changes, no PRs, no alert integration, no proactive improvement. Aimed at open-source maintainer communities, not solo devs. |
+
+**Labro's differentiation:** a lightweight, self-hosted harness with a configurable, project-aware task-selection layer; per-project, per-source permission envelopes; first-class observability with passive outcome signal tracking; and a Grafana alert pipeline — purpose-built for personal software project maintenance rather than general software engineering. See [CASE-FOR-SELF-BUILD.md](CASE-FOR-SELF-BUILD.md) for the full analysis.
 
 ---
 
