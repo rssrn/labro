@@ -115,6 +115,8 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 **Goal:** container runs autonomously on a cron schedule. Operator edits `labro.toml` and restarts the container — no other change required to add or modify a project.
 
+**Deployment pattern:** Labro uses a two-repo layout — the labro repo is the engine (published as a Docker image); a separate private config repo holds `labro.toml`, GitHub Secrets, and the workflow YAML that drives scheduling. See ARCHITECTURE.md §7 "Two-repo deployment pattern" for the full design, example GitHub Actions workflow, and VPS alternative.
+
 **Completed here:**
 
 | Component | Notes |
@@ -122,7 +124,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | `entrypoint.sh` | Exports env to `/etc/labro-env`; generates `/etc/cron.d/labro` from `labro.toml`; execs `crond -f` |
 | Crontab generation | Per-project entries + digest entry; disabled projects omitted; format documented in ARCHITECTURE.md §7 |
 | Docker bind-mount layout | `/config/`, `/data/`, `/repos/` verified and documented |
-| `README.md` | Add Docker deployment section: image build, bind-mount layout, container restart workflow for adding or modifying a project |
+| `README.md` | Add Docker deployment section: image build, bind-mount layout, container restart workflow for adding or modifying a project; reference to two-repo pattern and `LABRO_CONFIG` env var |
 
 ---
 

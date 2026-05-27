@@ -64,6 +64,7 @@ def pick(
                 defaults_model=defaults.model,
                 defaults_max_turns=defaults.max_turns,
                 defaults_timeout_s=defaults.timeout_s,
+                defaults_max_comments=defaults.max_comments,
             )
         except Exception:
             logger.warning("skipped: source error — %s", source_name, exc_info=True)

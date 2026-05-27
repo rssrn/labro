@@ -102,6 +102,7 @@ class ProjectConfig(BaseModel):
     model: str | None = None
     max_turns: int | None = None
     timeout_s: int | None = None
+    max_comments: int | None = None
     daily_budget_usd: float | None = None
     permitted_actions: list[PermittedAction] | None = None
     context: str | None = None
@@ -124,6 +125,7 @@ class DefaultsConfig(BaseModel):
     model: str = "claude-opus-4-7"
     max_turns: int = 20
     timeout_s: int = 600
+    max_comments: int = 10
 
 
 class LabroConfig(BaseModel):

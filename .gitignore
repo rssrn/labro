@@ -34,3 +34,6 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# User-specific config (lives in a separate private repo — see labro.example.toml)
+labro.toml

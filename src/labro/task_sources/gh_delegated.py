@@ -28,15 +28,19 @@ from labro.task_sources.base import TaskSource
 _AI_FAILED_LABEL = "ai-failed"
 
 
-def _run_gh_api(args: list[str]) -> Any:
-    """Run ``gh api`` with *args* (list-form, shell=False) and return parsed JSON.
+def _run_gh_api(url: str) -> Any:
+    """Run ``gh api --paginate <url>`` (list-form, shell=False) and return parsed JSON.
+
+    The URL must include any query parameters inline (e.g.
+    ``repos/owner/repo/issues?state=open&labels=ai-dev``) so that ``gh api``
+    treats the request as a GET rather than inferring POST from ``-f`` flags.
 
     Raises:
         subprocess.CalledProcessError: if gh exits non-zero.
         json.JSONDecodeError: if stdout is not valid JSON.
     """
     result = subprocess.run(  # — list-form args, shell=False
-        ["gh", "api", "--paginate", *args],
+        ["gh", "api", "--paginate", url],
         capture_output=True,
         text=True,
         check=True,
@@ -88,6 +92,42 @@ def _resolve_model(
     return defaults_model
 
 
+def _fetch_comments_section(repo: str, number: int, max_comments: int) -> str:
+    """Fetch the last *max_comments* comments on *repo* issue/PR *number*.
+
+    Returns a formatted string ready to append to the task description, or an
+    empty string if there are no comments.  Failures are swallowed so a comment-
+    fetch error never blocks task selection.
+    """
+    try:
+        comments: list[dict[str, Any]] = _run_gh_api(
+            f"repos/{repo}/issues/{number}/comments?per_page=100"
+        )
+    except Exception:
+        return ""
+
+    if not comments:
+        return ""
+
+    total = len(comments)
+    tail = comments[-max_comments:]
+    showing = len(tail)
+
+    if total > showing:
+        header = f"\n\n**Comments (showing last {showing} of {total}):**"
+    else:
+        header = f"\n\n**Comments ({total}):**"
+
+    parts = [header]
+    for c in tail:
+        author: str = c.get("user", {}).get("login", "unknown")
+        created: str = c.get("created_at", "")[:10]  # YYYY-MM-DD
+        body: str = (c.get("body") or "").strip()
+        parts.append(f"\n**@{author}** ({created}):\n{body}")
+
+    return "\n".join(parts)
+
+
 class GhDelegatedTaskSource(TaskSource):
     """Task source that monitors GitHub items via the ``gh`` CLI.
 
@@ -103,21 +143,14 @@ class GhDelegatedTaskSource(TaskSource):
         defaults_model: str,
         defaults_max_turns: int,
         defaults_timeout_s: int,
+        defaults_max_comments: int,
     ) -> tuple[Task, AgentConfig] | None:
         """Return the oldest eligible labelled item across all label_rules, or None."""
         candidates: list[tuple[datetime, dict[str, Any], LabelRule]] = []
 
         for rule in self._cfg.label_rules:
             items = _run_gh_api(
-                [
-                    "-f",
-                    "state=open",
-                    "-f",
-                    f"labels={rule.label}",
-                    "-f",
-                    "per_page=100",
-                    f"repos/{project.repo}/issues",
-                ]
+                f"repos/{project.repo}/issues?state=open&labels={rule.label}&per_page=100"
             )
             for item in items:
                 labels = _label_names(item)
@@ -139,6 +172,9 @@ class GhDelegatedTaskSource(TaskSource):
         model = _resolve_model(self._cfg, project, defaults_model)
         max_turns = project.max_turns if project.max_turns is not None else defaults_max_turns
         timeout_s = project.timeout_s if project.timeout_s is not None else defaults_timeout_s
+        max_comments = (
+            project.max_comments if project.max_comments is not None else defaults_max_comments
+        )
 
         itype = _item_type(item)
         number: int = item["number"]
@@ -146,6 +182,7 @@ class GhDelegatedTaskSource(TaskSource):
         title: str = item.get("title", "")
         body: str = item.get("body") or ""
         description = f"#{number}: {title}\n\n{body}".strip()
+        description += _fetch_comments_section(project.repo, number, max_comments)
 
         task = Task(
             task_id=make_task_id(),

@@ -1,0 +1,92 @@
+# labro.example.toml — copy this to your private config repo and rename it labro.toml.
+#
+# Secrets are never stored here — pass them as environment variables:
+#   GH_TOKEN             GitHub personal access token (repo + read:org scopes)
+#   ANTHROPIC_API_KEY    Anthropic API key
+#   SLACK_WEBHOOK_URL    Required only if [digest] enabled = true
+#   GRAFANA_TOKEN        Required only if any project uses a grafana-alerts source
+#
+# Config resolution pattern:
+#   The labro binary and your labro.toml live in separate repos.
+#   Point labro at your config with the --config flag or LABRO_CONFIG env var:
+#     export LABRO_CONFIG=/path/to/your/config/repo/labro.toml
+#     labro run <project> --dry-run
+
+# ── Digest ─────────────────────────────────────────────────────────────────────
+# Optional Slack summary of all runs. Requires SLACK_WEBHOOK_URL.
+
+[digest]
+enabled = false
+cron    = "0 8 * * *"   # when to post the daily digest (cron expression)
+
+# ── Defaults ───────────────────────────────────────────────────────────────────
+# Global fallbacks inherited by every project; all fields are optional.
+
+[defaults]
+model        = "claude-opus-4-7"   # Claude model slug — passed through opaquely
+max_turns    = 20                  # maximum agent turns per run
+timeout_s    = 600                 # subprocess wall-clock timeout in seconds
+max_comments = 10                  # max issue/PR comments to include in the prompt
+
+# ── Projects ───────────────────────────────────────────────────────────────────
+# Add one [[projects]] block per managed repo.
+
+[[projects]]
+name    = "my-project"             # unique identifier used in `labro run <name>`
+repo    = "owner/repo"             # GitHub repo in owner/repo format
+cron    = "0 9 * * 1-5"           # when to run (cron expression; weekdays at 09:00)
+enabled = true                     # set false to pause without removing config
+
+# Optional project-level overrides (all fall back to [defaults] if omitted):
+# model           = "claude-sonnet-4-6"
+# max_turns       = 10
+# timeout_s       = 300
+# max_comments    = 5
+# daily_budget_usd = 2.00         # spending cap per calendar day (M2+)
+
+# Permitted GitHub write operations for this project.
+# Valid values: comment_on_issue, comment_on_pr, open_pr, merge_pr,
+#               push_default, close_issue, create_issue
+# Can be overridden at source or label_rule level.
+permitted_actions = ["comment_on_issue", "open_pr"]
+
+# Free-text appended to section 4 (project context) of every prompt.
+# Use this to pass project-specific conventions the agent should follow.
+context = "Follow the coding conventions documented in CLAUDE.md closely."
+
+# ── Task sources ───────────────────────────────────────────────────────────────
+# Sources are evaluated top-to-bottom; the first eligible task wins.
+
+[[projects.task_sources]]
+type = "gh-delegated"
+
+# label_rules: monitor open issues/PRs carrying a label.
+# The agent is invoked on the oldest eligible item that:
+#   - carries `label`
+#   - does NOT carry `done_label`
+#   - does NOT carry `ai-failed`
+#
+# Optional per-rule overrides: permitted_actions, model
+[[projects.task_sources.label_rules]]
+label      = "ai-dev"       # trigger label
+done_label = "ai-dev-done"  # applied by post_run.py on success (M3+)
+# permitted_actions = ["comment_on_issue"]  # overrides project-level if set
+
+# Add more label rules as needed:
+# [[projects.task_sources.label_rules]]
+# label      = "ai-review"
+# done_label = "ai-review-done"
+
+# ── Additional projects ────────────────────────────────────────────────────────
+# [[projects]]
+# name = "another-project"
+# repo = "owner/another-repo"
+# cron = "0 10 * * *"
+# permitted_actions = ["comment_on_issue"]
+#
+# [[projects.task_sources]]
+# type = "gh-delegated"
+#
+# [[projects.task_sources.label_rules]]
+# label      = "ai-dev"
+# done_label = "ai-dev-done"

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -32,6 +33,21 @@ from labro.task_sources.gh_delegated import (
     _resolve_model,
     _resolve_permitted_actions,
 )
+
+# ── gh API mock helper ─────────────────────────────────────────────────────────
+
+
+def gh_api_mock(issues_fixture: list[Any]) -> Callable[[str], list[Any]]:
+    """Return a ``_run_gh_api`` side_effect that serves *issues_fixture* for
+    issue-list calls and an empty list for comments calls."""
+
+    def _side_effect(url: str) -> list[Any]:
+        if "comments" in url:
+            return []
+        return issues_fixture
+
+    return _side_effect
+
 
 # ── fixture helpers ────────────────────────────────────────────────────────────
 
@@ -185,12 +201,13 @@ def test_fetch_task_returns_oldest_eligible(
     source, proj, cfg = gh_source_with_rule
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=fixture):
+    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is not None
@@ -214,12 +231,13 @@ def test_fetch_task_agent_config_defaults(
     source, proj, cfg = gh_source_with_rule
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=fixture):
+    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model="claude-opus-4-7",
             defaults_max_turns=20,
             defaults_timeout_s=600,
+            defaults_max_comments=10,
         )
 
     assert result is not None
@@ -241,12 +259,13 @@ def test_fetch_task_skips_ai_failed() -> None:
     source = GhDelegatedTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_ai_dev_with_failed.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=fixture):
+    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is not None
@@ -266,12 +285,13 @@ def test_fetch_task_skips_done_label() -> None:
     fixture = load_fixture("gh_issues_ai_dev.json")
     fixture[0]["labels"].append({"name": "ai-dev-done", "color": "0e8a16"})
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=fixture):
+    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is not None
@@ -292,6 +312,7 @@ def test_fetch_task_empty_returns_none() -> None:
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is None
@@ -307,12 +328,13 @@ def test_fetch_task_detects_pr_item_type() -> None:
     source = GhDelegatedTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_pr.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=fixture):
+    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is not None
@@ -354,6 +376,7 @@ def test_fetch_task_multiple_rules_picks_oldest_across_rules() -> None:
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is not None
@@ -369,12 +392,13 @@ def test_fetch_task_project_overrides_applied() -> None:
     source = GhDelegatedTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=fixture):
+    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is not None
@@ -399,6 +423,7 @@ class _StubSource(GhDelegatedTaskSource):
         defaults_model: str,
         defaults_max_turns: int,
         defaults_timeout_s: int,
+        defaults_max_comments: int,
     ) -> tuple[Task, AgentConfig] | None:
         if isinstance(self._stub_result, Exception):
             raise self._stub_result
@@ -512,12 +537,13 @@ def test_task_id_is_uuid_format() -> None:
     source = GhDelegatedTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=fixture):
+    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
+            defaults_max_comments=cfg.defaults.max_comments,
         )
 
     assert result is not None

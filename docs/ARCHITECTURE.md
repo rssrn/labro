@@ -458,6 +458,51 @@ exec crond -f -l 2
 
 **Log rotation:** `/var/log/labro/` accumulates one log file per project plus one for the digest. No log rotation is configured in v1 — log files are not the primary record (SQLite is); they are a secondary debug aid. Add rotation if log files grow problematically.
 
+### Two-repo deployment pattern
+
+Labro separates the **engine** (this repo) from the **operator's config** (a separate private repo). This keeps the labro repo shareable and free of user-specific data, while the config repo holds everything the operator owns:
+
+```
+labro repo (public)          labro-config repo (private)
+├── src/labro/               ├── labro.toml
+├── Dockerfile               ├── .github/
+├── labro.example.toml       │   └── workflows/
+└── ...                      │       └── labro-run.yml  ← cron schedule here
+                             └── (GitHub Secrets: GH_TOKEN, ANTHROPIC_API_KEY, …)
+```
+
+**Secrets** are stored in the config repo's GitHub Secrets and injected as environment variables at runtime — never baked into the image or checked into either repo.
+
+**Config resolution** — the `labro` binary locates `labro.toml` via (highest priority first):
+1. `--config <path>` CLI flag
+2. `LABRO_CONFIG` environment variable
+3. `./labro.toml` in the current working directory
+
+**Recommended deployment target: GitHub Actions** (configured in the config repo). The workflow checks out the config repo, pulls the published labro image from a registry, and runs it with secrets injected:
+
+```yaml
+# .github/workflows/labro-run.yml (in the config repo)
+on:
+  schedule:
+    - cron: '0 9 * * 1-5'
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4   # checks out labro-config → labro.toml available
+      - run: |
+          docker run --rm \
+            -e GH_TOKEN=${{ secrets.GH_TOKEN }} \
+            -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
+            -v ${{ github.workspace }}/labro.toml:/config/labro.toml \
+            ghcr.io/rssrn/labro:v1.0.0 \
+            labro run my-project --config /config/labro.toml
+```
+
+Pin the image tag (`:v1.0.0` not `:latest`) to avoid silent behaviour changes — consistent with the `claude` CLI pin in the Dockerfile itself.
+
+**Alternative: Docker + cron on a VPS.** Bind-mount `labro.toml` from the host; pass secrets via `--env-file` (a `.env` file on the host, not in any repo, permissions `600`). This gives more control but requires a server to maintain.
+
 ---
 
 ## 8. Cross-Cutting Concepts

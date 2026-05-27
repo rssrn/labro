@@ -28,6 +28,7 @@ class TaskSource(ABC):
         defaults_model: str,
         defaults_max_turns: int,
         defaults_timeout_s: int,
+        defaults_max_comments: int,
     ) -> tuple[Task, AgentConfig] | None:
         """Return a ``(Task, AgentConfig)`` pair if a task is available, else ``None``.
 
@@ -36,6 +37,7 @@ class TaskSource(ABC):
             defaults_model: Global ``[defaults].model`` fallback.
             defaults_max_turns: Global ``[defaults].max_turns`` fallback.
             defaults_timeout_s: Global ``[defaults].timeout_s`` fallback.
+            defaults_max_comments: Global ``[defaults].max_comments`` fallback.
 
         Returns:
             A ``(Task, AgentConfig)`` tuple, or ``None`` if no eligible task was found.
