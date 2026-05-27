@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from labro.config.schema import PermittedAction
 
@@ -82,3 +83,4 @@ class AgentConfig:
     model: str  # e.g. "claude-sonnet-4-6" — passed through to CLI as --model
     max_turns: int  # passed to claude as --max-turns
     timeout_s: int  # subprocess wall-clock timeout
+    cwd: Path | None = None  # working directory for the agent subprocess (ARCHITECTURE line 630)

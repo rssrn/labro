@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with list-form args (shell=False enforced, B602 safe).
 
-    Raises ``subprocess.CalledProcessError`` on non-zero exit, with stderr
-    included in the exception message for easier diagnosis.
+    Raises ``subprocess.CalledProcessError`` on non-zero exit.  The stderr
+    is logged at ERROR level before raising so that CI logs always show the
+    underlying git/gh error without needing to inspect exception attributes.
     """
     result = subprocess.run(
         args,
@@ -26,6 +27,13 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
         text=True,
     )
     if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "(no output)"
+        logger.error(
+            "Command failed (exit %d): %s\n%s",
+            result.returncode,
+            args,
+            detail,
+        )
         raise subprocess.CalledProcessError(
             result.returncode,
             args,
@@ -88,7 +96,18 @@ def prepare_repo(repo: str, repos_dir: Path) -> Path:
     else:
         logger.info("Updating existing working copy at %s", dest)
         _run(["git", "-C", str(dest), "checkout", default_branch])
-        _run(["git", "-C", str(dest), "pull"])
+        # Pass gh as the credential helper so GH_TOKEN is used for HTTPS auth.
+        # git pull doesn't inherit gh's auth automatically — only gh subcommands do.
+        _run(
+            [
+                "git",
+                "-C",
+                str(dest),
+                "-c",
+                "credential.helper=!gh auth git-credential",
+                "pull",
+            ]
+        )
 
     # Dirty-repo check
     status_result = subprocess.run(

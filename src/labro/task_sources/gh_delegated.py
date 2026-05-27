@@ -1,7 +1,8 @@
-"""GhDelegatedTaskSource — label_rules task source (M1 scope).
+"""GhDelegatedTaskSource — label_rules and actor_rules task source (M2 scope).
 
 Fetches the oldest eligible open GitHub issue/PR carrying a configured label
-and NOT ``ai-failed`` and NOT the done label.  All subprocess calls use
+(label_rules) or created by a configured GitHub actor (actor_rules), excluding
+items with ``ai-failed`` and the done label.  All subprocess calls use
 list-form args with shell=False (ARCHITECTURE line 900; enforced by bandit B602).
 
 @author Claude Sonnet 4.6 Anthropic
@@ -15,17 +16,21 @@ from datetime import datetime
 from typing import Any
 
 from labro.config.schema import (
-    GhDelegatedSource as GhDelegatedSourceConfig,
-)
-from labro.config.schema import (
+    ActorRule,
     LabelRule,
     PermittedAction,
     ProjectConfig,
+)
+from labro.config.schema import (
+    GhDelegatedSource as GhDelegatedSourceConfig,
 )
 from labro.models import AgentConfig, Task, make_task_id
 from labro.task_sources.base import TaskSource
 
 _AI_FAILED_LABEL = "ai-failed"
+
+# Type alias for any rule supported by GhDelegatedTaskSource.
+_AnyRule = LabelRule | ActorRule
 
 
 def _run_gh_api(url: str) -> Any:
@@ -60,13 +65,13 @@ def _item_type(item: dict[str, Any]) -> str:
 
 
 def _resolve_permitted_actions(
-    rule: LabelRule,
+    rule: _AnyRule,
     source: GhDelegatedSourceConfig,
     project: ProjectConfig,
 ) -> list[PermittedAction]:
     """Resolve permitted_actions using the override chain.
 
-    Resolution order (most specific wins): label_rule → source → project.
+    Resolution order (most specific wins): rule → source → project.
     Returns an empty list only when no level configures permitted_actions;
     config validation should surface this condition at load time.
     """
@@ -84,7 +89,23 @@ def _resolve_model(
     project: ProjectConfig,
     defaults_model: str,
 ) -> str:
-    """Resolve model using the override chain: source → project → defaults."""
+    """Resolve model for label_rules using the override chain: source → project → defaults."""
+    if source.model is not None:
+        return source.model
+    if project.model is not None:
+        return project.model
+    return defaults_model
+
+
+def _resolve_model_for_actor(
+    rule: ActorRule,
+    source: GhDelegatedSourceConfig,
+    project: ProjectConfig,
+    defaults_model: str,
+) -> str:
+    """Resolve model for an actor_rule: rule → source → project → defaults."""
+    if rule.model is not None:
+        return rule.model
     if source.model is not None:
         return source.model
     if project.model is not None:
@@ -131,7 +152,10 @@ def _fetch_comments_section(repo: str, number: int, max_comments: int) -> str:
 class GhDelegatedTaskSource(TaskSource):
     """Task source that monitors GitHub items via the ``gh`` CLI.
 
-    M1 scope: label_rules only.  actor_rules are M2.
+    Supports both ``label_rules`` (items carrying a specific label) and
+    ``actor_rules`` (items created by a specific GitHub login).  Candidates
+    from all rules are merged into a single pool sorted by ``created_at``
+    (oldest first); the globally oldest eligible item is selected.
     """
 
     def __init__(self, source_config: GhDelegatedSourceConfig) -> None:
@@ -145,9 +169,10 @@ class GhDelegatedTaskSource(TaskSource):
         defaults_timeout_s: int,
         defaults_max_comments: int,
     ) -> tuple[Task, AgentConfig] | None:
-        """Return the oldest eligible labelled item across all label_rules, or None."""
-        candidates: list[tuple[datetime, dict[str, Any], LabelRule]] = []
+        """Return the oldest eligible item across all label_rules and actor_rules, or None."""
+        candidates: list[tuple[datetime, dict[str, Any], _AnyRule]] = []
 
+        # ── label_rules: fetch items matching the label via GH API query ───────
         for rule in self._cfg.label_rules:
             items = _run_gh_api(
                 f"repos/{project.repo}/issues?state=open&labels={rule.label}&per_page=100"
@@ -161,15 +186,46 @@ class GhDelegatedTaskSource(TaskSource):
                 created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
                 candidates.append((created_at, item, rule))
 
+        # ── actor_rules: fetch all open items once, filter client-side ─────────
+        # Cache the all-open fetch so N actor_rules only incur one API round-trip.
+        _all_open_items: list[dict[str, Any]] | None = None
+
+        for actor_rule in self._cfg.actor_rules:
+            if _all_open_items is None:
+                _all_open_items = _run_gh_api(
+                    f"repos/{project.repo}/issues?state=open&per_page=100"
+                )
+            for item in _all_open_items:
+                actor_login: str = (item.get("user") or {}).get("login", "")
+                if actor_login != actor_rule.actor:
+                    continue
+                labels = _label_names(item)
+                if _AI_FAILED_LABEL in labels:
+                    continue
+                if actor_rule.done_label in labels:
+                    continue
+                created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+                candidates.append((created_at, item, actor_rule))
+
         if not candidates:
             return None
 
         # Pick oldest by created_at (stable: ties broken by insertion order)
         candidates.sort(key=lambda t: t[0])
-        _ts, item, rule = candidates[0]
+        _ts, item, winning_rule = candidates[0]
 
-        permitted_actions = _resolve_permitted_actions(rule, self._cfg, project)
-        model = _resolve_model(self._cfg, project, defaults_model)
+        # Rule-specific field resolution
+        source_label: str | None
+        model: str
+        if isinstance(winning_rule, ActorRule):
+            source_label = None
+            model = _resolve_model_for_actor(winning_rule, self._cfg, project, defaults_model)
+        else:
+            source_label = winning_rule.label
+            model = _resolve_model(self._cfg, project, defaults_model)
+
+        done_label = winning_rule.done_label
+        permitted_actions = _resolve_permitted_actions(winning_rule, self._cfg, project)
         max_turns = project.max_turns if project.max_turns is not None else defaults_max_turns
         timeout_s = project.timeout_s if project.timeout_s is not None else defaults_timeout_s
         max_comments = (
@@ -193,8 +249,8 @@ class GhDelegatedTaskSource(TaskSource):
             item_type=itype,
             item_number=number,
             item_url=url,
-            source_label=rule.label,
-            done_label=rule.done_label,
+            source_label=source_label,
+            done_label=done_label,
             grafana_rule_uid=None,
         )
         agent_cfg = AgentConfig(

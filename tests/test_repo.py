@@ -95,7 +95,14 @@ class TestPullWhenPresent:
         cmds = [c.args[0] for c in calls]
 
         assert ["git", "-C", str(dest), "checkout", "main"] in cmds
-        assert ["git", "-C", str(dest), "pull"] in cmds
+        assert [
+            "git",
+            "-C",
+            str(dest),
+            "-c",
+            "credential.helper=!gh auth git-credential",
+            "pull",
+        ] in cmds
         # No clone
         assert not any("clone" in cmd for cmd in cmds)
 

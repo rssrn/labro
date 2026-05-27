@@ -144,6 +144,7 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        cwd=config.cwd,  # None → inherits caller cwd; set to repo_path in live runs
         shell=False,
     )
 
