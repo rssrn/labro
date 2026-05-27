@@ -103,9 +103,36 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 ---
 
-## M4 — Operator CLI
+## M4 — Autonomous scheduler and deployment
 
-**Goal:** operator tooling for bootstrapping, health-checking, and reviewing run history is complete. The system is fully operable without reading source code.
+**Goal:** container runs autonomously on a cron schedule, a versioned image is published to GHCR, and the config repo scaffold is in place. At the end of this milestone labro is running against real repos — this is the dogfood gate.
+
+**Deployment pattern:** Labro uses a two-repo layout — the labro repo is the engine (published as a Docker image); a separate private config repo holds `labro.toml`, GitHub Secrets, and the workflow YAMLs that manage deployment. See ARCHITECTURE.md §7 "Two-repo deployment pattern" for the full design, bind-mount layout, and graceful restart procedure.
+
+**Completed here:**
+
+| Component | Notes |
+| :--- | :--- |
+| `entrypoint.sh` | Exports env to `/etc/labro-env`; generates `/etc/cron.d/labro` from `labro.toml`; execs `crond -f` |
+| Crontab generation | Per-project entries + digest entry; disabled projects omitted; format documented in ARCHITECTURE.md §7 |
+| Docker bind-mount layout | `/config/`, `/data/`, `/repos/` verified and documented |
+| `.github/workflows/publish.yml` | Builds and pushes `ghcr.io/<owner>/labro:<tag>` on version tag push (`v*.*.*`); also tags `:latest`. Uses `GITHUB_TOKEN` — no extra secret required for GHCR on the same repo |
+| `docs/config-repo-scaffold/` | Two copyable workflow files for the operator's private config repo: `labro-deploy.yml` (push-triggered graceful restart on `labro.toml` change) and `labro-restart.yml` (manual `workflow_dispatch` for secret rotation). Full content in ARCHITECTURE.md §7 |
+| `README.md` | Add Docker deployment section: image build, bind-mount layout, GHCR image location, pointer to config repo scaffold; reference to two-repo pattern and `LABRO_CONFIG` env var |
+
+**Dogfood gate — before proceeding to M5:**
+
+1. Push a version tag (`v0.4.0`) to the labro repo; confirm the image appears in GHCR
+2. Create a private config repo; copy `docs/config-repo-scaffold/` workflow files into `.github/workflows/`
+3. Add `labro.toml` with at least one `gh-delegated` project
+4. Add GitHub Secrets to the config repo: `GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
+5. Deploy the container to the VPS; confirm `labro run <project>` completes a real run and writes a record to SQLite
+
+---
+
+## M5 — Operator CLI
+
+**Goal:** operator tooling for bootstrapping, health-checking, and reviewing run history is complete. Built and validated while labro is already running against real repos from M4.
 
 **Completed here:**
 
@@ -117,23 +144,6 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | `cli.py` — `labro list-locks` | Show held project locks with age |
 | `cli.py` — `labro unlock <project>` | Manual stale-lock release |
 | `README.md` | Document all CLI subcommands (`init`, `check`, `review`, `list-locks`, `unlock`) with flags; add troubleshooting section covering common startup failures (missing labels, missing env vars, stale locks) |
-
----
-
-## M5 — Autonomous scheduler
-
-**Goal:** container runs autonomously on a cron schedule. Operator edits `labro.toml` and restarts the container — no other change required to add or modify a project.
-
-**Deployment pattern:** Labro uses a two-repo layout — the labro repo is the engine (published as a Docker image); a separate private config repo holds `labro.toml`, GitHub Secrets, and the workflow YAML that drives scheduling. See ARCHITECTURE.md §7 "Two-repo deployment pattern" for the full design, example GitHub Actions workflow, and VPS alternative.
-
-**Completed here:**
-
-| Component | Notes |
-| :--- | :--- |
-| `entrypoint.sh` | Exports env to `/etc/labro-env`; generates `/etc/cron.d/labro` from `labro.toml`; execs `crond -f` |
-| Crontab generation | Per-project entries + digest entry; disabled projects omitted; format documented in ARCHITECTURE.md §7 |
-| Docker bind-mount layout | `/config/`, `/data/`, `/repos/` verified and documented |
-| `README.md` | Add Docker deployment section: image build, bind-mount layout, container restart workflow for adding or modifying a project; reference to two-repo pattern and `LABRO_CONFIG` env var |
 
 ---
 
@@ -187,7 +197,7 @@ Maps every PRD requirement to the milestone where it is first completed. Require
 
 | REQ | Description | Milestone | Notes |
 | :--- | :--- | :--- | :--- |
-| REQ-01 | Per-project cron schedules | M5 | `entrypoint.sh` generates crontab from `labro.toml` |
+| REQ-01 | Per-project cron schedules | M4 | `entrypoint.sh` generates crontab from `labro.toml` |
 | REQ-02 | Deterministic task selector | M1 | `picker.py` complete; no changes in later milestones |
 | REQ-03 | Priority list in config | M1 | Full schema; picker evaluates top-to-bottom |
 | REQ-04 | Built-in task source modules | M1 | `TaskSource` ABC; `gh-delegated` first concrete source |
@@ -203,10 +213,10 @@ Maps every PRD requirement to the milestone where it is first completed. Require
 | REQ-13 | Agent runs in sandboxed Docker environment | M1 + M2 | Image/envelope in M1; agent execution inside container from M2 |
 | REQ-14 | Structured run log per run | M2 | `logger.py` writes to SQLite |
 | REQ-15 | Agent completion reported outcome captured | M2 | `AgentResult` parsed from agent output |
-| REQ-16 | CLI command to review recent runs | M4 | `labro review` with filter flags |
-| REQ-17 | Token/time costs aggregated by agent/model | M4 | Surfaced in `labro review` output |
-| REQ-18 | Multi-project config; per-project schedule, stack, actions | M1 + M2 + M5 | Schema in M1; `LABRO_DISABLED` and `daily_budget_usd` in M2; cron generation in M5 |
-| REQ-19 | New project onboarded with config change only | M4 | `labro init` completes label setup; no code changes required |
+| REQ-16 | CLI command to review recent runs | M5 | `labro review` with filter flags |
+| REQ-17 | Token/time costs aggregated by agent/model | M5 | Surfaced in `labro review` output |
+| REQ-18 | Multi-project config; per-project schedule, stack, actions | M1 + M2 + M4 | Schema in M1; `LABRO_DISABLED` and `daily_budget_usd` in M2; cron generation in M4 |
+| REQ-19 | New project onboarded with config change only | M5 | `labro init` completes label setup; no code changes required |
 | REQ-20 | Label transitions as deterministic post-run step | M3 | `post_run.py`; extended in M6 and M7 |
 | REQ-21 | Daily digest via Slack | M8 | `digest.py`; `labro digest [--dry-run]` |
 | REQ-22 | Outcome signals from passive GitHub state | M8 | Digest job reads `items_touched`; writes signals back to SQLite |

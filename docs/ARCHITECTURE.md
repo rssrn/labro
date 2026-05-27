@@ -504,6 +504,121 @@ Pin the image tag (`:v1.0.0` not `:latest`) to avoid silent behaviour changes �
 
 **Alternative: Docker + cron on a VPS.** Bind-mount `labro.toml` from the host; pass secrets via `--env-file` (a `.env` file on the host, not in any repo, permissions `600`). This gives more control but requires a server to maintain.
 
+### Config and secret changes on a VPS deployment
+
+The long-running container model requires care when applying updates, because `entrypoint.sh` only runs at container start.
+
+**What requires a restart vs. what does not:**
+
+| Change type | Restart required? | Reason |
+| :--- | :--- | :--- |
+| Task source config, permitted actions, model, budget | **No** | `labro run` re-reads `labro.toml` on every invocation |
+| Cron schedule change, new project added, project disabled | **Yes** | `entrypoint.sh` generates `/etc/cron.d/labro` once at startup |
+| Secret rotation (env var change) | **Yes** | `entrypoint.sh` writes `/etc/labro-env` once at startup; running jobs source that file |
+
+**Graceful restart — draining in-flight runs before restarting:**
+
+A plain `docker restart` sends SIGTERM to crond and then SIGKILL after the stop timeout, which may kill an agent mid-task. The safe sequence uses the `LABRO_DISABLED` lockfile and the `project_locks` table to drain first:
+
+```bash
+# 1. Prevent new runs from starting (labro run exits immediately if this file exists)
+docker exec labro touch /data/LABRO_DISABLED
+
+# 2. Wait for any in-flight run to release its lock (poll every 5 s)
+while [ "$(docker exec labro sqlite3 /data/labro.db \
+    'SELECT COUNT(*) FROM project_locks')" != "0" ]; do
+  echo "waiting for in-flight run to finish…"; sleep 5
+done
+
+# 3. Restart — safe, no agent in flight
+docker restart labro
+
+# 4. Re-enable (LABRO_DISABLED is in /data/ which is bind-mounted; survives restart)
+docker exec labro rm /data/LABRO_DISABLED
+```
+
+Steps 1 and 4 can also be performed from the host by touching/removing the file directly under the `/data/` bind-mount path.
+
+> **Note:** `LABRO_DISABLED` lives in `/data/` which is bind-mounted — it survives the restart and must be explicitly removed after the container comes back up. If a workflow or script fails after creating the file, remove it manually: `docker exec labro rm /data/LABRO_DISABLED`.
+
+**Example config repo workflows for VPS deployment:**
+
+The config repo should provide two workflow files. Copy these into `.github/workflows/` and add `VPS_HOST`, `VPS_USER`, and `VPS_SSH_KEY` as GitHub Secrets in the config repo.
+
+`labro-deploy.yml` — fires automatically when `labro.toml` is pushed; performs a graceful restart:
+
+```yaml
+# .github/workflows/labro-deploy.yml (in the config repo)
+# Triggers on labro.toml changes. Copies the new config to the VPS and performs
+# a graceful restart (drains in-flight runs before restarting the container).
+on:
+  push:
+    paths:
+      - 'labro.toml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy updated config
+        run: |
+          scp labro.toml ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/labro/config/labro.toml
+
+      - name: Graceful restart
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            docker exec labro touch /data/LABRO_DISABLED
+            while [ "$(docker exec labro sqlite3 /data/labro.db \
+                "SELECT COUNT(*) FROM project_locks")" != "0" ]; do
+              echo "waiting…"; sleep 5
+            done
+            docker restart labro
+            docker exec labro rm -f /data/LABRO_DISABLED
+          '
+```
+
+`labro-restart.yml` — manual trigger only; use after rotating a secret in GitHub Secrets:
+
+```yaml
+# .github/workflows/labro-restart.yml (in the config repo)
+# Run manually (Actions → Run workflow) after updating a secret.
+# Performs a graceful restart without copying any files.
+on:
+  workflow_dispatch:
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Graceful restart
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            docker exec labro touch /data/LABRO_DISABLED
+            while [ "$(docker exec labro sqlite3 /data/labro.db \
+                "SELECT COUNT(*) FROM project_locks")" != "0" ]; do
+              echo "waiting…"; sleep 5
+            done
+            docker restart labro
+            docker exec labro rm -f /data/LABRO_DISABLED
+          '
+```
+
 ---
 
 ## 8. Cross-Cutting Concepts
