@@ -1,0 +1,26 @@
+[
+  {
+    "number": 42,
+    "title": "Fix authentication race condition",
+    "body": "When two requests arrive simultaneously the session token is occasionally invalidated.",
+    "html_url": "https://github.com/org/repo/issues/42",
+    "state": "open",
+    "created_at": "2024-01-15T10:00:00Z",
+    "labels": [
+      {"name": "ai-dev", "color": "7057ff"},
+      {"name": "bug", "color": "d73a4a"}
+    ]
+  },
+  {
+    "number": 55,
+    "title": "Add rate-limit headers to API responses",
+    "body": "Clients need X-RateLimit-Remaining and X-RateLimit-Reset headers.",
+    "html_url": "https://github.com/org/repo/issues/55",
+    "state": "open",
+    "created_at": "2024-02-01T08:30:00Z",
+    "labels": [
+      {"name": "ai-dev", "color": "7057ff"},
+      {"name": "enhancement", "color": "a2eeef"}
+    ]
+  }
+]

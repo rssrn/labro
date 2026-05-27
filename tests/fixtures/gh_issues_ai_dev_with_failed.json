@@ -1,0 +1,25 @@
+[
+  {
+    "number": 10,
+    "title": "Refactor database layer",
+    "body": "The ORM queries need optimising.",
+    "html_url": "https://github.com/org/repo/issues/10",
+    "state": "open",
+    "created_at": "2024-01-01T09:00:00Z",
+    "labels": [
+      {"name": "ai-dev", "color": "7057ff"},
+      {"name": "ai-failed", "color": "e4e669"}
+    ]
+  },
+  {
+    "number": 20,
+    "title": "Add OpenAPI schema",
+    "body": "Generate and publish an OpenAPI 3.1 schema.",
+    "html_url": "https://github.com/org/repo/issues/20",
+    "state": "open",
+    "created_at": "2024-01-10T12:00:00Z",
+    "labels": [
+      {"name": "ai-dev", "color": "7057ff"}
+    ]
+  }
+]

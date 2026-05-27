@@ -1,0 +1,18 @@
+[
+  {
+    "number": 99,
+    "title": "Add unit tests for auth module",
+    "body": "Coverage is at 40% — needs work.",
+    "html_url": "https://github.com/org/repo/pull/99",
+    "state": "open",
+    "created_at": "2024-03-01T14:00:00Z",
+    "pull_request": {
+      "url": "https://api.github.com/repos/org/repo/pulls/99",
+      "html_url": "https://github.com/org/repo/pull/99",
+      "merged_at": null
+    },
+    "labels": [
+      {"name": "ai-review", "color": "7057ff"}
+    ]
+  }
+]
