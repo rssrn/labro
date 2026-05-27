@@ -43,9 +43,13 @@ docs/                 # PRD, ARCHITECTURE, ROADMAP, ADRs
 ```bash
 uv run pytest                          # run tests
 uv run ruff check .                    # lint
+uv run ruff format .                   # format (pre-commit hook enforces this — run before committing)
 uv run mypy src/                       # type-check
-labro run <project> --dry-run          # dry-run (M1 only mode)
+labro run <project> --dry-run          # dry-run
 ```
+
+**Before every commit:** run `uv run ruff format .` — the pre-commit hook will reformat and abort
+if you skip it, requiring a second commit attempt.
 
 ## Hard Rules
 
