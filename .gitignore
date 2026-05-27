@@ -1,0 +1,36 @@
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# Coverage
+.coverage
+htmlcov/
+
+# mypy cache
+.mypy_cache/
+
+# ruff cache
+.ruff_cache/
+
+# pytest cache
+.pytest_cache/
+
+# pip-audit marker
+.pip-audit-last-run
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store

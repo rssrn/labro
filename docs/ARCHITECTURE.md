@@ -1075,4 +1075,3 @@ Example top-level response shape (abridged — verified output):
 The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
 `actions_taken` remains a human-readable string array — used for the digest summary and the execution record, not for outcome matching.
-

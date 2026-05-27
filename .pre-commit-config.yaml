@@ -1,0 +1,61 @@
+repos:
+  # ── ruff: lint + format ──────────────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # ── mypy: strict type checking ───────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.7
+          - typer>=0.12
+        args: [--config-file=pyproject.toml]
+
+  # ── bandit: SAST (B602 enforced; B404/B603/B607 skipped) ────────────────────
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml, -r, src/]
+
+  # ── shellcheck: lint shell scripts ──────────────────────────────────────────
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+
+  # ── check-toml: validate TOML syntax ────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # ── pytest: unit tests (pre-commit stage) ───────────────────────────────────
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        # Exit 5 = "no tests collected" — treat as success during skeleton phase.
+        entry: bash -c 'uv run pytest; rc=$?; [ $rc -eq 5 ] && exit 0 || exit $rc'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # ── pip-audit: dependency vulnerability scan (pre-push only) ─────────────────
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit
+        entry: uv run pip-audit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

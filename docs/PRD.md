@@ -255,4 +255,3 @@ Labro is a headless, operator-facing tool. There is no end-user UI.
 ## Open Questions / Risks
 
 No open questions. All decisions resolved and reflected in the requirements above.
-
