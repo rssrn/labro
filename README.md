@@ -10,6 +10,84 @@ The operator configures which projects to monitor, what tasks to prioritise, whi
 
 ---
 
+## Quickstart (development)
+
+### Prerequisites
+
+- **Python 3.12+**
+- **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`pip install uv` or see uv docs)
+- **[gh](https://cli.github.com/)** — GitHub CLI, authenticated (`gh auth login`)
+- **[pre-commit](https://pre-commit.com/)** — installed via the dev dependencies below
+
+### 1. Clone and create the virtual environment
+
+```bash
+git clone https://github.com/rssrn/labro.git
+cd labro
+uv venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+```
+
+### 2. Install dependencies
+
+```bash
+uv pip install -e '.[dev]'
+```
+
+This installs Labro in editable mode along with all dev tools: ruff, mypy, bandit, pytest, pip-audit, and pre-commit.
+
+### 3. Install pre-commit hooks
+
+```bash
+pre-commit install
+```
+
+Hooks run automatically on `git commit` (ruff, mypy-strict, bandit, shellcheck, check-toml, pytest) and on `git push` (pip-audit).
+
+### 4. Run the test suite
+
+```bash
+pytest
+```
+
+### 5. First dry-run
+
+> ⚠️ **M1 status:** `labro run --dry-run` is not yet implemented. The command will be available once [M1](docs/ROADMAP.md) is complete. The steps below are the intended first-run flow.
+
+Create a minimal `labro.toml` pointing at a GitHub repo where you have an open issue labelled `ai-dev`:
+
+```toml
+[digest]
+enabled = false
+
+[defaults]
+model = "claude-sonnet-4-6"
+
+[[projects]]
+name       = "my-project"
+repo       = "my-org/my-repo"
+cron       = "0 * * * *"
+
+[[projects.task_sources]]
+type = "gh-delegated"
+
+[[projects.task_sources.label_rules]]
+label             = "ai-dev"
+done_label        = "ai-dev-done"
+permitted_actions = ["comment_on_issue", "open_pr"]
+```
+
+Then run:
+
+```bash
+export GH_TOKEN=<your-github-token>
+labro run my-project --dry-run
+```
+
+Labro will print the resolved task, agent config, and full four-section prompt to stdout — no tokens spent, no writes, no side effects.
+
+---
+
 ## Project Initiation
 
 Labro is currently in the design phase. The following documents define the product and architecture:
