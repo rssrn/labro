@@ -261,14 +261,28 @@ def test_missing_gh_token_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         load_config(p)
 
 
-def test_missing_anthropic_key_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Absent ANTHROPIC_API_KEY raises ConfigError naming the variable."""
+def test_missing_claude_auth_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set, ConfigError is raised."""
     monkeypatch.setenv("GH_TOKEN", "x")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
     p = write_toml(tmp_path, MINIMAL_VALID_TOML)
     with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
         load_config(p)
+
+
+def test_oauth_token_satisfies_claude_auth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CLAUDE_CODE_OAUTH_TOKEN alone (no ANTHROPIC_API_KEY) is accepted."""
+    monkeypatch.setenv("GH_TOKEN", "x")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-token-value")
+
+    p = write_toml(tmp_path, MINIMAL_VALID_TOML)
+    config = load_config(p)
+    assert isinstance(config, LabroConfig)
 
 
 def test_missing_file_raises(tmp_path: Path) -> None:

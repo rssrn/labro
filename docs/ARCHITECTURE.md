@@ -402,7 +402,7 @@ Host machine (single server or dev machine)
     ├── /config/           labro.toml (bind-mounted from host)
     ├── /data/             labro.db — SQLite store (bind-mounted from host)
     ├── /repos/            Cloned project repos (bind-mounted from host)
-    └── env: GH_TOKEN, ANTHROPIC_API_KEY, GRAFANA_TOKEN, SLACK_WEBHOOK_URL, ...
+    └── env: GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY), GRAFANA_TOKEN, SLACK_WEBHOOK_URL, ...
 ```
 
 * Container is built from a `Dockerfile` in the repo root.
@@ -468,7 +468,7 @@ labro repo (public)          labro-config repo (private)
 ├── Dockerfile               ├── .github/
 ├── labro.example.toml       │   └── workflows/
 └── ...                      │       └── labro-run.yml  ← cron schedule here
-                             └── (GitHub Secrets: GH_TOKEN, ANTHROPIC_API_KEY, …)
+                             └── (GitHub Secrets: GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, …)
 ```
 
 **Secrets** are stored in the config repo's GitHub Secrets and injected as environment variables at runtime — never baked into the image or checked into either repo.
@@ -493,10 +493,11 @@ jobs:
       - run: |
           docker run --rm \
             -e GH_TOKEN=${{ secrets.GH_TOKEN }} \
-            -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
+            -e CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} \
             -v ${{ github.workspace }}/labro.toml:/config/labro.toml \
             ghcr.io/rssrn/labro:v1.0.0 \
             labro run my-project --config /config/labro.toml
+            # Alternative: -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 Pin the image tag (`:v1.0.0` not `:latest`) to avoid silent behaviour changes — consistent with the `claude` CLI pin in the Dockerfile itself.
@@ -510,7 +511,7 @@ Pin the image tag (`:v1.0.0` not `:latest`) to avoid silent behaviour changes �
 ### Security
 
 * GitHub token scoped to minimum required permissions per project.
-* Secrets never written to config or execution records. No output sanitisation pass: secrets (`GH_TOKEN`, `ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
+* Secrets never written to config or execution records. No output sanitisation pass: secrets (`GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
 * Agent is invoked with its working directory set to `/repos/<project-name>`, which scopes its default context to the cloned repo. This is a convention, not enforced isolation — Claude Code CLI can navigate to other paths within the container (e.g. `/data/labro.db`, `/config/labro.toml`, other repos under `/repos/`). The Docker container boundary is the real filesystem sandbox. See Risks.
 * Action Permissions communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-action-permissions-enforcement.md).
 
@@ -782,7 +783,7 @@ Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery
 
 * Single TOML file (`labro.toml`) declares all projects. Parsed with `tomllib` (stdlib); validated with Pydantic at startup. See [ADR-001](adr/0001-toml-config-format.md).
 * Invalid config is a hard failure with a clear error message; no runs attempted.
-* Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` and `ANTHROPIC_API_KEY` are always required; `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
+* Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` is always required; claude CLI auth requires either `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription OAuth token — recommended) or `ANTHROPIC_API_KEY` (API key); `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
 * Required GitHub labels are checked at startup. If any are missing, the harness exits with: "Required label(s) missing in <repo> — run `labro init` to create them." `labro init` creates all required labels idempotently; `labro check` reports label status without writing.
 * Config is the only file an operator needs to edit to add a project.
 * Emergency pause: create `/data/LABRO_DISABLED` on the host to halt all runs immediately (checked before lock acquisition); remove it to resume. No container restart required.

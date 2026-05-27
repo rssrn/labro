@@ -16,16 +16,23 @@ class ConfigError(Exception):
     """Raised for any hard configuration or environment error."""
 
 
+# Either of these satisfies the claude CLI auth requirement.
+# ANTHROPIC_API_KEY (API key) takes precedence if both are set; the claude CLI
+# handles the precedence — Labro just requires at least one to be present.
+_CLAUDE_AUTH_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+
+
 def _required_env_vars(config: LabroConfig) -> list[str]:
-    """Return the list of env var names that must be present for this config.
+    """Return the list of env var names that must each be present for this config.
 
     Rules (from ARCHITECTURE §8):
     - GH_TOKEN: always required.
-    - ANTHROPIC_API_KEY: always required.
+    - claude CLI auth: ANTHROPIC_API_KEY *or* CLAUDE_CODE_OAUTH_TOKEN — checked
+      separately by load_config; not included in this list.
     - GRAFANA_TOKEN: required if any project has a grafana-alerts source.
     - SLACK_WEBHOOK_URL: required if digest is enabled.
     """
-    required: list[str] = ["GH_TOKEN", "ANTHROPIC_API_KEY"]
+    required: list[str] = ["GH_TOKEN"]
 
     if config.digest.enabled:
         required.append("SLACK_WEBHOOK_URL")
@@ -66,5 +73,11 @@ def load_config(path: Path) -> LabroConfig:
     missing = [var for var in _required_env_vars(config) if not os.environ.get(var)]
     if missing:
         raise ConfigError(f"Missing required environment variable(s): {', '.join(missing)}")
+
+    if not any(os.environ.get(var) for var in _CLAUDE_AUTH_VARS):
+        raise ConfigError(
+            f"Missing claude CLI authentication: set {_CLAUDE_AUTH_VARS[0]} (Anthropic API key)"
+            f" or {_CLAUDE_AUTH_VARS[1]} (Claude subscription OAuth token)"
+        )
 
     return config

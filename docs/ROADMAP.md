@@ -33,12 +33,21 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | `README.md` | Scaffold: project overview, prerequisites, installation, first-run (`labro init` + `labro check` + `labro run --dry-run`), pointer to `docs/`. Documentation entry point exists before side-effectful code ships |
 
 **M1 validation gate — `claude -p` in Docker:**
-Before writing any M2 code, validate that `claude -p --print "hello" --output-format json` works inside the target Docker image with only `ANTHROPIC_API_KEY` set (no interactive auth session). Run:
+Before writing any M2 code, validate that `claude -p --output-format json` works inside the target Docker image with no interactive auth session. Two auth routes are supported:
+
 ```bash
-docker run --rm -e ANTHROPIC_API_KEY=<key> <image> \
-  sh -c 'echo "hello" | claude -p --output-format json'
+# Option A — Claude subscription OAuth token (Pro/Max; recommended):
+#   Generate once on your dev machine with: claude setup-token
+docker run --rm --entrypoint sh \
+  -e CLAUDE_CODE_OAUTH_TOKEN=<token> <image> \
+  -c 'echo "hello" | claude -p --output-format json'
+
+# Option B — Anthropic API key (untested):
+docker run --rm --entrypoint sh \
+  -e ANTHROPIC_API_KEY=<key> <image> \
+  -c 'echo "hello" | claude -p --output-format json'
 ```
-Confirm the response contains `type`, `is_error`, and `result` fields at the expected top level. If interactive auth is required, resolve the container auth strategy before proceeding — this is a day-one blocker for M2.
+Confirm the response contains `type`, `is_error`, and `result` fields at the expected top level. If authentication fails, resolve the container auth strategy before proceeding — this is a day-one blocker for M2.
 
 **Explicitly out of scope:**
 - `AgentResult`, `runner.py`, `agents/claude_code.py` — no agent invocation
@@ -68,7 +77,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | `logger.py` | Write execution records to `runs` table; release lock unconditionally in `finally` block |
 | `cli.py` — `labro run <project>` (non-dry-run) | Full run minus post_run label transitions; `LABRO_DISABLED` lockfile check added here |
 | `daily_budget_usd` enforcement | After lock acquisition: query `SUM(total_cost_usd) FROM runs WHERE project = :project AND DATE(started_at) = today`; skip with `skipped: daily budget exceeded ($X.XX of $Y.YY used)` if over cap |
-| `README.md` | Add full run loop section: required env vars (`GH_TOKEN`, `ANTHROPIC_API_KEY`), `LABRO_DISABLED` emergency pause, `daily_budget_usd` config option; update quickstart to cover a real invocation |
+| `README.md` | Add full run loop section: required env vars (`GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`), `LABRO_DISABLED` emergency pause, `daily_budget_usd` config option; update quickstart to cover a real invocation |
 
 **Explicitly out of scope:**
 - `post_run.py` — no label transitions; `items_touched` rows not yet written

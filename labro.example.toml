@@ -1,10 +1,13 @@
 # labro.example.toml — copy this to your private config repo and rename it labro.toml.
 #
 # Secrets are never stored here — pass them as environment variables:
-#   GH_TOKEN             GitHub personal access token (repo + read:org scopes)
-#   ANTHROPIC_API_KEY    Anthropic API key
-#   SLACK_WEBHOOK_URL    Required only if [digest] enabled = true
-#   GRAFANA_TOKEN        Required only if any project uses a grafana-alerts source
+#   GH_TOKEN                  GitHub personal access token (repo + read:org scopes)
+#   CLAUDE_CODE_OAUTH_TOKEN   Claude subscription OAuth token (Pro/Max) — recommended
+#                             Generate once with: claude setup-token
+#   ANTHROPIC_API_KEY         Anthropic API key (alternative to OAuth token; untested)
+#                             NOTE: if both are set, ANTHROPIC_API_KEY takes precedence
+#   SLACK_WEBHOOK_URL         Required only if [digest] enabled = true
+#   GRAFANA_TOKEN             Required only if any project uses a grafana-alerts source
 #
 # Config resolution pattern:
 #   The labro binary and your labro.toml live in separate repos.

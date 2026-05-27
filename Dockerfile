@@ -1,0 +1,107 @@
+# Labro container image — Python 3.12, gh CLI, and pinned claude CLI.
+#
+# The claude CLI is pinned to a specific version to prevent silent
+# response-shape drift (ARCHITECTURE §8, line 1071).
+#
+# Build (native arch):
+#   docker build -t labro:latest .
+#
+# Cross-build for arm64 (e.g. Oracle Cloud Ampere A1) from an amd64 host:
+#   docker buildx build --platform linux/arm64 -t labro:arm64 .
+#
+# M1 validation gate (operator runs). Two auth routes are supported:
+#
+#   Option A — Claude subscription (Pro/Max; recommended; bills subscription credit):
+#     Generate a token once on your dev machine with `claude setup-token`, then:
+#     docker run --rm --entrypoint sh \
+#       -e CLAUDE_CODE_OAUTH_TOKEN=<token> labro:latest \
+#       -c 'echo "hello" | claude -p --output-format json'
+#
+#   Option B — Anthropic API key (untested; bills API account):
+#     docker run --rm --entrypoint sh \
+#       -e ANTHROPIC_API_KEY=<key> labro:latest \
+#       -c 'echo "hello" | claude -p --output-format json'
+#
+#   NOTE: if both vars are set, ANTHROPIC_API_KEY takes precedence.
+#
+# @author Claude Sonnet 4.6 Anthropic
+
+ARG PYTHON_VERSION=3.12
+ARG DEBIAN_RELEASE=bookworm
+ARG GH_VERSION=2.72.0
+ARG CLAUDE_VERSION=2.1.152
+
+# ── Base ──────────────────────────────────────────────────────────────────────
+# python:3.12-slim-bookworm — Debian 12 slim variant.
+# "slim" removes docs, locales, and build tools (~130 MB vs ~380 MB for full).
+# Debian base is required: apt+dpkg for the gh .deb, glibc for npm native binaries.
+# Alpine is explicitly avoided: musl libc breaks pre-built Node/claude binaries,
+# NodeSource doesn't support Alpine, and dpkg is unavailable for gh install.
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_RELEASE} AS base
+
+# TARGETARCH is set automatically by `docker build` / `docker buildx build`
+# to the target platform architecture (e.g. "amd64", "arm64").
+# It is used below to select the correct gh CLI release binary.
+ARG TARGETARCH
+ARG GH_VERSION
+ARG CLAUDE_VERSION
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# ── System dependencies + gh CLI ─────────────────────────────────────────────
+# Combined into one layer so apt lists are only fetched and cleaned once.
+#
+# git       — required by gh (declared dependency in the .deb)
+# nodejs    — required to install claude CLI via npm
+# gh        — installed from GitHub release .deb (arch-aware via TARGETARCH)
+#             using `apt-get install` rather than `dpkg -i` so that any future
+#             dependency additions in the .deb are resolved automatically
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && GH_DEB="gh_${GH_VERSION}_linux_${TARGETARCH}.deb" \
+    && curl -fsSL -o "/tmp/${GH_DEB}" \
+       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_DEB}" \
+    && apt-get install -y --no-install-recommends "/tmp/${GH_DEB}" \
+    && rm "/tmp/${GH_DEB}" \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── claude CLI ────────────────────────────────────────────────────────────────
+# Pinned via npm to avoid silent response-shape drift (ARCHITECTURE §8).
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+    && npm cache clean --force
+
+# ── uv ────────────────────────────────────────────────────────────────────────
+RUN pip install uv
+
+# ── Application ───────────────────────────────────────────────────────────────
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY src/ src/
+
+RUN uv venv /app/.venv \
+    && uv pip install --python /app/.venv/bin/python -e .
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+# M1: direct labro entrypoint, suitable for one-shot dry-run testing only.
+#
+# M2 (TODO): replace with entrypoint.sh as PID 1. entrypoint.sh will:
+#   1. Dump container env to /etc/labro-env (so crond jobs inherit secrets)
+#   2. Generate /etc/cron.d/labro from labro.toml (one entry per enabled project)
+#   3. exec crond -f -l 2  (foreground crond — required for Docker PID 1)
+# The container is then long-lived; crond fires `labro run <project>` on schedule.
+# Also requires: `apt-get install -y cron` added to the system deps layer above.
+# See ARCHITECTURE.md §4 Container View and §5 "entrypoint.sh and crontab generation".
+ENTRYPOINT ["labro"]
+CMD ["--help"]

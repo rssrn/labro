@@ -66,7 +66,7 @@ testpaths = ["tests"]
 addopts = [
     "--cov=src/labro",
     "--cov-report=term-missing",
-    "--cov-fail-under=0",   # raised to 70 once non-trivial modules land (CHECKPOINT-3+)
+    "--cov-fail-under=70",  # M1 floor: 70% across config/, picker.py, prompt_builder.py, task_sources/
 ]
 
 [tool.coverage.run]
