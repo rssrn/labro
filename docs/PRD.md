@@ -61,7 +61,7 @@ Several tools exist in this space. None were disqualifying — the rationale for
 * Multi-user or team features — Labro is personal tooling first.
 * A web UI or dashboard — observability via logs/files initially.
 * Support for agents beyond Claude Code CLI — architecture should allow others later, but Claude Code is the sole v1 target.
-* Real-time event-driven triggering — cron scheduling is sufficient for v1.
+* Real-time event-driven triggering — deliberately omitted, not deferred. A webhook fires immediately on a single event with no awareness of competing priorities; it would routinely spend budget on the lowest-priority item in the system (e.g. a trivial Dependabot PR) while a higher-priority task waits. Cron + priority picker is the intentional model: the picker evaluates all sources at run time and routes budget to the highest-priority work. For cases where latency matters (e.g. a firing Grafana alert), the cron interval is configurable per project — the scheduler can be tightened without adding architectural complexity.
 * Mobile notifications or alerting integrations.
 
 ### Key Performance Indicators (KPIs)
@@ -164,7 +164,8 @@ Self-reported success is *not* a measure of real usefulness (it is a leading, su
 | :--- | :--- | :--- | :--- |
 | **REQ-14** | As an operator, I want each run logged with: task type, task description, agent and model used, start/end time, token usage, rounds used, and agent completion reported outcome. | P0 | Structured log written per run. |
 | **REQ-15** | As an operator, I want to know whether the agent believed it succeeded and what actions it took (e.g. "opened PR #42", "pushed commit abc123"). | P0 | Agent output parsed for action summary; stored alongside run log. |
-| **REQ-16** | As an operator, I want a simple way to review recent runs so I can spot failures or bad behaviour quickly. | P1 | CLI command or script to tail/summarize recent run logs. |
+| **REQ-16** | As an operator, I want a simple way to review recent runs so I can spot failures or bad behaviour quickly. | P1 | `labro review` prints a table of recent execution records from SQLite (default: last 20 runs) with columns for timestamp, project, task source, outcome, turns used, cost, and task description. Supports `--limit`, `--project`, and `--outcome` filters. |
+| **REQ-16a** | As an operator, I want to inspect what Labro *would* do before it touches GitHub so I can validate my configuration without spending tokens. | P1 | `labro run <project> --dry-run` runs task selection and prompt construction then prints the resolved task, effective agent config, and full prompt text to stdout. It does not acquire a lock, prepare the repo, invoke the agent, write execution records, or apply label transitions — zero side effects. `labro check` performs a read-only pre-flight validation: checks all required env vars are set, verifies the GitHub token has the required scopes, and confirms all required labels exist in each configured repo. Reports pass/fail per check with a descriptive error for each failure. Both commands are safe to run at any time. |
 | **REQ-17** | As an operator, I want token and time costs aggregated by agent and model so I can understand and control spend. | P1 | Daily/weekly summary queryable from logs; broken down by agent/model. |
 | **REQ-22** | As an operator, I want Labro to capture *outcome* signals for past tasks from passive GitHub state so I can judge real usefulness without manual bookkeeping. | P0 | The daily digest job (not the run loop) owns outcome signal collection. It queries the `items_touched` SQLite table — populated by the harness at run time — to find all GitHub items Labro has acted on, then reads their current state from GitHub (PR merged vs. closed-unmerged, issue close reason `completed` vs. `not planned`, follow-up commits before merge) and writes outcome signals back to SQLite against the originating `run_id`. The run loop is only responsible for writing accurate `items_touched` records; the digest job does all GitHub state lookups. |
 | **REQ-23** | As an operator, I want to express explicit satisfaction with a single click so I can correct or confirm Labro's self-reported success cheaply. | P1 | Labro reads 👍/👎 reactions on its own issue/PR comments via the GitHub API and records them as a satisfaction signal against the originating run. Items with no reaction are excluded from the satisfaction ratio — not counted as negative. The daily digest (REQ-21) includes an "awaiting your verdict" section listing recently-acted items with direct links, and surfaces both the satisfaction ratio and the reaction count so the operator can judge sample size. |
@@ -203,13 +204,14 @@ Labro is a headless, operator-facing tool. There is no end-user UI.
 * **Trust expansion:** Permitted actions are expanded manually by the operator, informed by observability data. Labro does not prompt for permission upgrades.
 * **Key operator flow:**
   1. Operator adds a repo to config with a cron schedule, priority list, and per-source permitted actions
-  2. Cron triggers task picker for that project
-  3. Task picker evaluates priority list and selects highest-priority task
-  4. Agent is invoked with constructed prompt (scoped to effective permitted actions)
-  5. Agent executes (gh commands, git operations)
-  6. Harness performs label transitions (success → done label; failure → `ai-failed` + comment)
-  7. Run result and action summary logged
-  8. Operator receives daily digest summarising health and spend
+  2. Operator runs `labro check` (pre-flight: validates config, env vars, GitHub token scopes, and required labels) and `labro run <project> --dry-run` (prints which task would be selected and the exact prompt the agent would receive — zero side effects, no tokens spent)
+  3. Cron triggers task picker for that project
+  4. Task picker evaluates priority list and selects highest-priority task
+  5. Agent is invoked with constructed prompt (scoped to effective permitted actions)
+  6. Agent executes (gh commands, git operations)
+  7. Harness performs label transitions (success → done label; failure → `ai-failed` + comment)
+  8. Run result and action summary logged
+  9. Operator receives daily digest summarising health and spend
 
 ---
 
