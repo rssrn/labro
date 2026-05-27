@@ -3,8 +3,11 @@
 # The claude CLI is pinned to a specific version to prevent silent
 # response-shape drift (ARCHITECTURE §8, line 1071).
 #
-# Build (native arch):
-#   docker build -t labro:latest .
+# Build targets:
+#   Production image (no tests):
+#     docker build --target base -t labro:latest .
+#   Dev image (includes tests/ + dev extras; default target):
+#     docker build -t labro:dev .
 #
 # Cross-build for arm64 (e.g. Oracle Cloud Ampere A1) from an amd64 host:
 #   docker buildx build --platform linux/arm64 -t labro:arm64 .
@@ -105,3 +108,13 @@ ENV PATH="/app/.venv/bin:$PATH"
 # See ARCHITECTURE.md §4 Container View and §5 "entrypoint.sh and crontab generation".
 ENTRYPOINT ["labro"]
 CMD ["--help"]
+
+# ── Dev target ────────────────────────────────────────────────────────────────
+# Extends the production image with tests/ and dev extras (pytest, ruff, mypy,
+# bandit). This is the default build target so `docker build -t labro:dev .`
+# produces a test-capable image without any extra flags.
+# Production builds use: docker build --target base -t labro:latest .
+FROM base AS dev
+
+COPY tests/ tests/
+RUN uv pip install --python /app/.venv/bin/python -e ".[dev]"

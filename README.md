@@ -31,13 +31,18 @@ The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and 
 ```bash
 git clone https://github.com/rssrn/labro.git
 cd labro
-docker build -t labro:latest .
+docker build --target base -t labro:latest .
 ```
+
+> **Build targets:** the Dockerfile has two stages. `--target base` (production) omits the
+> test suite and dev extras. The default target (`dev`, built without `--target`) includes
+> `tests/` and dev extras — useful for contributors and CI, but slightly larger. The
+> `labro:latest` tag is conventionally the production image.
 
 **ARM64 / Oracle Cloud Ampere A1:** the image is arch-aware. Build natively on the instance, or cross-build from an amd64 host with:
 
 ```bash
-docker buildx build --platform linux/arm64 -t labro:arm64 .
+docker buildx build --target base --platform linux/arm64 -t labro:arm64 .
 ```
 
 ### 2. Write a minimal `labro.toml`

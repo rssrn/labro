@@ -1,4 +1,4 @@
-"""Task and AgentConfig data models.
+"""Task, AgentConfig, AgentResult, and ItemRef data models.
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from labro.config.schema import PermittedAction
 
@@ -39,6 +39,39 @@ class Task:
 def make_task_id() -> str:
     """Generate a fresh UUID v4 task identifier."""
     return str(uuid.uuid4())
+
+
+@dataclass
+class ItemRef:
+    """A reference to a GitHub item (issue or PR) created by the agent."""
+
+    item_type: str  # "issue" | "pr"
+    item_number: int
+
+
+@dataclass
+class AgentResult:
+    """Structured outcome returned by an agent after a run.
+
+    Token fields map directly to Claude API usage fields.
+    ``partial`` is a valid agent outcome but is stored as ``failure``
+    in the SQLite runs table (ARCHITECTURE line 263); the distinction
+    is preserved only in ``summary`` / ``failure_reason``.
+    """
+
+    outcome: str  # "success" | "failure" | "partial"
+    summary: str
+    actions_taken: list[str] = field(default_factory=list)
+    items_created: list[ItemRef] = field(default_factory=list)
+    failure_reason: str | None = None
+    is_error: bool = False
+    num_turns: int = 0
+    total_cost_usd: float = 0.0
+    duration_ms: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
