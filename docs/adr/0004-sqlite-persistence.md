@@ -5,7 +5,7 @@
 
 ## Context
 
-Labro needs to persist run records and make them queryable — by the daily digest, by a future review CLI, and by outcome signal collection. The initial architecture proposed JSON log files.
+Labro needs to persist execution records and make them queryable — by the daily digest, by a future review CLI, and by outcome signal collection. The initial architecture proposed JSON log files.
 
 ## Decision
 

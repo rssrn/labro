@@ -53,7 +53,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 ## M2 — Agent invocation and logging
 
-**Goal:** `labro run <project>` invokes the agent and writes a structured run record to SQLite. Label transitions are deferred to M3 — this milestone isolates the subprocess/JSON-parsing integration risk before building the state machine on top of it.
+**Goal:** `labro run <project>` invokes the agent and writes a structured execution record to SQLite. Label transitions are deferred to M3 — this milestone isolates the subprocess/JSON-parsing integration risk before building the state machine on top of it.
 
 **Completed here:**
 
@@ -65,7 +65,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | `runner.py` | Subprocess invocation; stdin prompt delivery; JSON parse; timeout handling; validates `structured_output` shape and fails loudly if missing |
 | `repo.py` | Clone/pull to default branch; dirty-repo detection; `git reset --hard` + `git clean -fd` recovery |
 | `store.py` | SQLite WAL-mode setup; `runs`, `project_locks`, `items_touched` tables and indexes. `items_touched` written in M3; `digests` table added in M8 |
-| `logger.py` | Write run records to `runs` table; release lock unconditionally in `finally` block |
+| `logger.py` | Write execution records to `runs` table; release lock unconditionally in `finally` block |
 | `cli.py` — `labro run <project>` (non-dry-run) | Full run minus post_run label transitions; `LABRO_DISABLED` lockfile check added here |
 | `daily_budget_usd` enforcement | After lock acquisition: query `SUM(total_cost_usd) FROM runs WHERE project = :project AND DATE(started_at) = today`; skip with `skipped: daily budget exceeded ($X.XX of $Y.YY used)` if over cap |
 | `README.md` | Add full run loop section: required env vars (`GH_TOKEN`, `ANTHROPIC_API_KEY`), `LABRO_DISABLED` emergency pause, `daily_budget_usd` config option; update quickstart to cover a real invocation |
@@ -178,7 +178,7 @@ Maps every PRD requirement to the milestone where it is first completed. Require
 | :--- | :--- | :--- | :--- |
 | REQ-01 | Per-project cron schedules | M5 | `entrypoint.sh` generates crontab from `labro.toml` |
 | REQ-02 | Deterministic task selector | M1 | `picker.py` complete; no changes in later milestones |
-| REQ-03 | Priority stack in config | M1 | Full schema; picker evaluates top-to-bottom |
+| REQ-03 | Priority list in config | M1 | Full schema; picker evaluates top-to-bottom |
 | REQ-04 | Built-in task source modules | M1 | `TaskSource` ABC; `gh-delegated` first concrete source |
 | REQ-05 | `grafana-alerts` task source | M6 | Alert fetch, severity filter |
 | REQ-05a | Alert dedup via `ai-alert:<rule-uid>` | M6 | Open-issue check before acting; cleared-alert comment path |
@@ -191,7 +191,7 @@ Maps every PRD requirement to the milestone where it is first completed. Require
 | REQ-12 | Permitted actions in config; prompt enforcement | M1 + M3 | Schema in M1; prompt delivery in M2; label-transition enforcement in M3 |
 | REQ-13 | Agent runs in sandboxed Docker environment | M1 + M2 | Image/envelope in M1; agent execution inside container from M2 |
 | REQ-14 | Structured run log per run | M2 | `logger.py` writes to SQLite |
-| REQ-15 | Agent self-reported outcome captured | M2 | `AgentResult` parsed from agent output |
+| REQ-15 | Agent completion reported outcome captured | M2 | `AgentResult` parsed from agent output |
 | REQ-16 | CLI command to review recent runs | M4 | `labro review` with filter flags |
 | REQ-17 | Token/time costs aggregated by agent/model | M4 | Surfaced in `labro review` output |
 | REQ-18 | Multi-project config; per-project schedule, stack, actions | M1 + M2 + M5 | Schema in M1; `LABRO_DISABLED` and `daily_budget_usd` in M2; cron generation in M5 |

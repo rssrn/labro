@@ -1,20 +1,20 @@
-# ADR-0003: Prompt-only enforcement for permitted action set in v1
+# ADR-0003: Prompt-only enforcement for action permissions in v1
 
 * **Status:** Accepted
 * **Date:** 2026-05-26
 
 ## Context
 
-The Permitted Action Set (e.g. `comment`, `open-pr`, `merge`) is declared per project and per task source in config. Labro must communicate this boundary to the agent and, ideally, enforce it.
+The Action Permissions (e.g. `comment`, `open-pr`, `merge`) is declared per project and per task source in config. Labro must communicate this boundary to the agent and, ideally, enforce it.
 
 Two enforcement mechanisms were considered:
 
-1. **Prompt-only** — the permitted action set is included in the constructed prompt as an explicit instruction. The agent is trusted to follow it.
+1. **Prompt-only** — the action permissions is included in the constructed prompt as an explicit instruction. The agent is trusted to follow it.
 2. **`gh` wrapper script** — a generated shell script replaces the real `gh` binary on `$PATH` in the agent's environment. Out-of-scope calls fail fast with a clear error. The real `gh` binary is not accessible to the agent.
 
 ## Decision
 
-Use prompt-only enforcement in v1. The permitted action set is communicated via the prompt; no wrapper script is generated.
+Use prompt-only enforcement in v1. The action permissions is communicated via the prompt; no wrapper script is generated.
 
 ## Rationale
 
@@ -29,6 +29,6 @@ Use prompt-only enforcement in v1. The permitted action set is communicated via 
 
 ## Consequences
 
-* The Permitted Action Set is advisory in v1 — the agent could theoretically exceed it.
+* The Action Permissions is advisory in v1 — the agent could theoretically exceed it.
 * If audit logs reveal systematic permission violations, a `gh` wrapper is a well-defined v1.1 hardening path.
 * Risk is accepted as Low–Medium likelihood / High impact (see architecture risk register).

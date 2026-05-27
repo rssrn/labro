@@ -133,7 +133,7 @@ _Top-level deployable units. (C4 Level 2)_
 | Scheduler | System cron (inside container) | Fires harness runs per project on configured cron schedules; fires daily digest. Crontab is generated from `labro.toml` by the Docker entrypoint at container start — operator edits config only. |
 | Harness | Python 3.12 | Task selection, prompt construction, agent invocation, label transitions, logging. |
 | Agent CLI | Claude Code CLI | Executes the task; interacts with GitHub via `gh`; makes code changes. |
-| Store | SQLite (single bind-mounted file) | Persist structured run records; queried by digest and review CLI. |
+| Store | SQLite (single bind-mounted file) | Persist structured execution records; queried by digest and review CLI. |
 
 ---
 
@@ -157,8 +157,8 @@ Harness
 │   └── claude_code.py
 ├── runner.py         Invokes agent subprocess; captures output
 ├── post_run.py       Label transitions; failure comments
-├── store.py          SQLite access layer (run records, locks, outcome signals)
-├── logger.py         Writes run record to SQLite via store.py
+├── store.py          SQLite access layer (execution records, locks, outcome signals)
+├── logger.py         Writes execution record to SQLite via store.py
 ├── digest.py         Daily digest generation and delivery
 └── cli.py            Operator CLI entry point (labro subcommands)
 ```
@@ -167,12 +167,12 @@ Harness
 
 | Subcommand | Description |
 | :--- | :--- |
-| `labro run <project>` | Trigger a single run for a project immediately (bypasses scheduler). Accepts `--dry-run` flag: runs task selection and prompt construction but does not acquire a lock, prepare the repo, invoke the agent, write run records, or apply label transitions. Prints resolved task, agent config, and full prompt text to stdout — useful for inspecting configuration before spending tokens. |
+| `labro run <project>` | Trigger a single run for a project immediately (bypasses scheduler). Accepts `--dry-run` flag: runs task selection and prompt construction but does not acquire a lock, prepare the repo, invoke the agent, write execution records, or apply label transitions. Prints resolved task, agent config, and full prompt text to stdout — useful for inspecting configuration before spending tokens. |
 | `labro init` | Bootstrap all configured projects: creates required GitHub labels in each repo if absent. Idempotent — safe to re-run. Labels created: `ai-contributed` (blue `#0075ca`), `ai-failed` (yellow `#e4e669`, description "remove to retry"), `ai-proactive-suggestion` (grey `#cfd3d7`), plus any configured done labels (green `#0e8a16`) and source labels (purple `#7057ff`). `ai-alert:<rule-uid>` labels are created dynamically by `post_run.py` on first alert success, not by `init`; they use blue `#0075ca` with description `"Labro alert tracker: <rule-uid>"`. |
 | `labro check` | Pre-flight health check: validates config, checks all required env vars are set, verifies GitHub token has `repo` or `public_repo` scope (via `gh auth status`; may produce false negatives for fine-grained PATs), and confirms required labels exist in each configured repo. Reports pass/fail per check. Safe to run at any time — makes no writes. |
 | `labro list-locks` | Show all currently held project locks with `project`, `locked_at`, and age. |
 | `labro unlock <project>` | Manually release a stale lock for a project. |
-| `labro review` | Print a table of recent run records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `task_source`, `outcome`, `turns_used`, `total_cost_usd`, `task_description` (truncated). Failures include `failure_reason`. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|skipped>`. Plain text to stdout. |
+| `labro review` | Print a table of recent execution records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `task_source`, `outcome`, `turns_used`, `total_cost_usd`, `task_description` (truncated). Failures include `failure_reason`. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|skipped>`. Plain text to stdout. |
 
 ### Key Interfaces
 
@@ -239,7 +239,7 @@ Returned by `Agent.invoke()`; parsed from the Claude Code CLI's JSON response. C
 @dataclass
 class AgentResult:
     outcome: str                    # "success" | "failure" | "partial" — from structured_output
-    summary: str                    # agent self-reported summary
+    summary: str                    # agent completion reported summary
     actions_taken: list[str]        # human-readable action strings
     items_created: list[ItemRef]    # GitHub items the agent created (for items_touched)
     failure_reason: str | None
@@ -355,7 +355,7 @@ daily_budget_usd configured? → query SUM(total_cost_usd) FROM runs WHERE proje
   └── spend ≥ budget? → log skipped: daily budget exceeded ($X.XX of $Y.YY used) → release lock → exit
     │
     ▼
-Picker iterates priority stack
+Picker iterates priority list
     └── TaskSource.fetch_task()?   None → next source
     │
     ▼
@@ -384,8 +384,8 @@ post_run.py
   └── failure → keep source label; apply ai-failed; apply ai-contributed; post failure comment
     │
     ▼
-logger.py → write run record to SQLite (via store.py) → release lock (DELETE from project_locks)
-  └── SQLite write failure? → log to stderr; release lock unconditionally (finally block); run record may be lost
+logger.py → write execution record to SQLite (via store.py) → release lock (DELETE from project_locks)
+  └── SQLite write failure? → log to stderr; release lock unconditionally (finally block); execution record may be lost
 ```
 
 ---
@@ -465,14 +465,14 @@ exec crond -f -l 2
 ### Security
 
 * GitHub token scoped to minimum required permissions per project.
-* Secrets never written to config or run records. No output sanitisation pass: secrets (`GH_TOKEN`, `ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
+* Secrets never written to config or execution records. No output sanitisation pass: secrets (`GH_TOKEN`, `ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
 * Agent is invoked with its working directory set to `/repos/<project-name>`, which scopes its default context to the cloned repo. This is a convention, not enforced isolation — Claude Code CLI can navigate to other paths within the container (e.g. `/data/labro.db`, `/config/labro.toml`, other repos under `/repos/`). The Docker container boundary is the real filesystem sandbox. See Risks.
-* Permitted Action Set communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-permitted-action-enforcement.md).
+* Action Permissions communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-action-permissions-enforcement.md).
 
 ### Observability & Logging
 
 * Every run produces a structured record written to SQLite regardless of outcome.
-* Run record fields: `run_id`, `project`, `task_source`, `task_description`, `agent`, `model`, `started_at`, `ended_at`, `duration_s`, `token_usage`, `turns_used`, `outcome` (`success` | `failure` | `skipped`), `actions_taken`, `failure_reason`.
+* Execution record fields: `run_id`, `project`, `task_source`, `task_description`, `agent`, `model`, `started_at`, `ended_at`, `duration_s`, `token_usage`, `turns_used`, `outcome` (`success` | `failure` | `skipped`), `actions_taken`, `failure_reason`.
 * Daily digest queries SQLite across all projects: runs fired, tasks per source, skips, token spend, failures.
 * Outcome signals (PR merged, issue closed, reactions) are collected by the daily digest job — not the run loop. The digest records its own start time (`digest_start`), then queries `items_touched JOIN runs WHERE runs.ended_at < :digest_start AND items_touched.signals_collected_at IS NULL`. Only runs that completed before the digest fired are eligible — any run still in progress at digest time is skipped and will be picked up on the next digest. This avoids lock-polling and keeps the digest stateless with respect to project run state. The `ai-contributed` label remains the query surface for ad-hoc GitHub lookups. See [ADR-002](adr/0002-github-as-state-store.md).
 
@@ -651,7 +651,7 @@ CREATE TABLE runs (
     output_tokens       INTEGER,
     cache_read_tokens   INTEGER,
     cache_write_tokens  INTEGER,
-    summary             TEXT,                           -- agent self-reported summary
+    summary             TEXT,                           -- agent completion reported summary
     actions_taken       TEXT,                           -- JSON array of strings
     failure_reason      TEXT    -- for skipped runs: harness-authored structured string (e.g. "skipped: run in progress", "skipped: source error — grafana-alerts") — safe to GROUP BY in digest;
                                 -- for failed runs: may include agent-authored prose — display only, not aggregated
@@ -709,7 +709,7 @@ CREATE TABLE digests (
 - Token usage fields (`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`) are stored as flat columns, not as a JSON blob, so they can be aggregated directly in SQL without JSON extraction.
 - `actions_taken` is a JSON array string — used for display only (digest summary, `labro review`), not for outcome matching, so SQL querying is not required.
 - `outcome_state` values correspond to: GitHub PR merged (`merged`), PR closed without merge (`closed_unmerged`), issue closed as completed (`closed_completed`), issue closed as not planned (`closed_not_planned`), still open (`open`). `closed_completed` and `closed_not_planned` map to GitHub's `state_reason` field on the issue close event.
-- No `ON DELETE CASCADE` — run records are append-only. `items_touched` rows reference their parent `run_id` for auditability; orphaned rows are not a concern at the current scale.
+- No `ON DELETE CASCADE` — execution records are append-only. `items_touched` rows reference their parent `run_id` for auditability; orphaned rows are not a concern at the current scale.
 - Periodic purge of runs older than N days (see Risks) will require a corresponding delete from `items_touched`.
 
 ### Dirty-repo recovery
@@ -721,7 +721,7 @@ A dirty working copy on run entry means the previous run left uncommitted change
 | **Agent hit `--max-turns` mid-edit** (most common) | Lock released normally by `finally` block | No stale lock; run proceeds directly to `repo.py` |
 | **Container killed / process crash** | Lock is stale (age > `timeout_s`) | Stale lock overwritten first; run then proceeds to `repo.py` |
 
-In both cases `repo.py` detects the dirty state via `git status --porcelain`, captures the file list, logs a warning (included in the run record and surfaced in the digest), then executes `git reset --hard && git clean -fd` before proceeding. The uncommitted changes are discarded — there is no attempt to salvage them, since the previous run was already recorded as a failure and the agent will re-attempt the work on the current task.
+In both cases `repo.py` detects the dirty state via `git status --porcelain`, captures the file list, logs a warning (included in the execution record and surfaced in the digest), then executes `git reset --hard && git clean -fd` before proceeding. The uncommitted changes are discarded — there is no attempt to salvage them, since the previous run was already recorded as a failure and the agent will re-attempt the work on the current task.
 
 Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery mechanism for either cause. The primary mechanisms are: `--max-turns` terminating the agent cleanly (turn limit) and stale-lock detection (container kill). The dirty-repo check is the final safety net that ensures every run starts from a known-clean state.
 
@@ -730,8 +730,8 @@ Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery
 * Agent subprocess timeout → logged as failure; `ai-failed` label applied.
 * Task source fetch failure (exception) → logged as warning with reason `skipped: source error — <source_name>`; picker moves to next source. Distinct from `skipped: no task found` so the digest surfaces broken sources as a separate count rather than silently counting them as quiet runs.
 * GitHub API errors during agent execution → logged; run aborted cleanly.
-* Label transition failure (post-run) → logged as `outcome=failure` with `failure_reason="label transition failed"`; `ai-failed` applied as best-effort fallback. If that also fails, the run record is written with the failure noted and the item is left in a dirty label state. No retry — the digest surfaces the failure and the operator resolves it manually.
-* SQLite write failure (logger) → failure logged to stderr; lock released unconditionally in a `finally` block. Run record may be lost. A frozen project is a worse outcome than a missing record.
+* Label transition failure (post-run) → logged as `outcome=failure` with `failure_reason="label transition failed"`; `ai-failed` applied as best-effort fallback. If that also fails, the execution record is written with the failure noted and the item is left in a dirty label state. No retry — the digest surfaces the failure and the operator resolves it manually.
+* SQLite write failure (logger) → failure logged to stderr; lock released unconditionally in a `finally` block. Execution record may be lost. A frozen project is a worse outcome than a missing record.
 
 ### Configuration
 
@@ -764,7 +764,7 @@ timeout_s = 600                 # subprocess wall-clock timeout in seconds
 # ── Project ────────────────────────────────────────────────────────────────────
 # Repeat [[projects]] for each managed repo.
 [[projects]]
-name    = "my-api"          # unique slug; used in run records, CLI output, lock keys
+name    = "my-api"          # unique slug; used in execution records, CLI output, lock keys
 repo    = "my-org/my-api"   # GitHub "owner/repo"
 cron    = "0 * * * *"       # how often the scheduler fires a run for this project
 enabled = true              # optional; default true — set false to pause without removing
@@ -904,7 +904,7 @@ Quality gates are enforced via pre-commit hooks (`.pre-commit-config.yaml`). Fas
 | Layer | Test approach | Mocking strategy |
 | :--- | :--- | :--- |
 | `config/` — schema validation | Unit | None — pure Pydantic; test valid and invalid TOML inputs including unknown `permitted_actions` values |
-| `picker.py` — priority stack | Unit | `TaskSource.fetch_task` stubbed to return `Task \| None` per scenario |
+| `picker.py` — priority list | Unit | `TaskSource.fetch_task` stubbed to return `Task \| None` per scenario |
 | `prompt_builder.py` — four-section prompt | Unit | None — pure function; assert all four sections present, correct ordering, permitted actions enumerated |
 | `task_sources/gh_delegated.py` | Unit | `gh` CLI calls mocked via `subprocess` fixture; fixture responses are real `gh api` JSON payloads captured once |
 | `task_sources/grafana_alerts.py` | Unit | HTTP client mocked; fixture responses from real Grafana API captures |
@@ -929,7 +929,7 @@ _Record significant decisions here, or link to individual ADR files in `docs/adr
 | :--- | :--- | :--- | :--- |
 | [ADR-001](adr/0001-toml-config-format.md) | Use TOML for configuration file format (`labro.toml`) | Accepted | 2026-05-26 |
 | [ADR-002](adr/0002-github-as-state-store.md) | Use GitHub labels as the state store for outcome tracking; universal `ai-contributed` marker label | Accepted | 2026-05-26 |
-| [ADR-003](adr/0003-prompt-only-permitted-action-enforcement.md) | Prompt-only enforcement for permitted action set in v1; no `gh` wrapper script | Accepted | 2026-05-26 |
+| [ADR-003](adr/0003-prompt-only-action-permissions-enforcement.md) | Prompt-only enforcement for action permissions in v1; no `gh` wrapper script | Accepted | 2026-05-26 |
 | [ADR-004](adr/0004-sqlite-persistence.md) | Use SQLite as the persistence layer; no external database service | Accepted | 2026-05-26 |
 
 > _Use `docs/adr/NNN-title.md` for decisions that need more context than a table row._
@@ -960,7 +960,7 @@ _Testability and quality gates for the architecture._
 | `store.py` lock contention | Project already locked (non-stale) | `INSERT` fails; returns `False`; no second lock row created. |
 | `store.py` stale lock | Lock age > `timeout_s` | Existing row overwritten; new lock acquired; run proceeds. |
 | `gh` call uses `shell=False` | Any subprocess invocation | All `subprocess` calls use list-form args; no `shell=True` anywhere in codebase (enforced by bandit B602). |
-| `runner.py` receives malformed `structured_output` | CLI response missing required fields or invalid `outcome` enum value | `runner.py` fails loudly with a descriptive error (logged as `failure`); run record written with `failure_reason`; does not silently produce a garbage record or treat as success. |
+| `runner.py` receives malformed `structured_output` | CLI response missing required fields or invalid `outcome` enum value | `runner.py` fails loudly with a descriptive error (logged as `failure`); execution record written with `failure_reason`; does not silently produce a garbage record or treat as success. |
 | `store.py` stale-lock detection | Lock age is between `timeout_s` and `timeout_s + 60` (within grace period) | Lock is treated as **not** stale; new run exits with `skipped: run in progress`; only one run proceeds. |
 
 ---
@@ -971,8 +971,8 @@ _Testability and quality gates for the architecture._
 | :--- | :--- | :--- | :--- |
 | Agent takes actions outside permission envelope | Low–Medium | High | Prompt-only enforcement (v1); audit logs enable detection; `gh` wrapper as hard stop in v1.1 if needed. Risk accepted based on observed Claude Code instruction-following. |
 | Agent accesses files outside the project repo | Low | Low–Medium | Working directory scoping is convention only; Docker is the real boundary. Agent could read `/data/labro.db` or other repos under `/repos/`. Accepted in v1 — single-operator personal tooling. Consider read-only bind mounts for `/config/` and `/data/` in v1.1 if this becomes a concern. |
-| Agent self-reporting is unreliable | High | Medium | Accept for v1; track as metric; consider downstream outcome checks in v1.1. |
-| SQLite file grows unboundedly | Low | Low | Add a periodic purge of run records older than N days before sustained operation. |
+| Agent completion reporting is unreliable | High | Medium | Accept for v1; track as metric; consider downstream outcome checks in v1.1. |
+| SQLite file grows unboundedly | Low | Low | Add a periodic purge of execution records older than N days before sustained operation. |
 | `gh` CLI auth token expires | Medium | High | Monitor token expiry; surface in daily digest. |
 | Runaway agent session costs | Medium | Medium | `--max-turns` for Claude Code CLI; configurable timeout for all agents. |
 | GitHub API rate limits exhausted | Low–Medium | Medium | Authenticated limit is 5 000 req/hour. At 10 projects × hourly runs × ~8 calls/run = 1 920 calls/day — well under the ceiling for normal operation. Risk increases if `grafana-alerts` checks for an open tracking issue every run during a persistent alert storm, or if `items_touched` rows accumulate with pagination across many AI-labelled issues. Mitigation: surface remaining rate-limit headroom in the daily digest (one `gh api rate_limit` call at digest time); add pagination awareness in `grafana_alerts.py` before sustained multi-project operation. |
@@ -992,7 +992,7 @@ Each prompt passed to the agent has four sections, in order:
 
 2. **Task** — the task description from the task source. For `gh-delegated`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: depends on `selection_strategy` — `harness-random` passes a single pre-selected target; `agent-chooses` passes the full target list with an explicit instruction to pick exactly one and open at most one issue or PR.
 
-3. **Permitted actions** — an explicit enumeration of the *GitHub write operations* the agent may and may not perform in this run (derived from the effective permitted action set). Scoped narrowly to side-effectful GitHub actions only — read operations, web searches, MCP tool calls (e.g. context7, web fetch), and local file operations are always unrestricted. Example: "You may: post a comment on a GitHub issue or PR, open a pull request. You must not: merge a pull request, approve a pull request, push directly to the default branch."
+3. **Permitted actions** — an explicit enumeration of the *GitHub write operations* the agent may and may not perform in this run (derived from the effective action permissions). Scoped narrowly to side-effectful GitHub actions only — read operations, web searches, MCP tool calls (e.g. context7, web fetch), and local file operations are always unrestricted. Example: "You may: post a comment on a GitHub issue or PR, open a pull request. You must not: merge a pull request, approve a pull request, push directly to the default branch."
 
 4. **Project context** — repo name, default branch, and an instruction to read `CLAUDE.md` at the repo root for project-specific conventions and constraints. Claude Code reads `CLAUDE.md` automatically when invoked in the repo directory; the prompt reinforces this as an explicit instruction. Any additional project-level context declared in `labro.toml` is appended here.
 
@@ -1064,15 +1064,15 @@ Example top-level response shape (abridged — verified output):
 }
 ```
 
-**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `duration_ms`, `usage`, and `structured_output` verbatim into the SQLite run record. Failure detection uses `is_error == true` OR `subtype != "success"`. The `modelUsage` object is ignored — the flat token/cost columns in `runs` are sufficient for v1, where each run uses exactly one model.
+**Implication for the harness:** `runner.py` can parse the JSON response directly — no prose scraping needed. `logger.py` reads `total_cost_usd`, `num_turns`, `duration_ms`, `usage`, and `structured_output` verbatim into the SQLite execution record. Failure detection uses `is_error == true` OR `subtype != "success"`. The `modelUsage` object is ignored — the flat token/cost columns in `runs` are sufficient for v1, where each run uses exactly one model.
 
 **Version pinning and schema validation requirements:** The entire result pipeline depends on `claude -p --output-format json --json-schema` producing the shape above. Three safeguards are required:
 
 1. **Pin the `claude` CLI version in the Dockerfile.** An unpinned `claude` upgrade could silently change the response shape and break every run. Pin to a specific released version; update deliberately.
-2. **Schema-validate `structured_output` in `runner.py` before use.** After JSON-parsing the CLI response, `runner.py` must validate that `structured_output` contains the expected fields (`outcome`, `summary`, `actions_taken`, `items_created`) and that `outcome` is one of the declared enum values. A missing or malformed `structured_output` must fail loudly with a clear error — not silently produce a garbage run record or swallow the run as a success.
+2. **Schema-validate `structured_output` in `runner.py` before use.** After JSON-parsing the CLI response, `runner.py` must validate that `structured_output` contains the expected fields (`outcome`, `summary`, `actions_taken`, `items_created`) and that `outcome` is one of the declared enum values. A missing or malformed `structured_output` must fail loudly with a clear error — not silently produce a garbage execution record or swallow the run as a success.
 3. **Integration test must cover `structured_output` specifically.** The `runner.py` integration test (see §8 Testing) must assert on the shape of `structured_output` in the parsed response, not just top-level fields.
 
 The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
-`actions_taken` remains a human-readable string array — used for the digest summary and the run record, not for outcome matching.
+`actions_taken` remains a human-readable string array — used for the digest summary and the execution record, not for outcome matching.
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-Labro needs a human-editable configuration file (`labro.toml`) that operators use to declare projects, cron schedules, priority stacks, and per-source agent/permission overrides. The priority stack is an array of heterogeneous objects — the dominant data shape in the config.
+Labro needs a human-editable configuration file (`labro.toml`) that operators use to declare projects, cron schedules, priority lists, and per-source agent/permission overrides. The priority list is an array of heterogeneous objects — the dominant data shape in the config.
 
 Candidates considered: TOML, YAML, JSON, Python module, SQLite.
 
@@ -16,7 +16,7 @@ Use TOML (`labro.toml`). Parse with `tomllib` (Python 3.11+ stdlib). Validate th
 ## Rationale
 
 * **Strict typing by default** — no Norway problem, no implicit boolean coercion (`yes`/`on`/`true` are not synonyms).
-* **`[[array-of-tables]]` syntax** maps directly to the priority stack (an ordered list of task source objects, each with optional overrides).
+* **`[[array-of-tables]]` syntax** maps directly to the priority list (an ordered list of task source objects, each with optional overrides).
 * **Zero extra parse dependency** — `tomllib` is stdlib since Python 3.11; write support via `tomli-w` if needed.
 * **Operator-friendly** — comments supported; indentation not significant; harder to corrupt silently than YAML.
 
