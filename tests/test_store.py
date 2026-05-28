@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import sqlite3
 
-from labro.store import acquire_lock, get_daily_spend, open_db, release_lock
+import pytest
+
+from labro.store import acquire_lock, get_daily_spend, insert_items_touched, open_db, release_lock
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -196,6 +198,43 @@ def test_get_daily_spend_today_only() -> None:
 
     spend = get_daily_spend(conn, "myproject")
     assert abs(spend - 0.05) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# insert_items_touched
+# ---------------------------------------------------------------------------
+
+
+def test_insert_items_touched_basic() -> None:
+    """insert_items_touched writes a row and it can be retrieved."""
+    conn = _memory_db()
+    # items_touched has a FK to runs, but SQLite doesn't enforce FKs by default.
+    insert_items_touched(conn, "run-abc", "owner/repo", "issue", 7)
+    row = conn.execute(
+        "SELECT run_id, repo, item_type, item_number FROM items_touched WHERE run_id = 'run-abc'"
+    ).fetchone()
+    assert row is not None
+    assert row["run_id"] == "run-abc"
+    assert row["repo"] == "owner/repo"
+    assert row["item_type"] == "issue"
+    assert row["item_number"] == 7
+
+
+def test_insert_items_touched_pr() -> None:
+    conn = _memory_db()
+    insert_items_touched(conn, "run-pr", "owner/repo", "pr", 99)
+    row = conn.execute("SELECT item_type FROM items_touched WHERE run_id = 'run-pr'").fetchone()
+    assert row["item_type"] == "pr"
+
+
+def test_insert_items_touched_invalid_item_type_raises() -> None:
+    """The CHECK constraint rejects unknown item_type values."""
+    import sqlite3 as _sqlite3
+
+    conn = _memory_db()
+    conn.execute("PRAGMA foreign_keys = ON")
+    with pytest.raises(_sqlite3.IntegrityError):
+        insert_items_touched(conn, "run-bad", "owner/repo", "comment", 1)
 
 
 def test_get_daily_spend_different_project_excluded() -> None:

@@ -165,6 +165,29 @@ def release_lock(conn: sqlite3.Connection, project: str) -> None:
         )
 
 
+def insert_items_touched(
+    conn: sqlite3.Connection,
+    run_id: str,
+    repo: str,
+    item_type: str,
+    item_number: int,
+) -> None:
+    """Record a GitHub item that was acted on during *run_id*.
+
+    Args:
+        conn: Open database connection.
+        run_id: Run identifier (FK into ``runs``).
+        repo: ``owner/repo`` string.
+        item_type: ``"issue"`` or ``"pr"``.
+        item_number: GitHub item number.
+    """
+    conn.execute(
+        "INSERT INTO items_touched (run_id, repo, item_type, item_number) VALUES (?, ?, ?, ?)",
+        (run_id, repo, item_type, item_number),
+    )
+    conn.commit()
+
+
 def get_daily_spend(conn: sqlite3.Connection, project: str) -> float:
     """Return the total cost in USD for *project* runs started today (UTC).
 
