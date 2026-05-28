@@ -64,9 +64,11 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        cron \
         curl \
         git \
         gnupg \
+        sqlite3 \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && GH_DEB="gh_${GH_VERSION}_linux_${TARGETARCH}.deb" \
@@ -90,6 +92,8 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 RUN uv venv /app/.venv \
     && uv pip install --python /app/.venv/bin/python -e .
@@ -97,17 +101,15 @@ RUN uv venv /app/.venv \
 ENV PATH="/app/.venv/bin:$PATH"
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# M1: direct labro entrypoint, suitable for one-shot dry-run testing only.
+# entrypoint.sh runs as PID 1 and supports two modes:
+#   - Crond mode (no args): generates /etc/cron.d/labro and execs crond -f
+#   - One-shot mode (with args): execs the given command directly (e.g. labro run <project>)
 #
-# M2 (TODO): replace with entrypoint.sh as PID 1. entrypoint.sh will:
-#   1. Dump container env to /etc/labro-env (so crond jobs inherit secrets)
-#   2. Generate /etc/cron.d/labro from labro.toml (one entry per enabled project)
-#   3. exec crond -f -l 2  (foreground crond — required for Docker PID 1)
-# The container is then long-lived; crond fires `labro run <project>` on schedule.
-# Also requires: `apt-get install -y cron` added to the system deps layer above.
-# See ARCHITECTURE.md §4 Container View and §5 "entrypoint.sh and crontab generation".
-ENTRYPOINT ["labro"]
-CMD ["--help"]
+# Smoke test with --entrypoint sh:
+#   docker run --rm --entrypoint sh labro:latest -c 'labro --help'
+#
+# See ARCHITECTURE.md §4 Container View and §5 entrypoint.sh and crontab generation.
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # ── Dev target ────────────────────────────────────────────────────────────────
 # Extends the production image with tests/ and dev extras (pytest, ruff, mypy,
