@@ -11,6 +11,7 @@ list-form args with shell=False (ARCHITECTURE line 900; enforced by bandit B602)
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from datetime import datetime
 from typing import Any
@@ -26,6 +27,8 @@ from labro.config.schema import (
 )
 from labro.models import AgentConfig, Task, make_task_id
 from labro.task_sources.base import TaskSource
+
+logger = logging.getLogger(__name__)
 
 _AI_FAILED_LABEL = "ai-failed"
 
@@ -208,11 +211,29 @@ class GhLabelTaskSource(TaskSource):
                 candidates.append((created_at, item, actor_rule))
 
         if not candidates:
+            logger.debug("gh-label: no eligible candidates in %s", project.repo)
             return None
 
         # Pick oldest by created_at (stable: ties broken by insertion order)
         candidates.sort(key=lambda t: t[0])
         _ts, item, winning_rule = candidates[0]
+
+        _itype_pre = _item_type(item)
+        _number_pre: int = item["number"]
+        _title_pre: str = item.get("title", "")
+        if isinstance(winning_rule, ActorRule):
+            _rule_desc = f"actor_rule actor={winning_rule.actor!r}"
+        else:
+            _rule_desc = f"label_rule label={winning_rule.label!r}"
+        logger.info(
+            "gh-label: picked %s #%d %r via %s (%d candidate%s)",
+            _itype_pre,
+            _number_pre,
+            _title_pre,
+            _rule_desc,
+            len(candidates),
+            "s" if len(candidates) != 1 else "",
+        )
 
         # Rule-specific field resolution
         source_label: str | None

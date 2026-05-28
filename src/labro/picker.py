@@ -73,4 +73,5 @@ def pick(
         if result is not None:
             return result
 
+    logger.info("picker: no task found across %d source(s)", len(project.task_sources))
     return None, None
