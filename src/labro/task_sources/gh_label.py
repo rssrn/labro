@@ -279,5 +279,6 @@ class GhLabelTaskSource(TaskSource):
             model=model,
             max_turns=max_turns,
             timeout_s=timeout_s,
+            permitted_actions=task.permitted_actions,
         )
         return task, agent_cfg

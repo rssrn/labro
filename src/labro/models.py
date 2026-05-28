@@ -84,3 +84,4 @@ class AgentConfig:
     max_turns: int  # passed to claude as --max-turns
     timeout_s: int  # subprocess wall-clock timeout
     cwd: Path | None = None  # working directory for the agent subprocess (ARCHITECTURE line 630)
+    permitted_actions: list[PermittedAction] = field(default_factory=list)  # drives --allowedTools

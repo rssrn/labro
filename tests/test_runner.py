@@ -18,10 +18,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from labro.config.schema import PermittedAction
 from labro.models import AgentConfig, AgentResult, ItemRef
 from labro.runner import (
+    _BASE_TOOLS,
     RunnerOutputError,
     RunnerTimeoutError,
+    _build_allowed_tools,
     run_claude,
 )
 
@@ -322,3 +325,65 @@ def test_shell_false_enforced() -> None:
 
     _, kwargs = mock_popen_cls.call_args
     assert kwargs.get("shell", False) is False
+
+
+# ---------------------------------------------------------------------------
+# _build_allowed_tools
+# ---------------------------------------------------------------------------
+
+
+def test_build_allowed_tools_empty_returns_base() -> None:
+    """No permitted actions → only the read-only baseline tools."""
+    tools = _build_allowed_tools([])
+    assert tools == _BASE_TOOLS
+
+
+def test_build_allowed_tools_comment_on_issue() -> None:
+    tools = _build_allowed_tools([PermittedAction.COMMENT_ON_ISSUE])
+    assert "Bash(gh issue comment *)" in tools
+    # Baseline still present
+    assert "Read" in tools
+
+
+def test_build_allowed_tools_no_cross_contamination() -> None:
+    """comment_on_issue must not grant pr-merge patterns."""
+    tools = _build_allowed_tools([PermittedAction.COMMENT_ON_ISSUE])
+    assert "Bash(gh pr merge *)" not in tools
+
+
+def test_build_allowed_tools_all_actions_covered() -> None:
+    """Every PermittedAction maps to at least one tool pattern."""
+    all_tools = _build_allowed_tools(list(PermittedAction))
+    # Spot-check one pattern per action
+    expected = [
+        "Bash(gh issue comment *)",
+        "Bash(gh pr comment *)",
+        "Bash(gh pr create *)",
+        "Bash(gh pr merge *)",
+        "Bash(git push *)",
+        "Bash(gh issue close *)",
+        "Bash(gh issue create *)",
+    ]
+    for pattern in expected:
+        assert pattern in all_tools, f"missing: {pattern}"
+
+
+def test_allowed_tools_passed_to_subprocess() -> None:
+    """run_claude must forward --allowedTools to the claude subprocess."""
+    config = AgentConfig(
+        agent="claude-code",
+        model="claude-haiku-4-5-20251001",
+        max_turns=3,
+        timeout_s=120,
+        permitted_actions=[PermittedAction.COMMENT_ON_ISSUE],
+    )
+    with patch("subprocess.Popen") as mock_popen_cls:
+        mock_popen_cls.return_value = _mock_popen(_make_response())
+        run_claude("prompt", config)
+
+    args, _ = mock_popen_cls.call_args
+    cmd: list[str] = args[0]
+    assert "--allowedTools" in cmd
+    idx = cmd.index("--allowedTools")
+    tools_passed = cmd[idx + 1 :]
+    assert "Bash(gh issue comment *)" in tools_passed

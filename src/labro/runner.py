@@ -15,7 +15,43 @@ import json
 import subprocess
 from typing import Any
 
+from labro.config.schema import PermittedAction
 from labro.models import AgentConfig, AgentResult, ItemRef
+
+# Read-only tools always granted — safe baseline for any task.
+_BASE_TOOLS: list[str] = [
+    "Read",
+    "WebFetch",
+    "Bash(gh issue view *)",
+    "Bash(gh issue list *)",
+    "Bash(gh pr view *)",
+    "Bash(gh pr list *)",
+    "Bash(gh api *)",
+    "Bash(git log *)",
+    "Bash(git diff *)",
+    "Bash(git status)",
+    "Bash(git show *)",
+]
+
+# Maps each PermittedAction to the gh/git command patterns it requires.
+_ACTION_TOOLS: dict[PermittedAction, list[str]] = {
+    PermittedAction.COMMENT_ON_ISSUE: ["Bash(gh issue comment *)"],
+    PermittedAction.COMMENT_ON_PR: ["Bash(gh pr comment *)", "Bash(gh pr review *)"],
+    PermittedAction.OPEN_PR: ["Bash(gh pr create *)", "Bash(gh pr edit *)"],
+    PermittedAction.MERGE_PR: ["Bash(gh pr merge *)"],
+    PermittedAction.PUSH_DEFAULT: ["Bash(git push *)"],
+    PermittedAction.CLOSE_ISSUE: ["Bash(gh issue close *)"],
+    PermittedAction.CREATE_ISSUE: ["Bash(gh issue create *)"],
+}
+
+
+def _build_allowed_tools(permitted_actions: list[PermittedAction]) -> list[str]:
+    """Return the --allowedTools list for the given permitted actions."""
+    tools = list(_BASE_TOOLS)
+    for action in permitted_actions:
+        tools.extend(_ACTION_TOOLS.get(action, []))
+    return tools
+
 
 # JSON schema passed to ``--json-schema`` so the model populates
 # ``structured_output`` in the response.  Must match ARCHITECTURE §11 Design
@@ -125,6 +161,7 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
         RunnerOutputError: If the response JSON is missing or has invalid
             ``structured_output``.
     """
+    allowed_tools = _build_allowed_tools(config.permitted_actions)
     cmd = [
         "claude",
         "-p",
@@ -136,6 +173,8 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
         "json",
         "--json-schema",
         JSON_SCHEMA_STR,
+        "--allowedTools",
+        *allowed_tools,
     ]
 
     proc = subprocess.Popen(
