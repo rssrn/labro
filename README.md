@@ -286,6 +286,128 @@ sqlite3 -column -header /data/labro.db \
 
 ---
 
+## Docker Deployment
+
+### Deployment modes
+
+Labro supports two production deployment modes:
+
+**GitHub Actions (recommended)** — run Labro as a scheduled workflow in your config repo. No VPS required. Each workflow invocation is a one-shot container run; the agent handles one task and exits. Use this pattern for low-frequency schedules (daily/hourly) or when you already have GitHub Actions available.
+
+**VPS with crond (always-on)** — run Labro as a long-lived container on a server. The container generates a crontab at startup from `labro.toml` and runs `crond` as PID 1. Use this for sub-hourly schedules or when you want a persistent process.
+
+### GHCR image
+
+Pre-built images are published to GHCR on every version tag:
+
+```
+ghcr.io/rssrn/labro:<tag>
+```
+
+Always pin to a specific tag — `:latest` is not published (pin discipline prevents silent response-shape drift):
+
+```bash
+docker pull ghcr.io/rssrn/labro:v0.4.0
+```
+
+### Bind-mount layout
+
+| Host path | Container path | Purpose |
+|---|---|---|
+| `./labro.toml` | `/app/labro.toml` | Config (read-only) |
+| `/opt/labro/data/` | `/data/` | SQLite DB, lock files, `LABRO_DISABLED` flag |
+| `/opt/labro/repos/` | `/repos/` | Cloned repos (cache) |
+
+The `/data/` volume must be persistent across container restarts. `/repos/` can be ephemeral but caching it avoids repeated full clones.
+
+Use `LABRO_CONFIG` to point at a non-default config path inside the container:
+
+```bash
+docker run -e LABRO_CONFIG=/config/labro.toml ...
+```
+
+### GitHub Actions one-shot (recommended)
+
+Add this workflow to your config repo's `.github/workflows/`:
+
+```yaml
+# .github/workflows/labro-run.yml
+on:
+  schedule:
+    - cron: '0 9 * * *'   # match the cron in your labro.toml
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run labro
+        run: |
+          docker run --rm \
+            -e GH_TOKEN=${{ secrets.GH_TOKEN }} \
+            -e CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} \
+            -v $PWD/labro.toml:/app/labro.toml:ro \
+            ghcr.io/rssrn/labro:v0.4.0 labro run my-project
+```
+
+### VPS crond mode
+
+Start the container once; it generates `/etc/cron.d/labro` from `labro.toml` and execs `crond -f`:
+
+```bash
+docker run -d --name labro \
+  --restart unless-stopped \
+  -e GH_TOKEN=<token> \
+  -e CLAUDE_CODE_OAUTH_TOKEN=<token> \
+  -v /opt/labro/config/labro.toml:/app/labro.toml:ro \
+  -v /opt/labro/data:/data \
+  -v /opt/labro/repos:/repos \
+  ghcr.io/rssrn/labro:v0.4.0
+```
+
+Verify the crontab was generated correctly:
+
+```bash
+docker exec labro cat /etc/cron.d/labro
+```
+
+### Graceful restart procedure
+
+When updating the config or rotating secrets, drain in-flight runs before restarting:
+
+```bash
+# 1. Signal no new runs
+docker exec labro touch /data/LABRO_DISABLED
+
+# 2. Wait for any run in progress to finish
+while [ "$(docker exec labro sqlite3 /data/labro.db 'SELECT COUNT(*) FROM project_locks')" != "0" ]; do
+  echo "waiting…"; sleep 5
+done
+
+# 3. Restart (entrypoint regenerates crontab on start)
+docker restart labro
+
+# 4. Re-enable
+docker exec labro rm -f /data/LABRO_DISABLED
+```
+
+### Config repo scaffold
+
+For VPS deployments, Labro ships two ready-to-use workflow files you can copy into your config repo's `.github/workflows/`:
+
+```bash
+cp docs/config-repo-scaffold/labro-deploy.yml  <config-repo>/.github/workflows/
+cp docs/config-repo-scaffold/labro-restart.yml <config-repo>/.github/workflows/
+```
+
+Add `VPS_HOST`, `VPS_USER`, and `VPS_SSH_KEY` as GitHub Secrets in the config repo.
+
+- **`labro-deploy.yml`** — fires automatically when `labro.toml` is pushed to the config repo; copies the updated config to the VPS and performs a graceful restart.
+- **`labro-restart.yml`** — manual trigger only (`Actions → Run workflow`); performs a graceful restart without copying files. Use after rotating a secret.
+
+---
+
 ## Project Initiation
 
 The following documents define the product and architecture:
