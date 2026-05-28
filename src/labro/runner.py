@@ -79,8 +79,7 @@ def _validate_structured_output(so: Any) -> None:
     outcome = so.get("outcome")
     if outcome not in _VALID_OUTCOMES:
         raise RunnerOutputError(
-            f"structured_output.outcome must be one of {sorted(_VALID_OUTCOMES)}, "
-            f"got {outcome!r}"
+            f"structured_output.outcome must be one of {sorted(_VALID_OUTCOMES)}, got {outcome!r}"
         )
 
     # summary

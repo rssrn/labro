@@ -95,7 +95,7 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
     if project is None:
         names = ", ".join(p.name for p in config.projects) or "(none)"
         print(
-            f"error: no project named {project_name!r} in {config_path}." f" Available: {names}",
+            f"error: no project named {project_name!r} in {config_path}. Available: {names}",
             file=sys.stderr,
         )
         return 1
@@ -180,7 +180,7 @@ def _cmd_run_live(
     if project is None:
         names = ", ".join(p.name for p in config.projects) or "(none)"
         print(
-            f"error: no project named {project_name!r} in {config_path}." f" Available: {names}",
+            f"error: no project named {project_name!r} in {config_path}. Available: {names}",
             file=sys.stderr,
         )
         return 1
@@ -329,7 +329,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_default_config_path(),
         metavar="PATH",
-        help=("Path to labro.toml" " (default: $LABRO_CONFIG if set, otherwise ./labro.toml)"),
+        help=("Path to labro.toml (default: $LABRO_CONFIG if set, otherwise ./labro.toml)"),
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)

@@ -165,6 +165,58 @@ Labro will print the resolved task, agent config, and full four-section prompt t
 
 ---
 
+## Live Run Loop
+
+When you run `labro run <project>` without `--dry-run`, the harness executes the following steps in order:
+
+1. **Load config** — parse and validate `labro.toml` (or `$LABRO_CONFIG`)
+2. **Check `LABRO_DISABLED`** — if `/data/LABRO_DISABLED` exists, print `skipped: harness disabled` and exit immediately; no lock is acquired and no SQLite record is written
+3. **Acquire run lock** — INSERT into `project_locks`; if a non-stale lock already exists, print `skipped: run in progress` and exit
+4. **Budget check** — if `daily_budget_usd` is configured, query today's spend from `runs`; if the limit is reached, write a skipped record to SQLite and exit
+5. **Pick task** — run the picker over all configured task sources; if nothing is found, write a skipped record and exit
+6. **Prepare repo** — clone or pull the target repo into `/repos/<slug>`; if the working copy is dirty (agent was interrupted mid-edit), log a warning then `git reset --hard && git clean -fd`
+7. **Build prompt** — construct the four-section prompt from the resolved task and project context
+8. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload
+9. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list
+10. **Release lock** — DELETE from `project_locks` (always; in a `finally` block)
+
+### Required environment variables
+
+| Variable | Required | Notes |
+|---|---|---|
+| `GH_TOKEN` | Yes | GitHub personal access token with `repo` read scope |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Recommended | OAuth token from `claude setup-token` on your dev machine; tied to your Pro/Max subscription |
+| `ANTHROPIC_API_KEY` | Alternative | Standard Anthropic API key; bills your API account. If **both** are set, this takes precedence |
+
+### Emergency pause — `LABRO_DISABLED`
+
+To stop Labro from picking up new tasks without restarting containers:
+
+```bash
+# Pause — create the flag file in the /data volume:
+touch /data/LABRO_DISABLED
+
+# Resume — remove it:
+rm /data/LABRO_DISABLED
+```
+
+The check happens before lock acquisition. Any run already in progress finishes normally; only new runs are blocked.
+
+### Daily budget cap — `daily_budget_usd`
+
+Add to your project stanza in `labro.toml` to cap per-project spending per calendar day (UTC):
+
+```toml
+[[projects]]
+name             = "my-project"
+repo             = "my-org/my-repo"
+daily_budget_usd = 2.00    # skip if today's spend already >= $2.00
+```
+
+Omit the field (or set it to `0`) to disable the cap. When the budget is exceeded, Labro writes a `skipped` record to SQLite with the reason `skipped: daily budget exceeded ($X.XX of $Y.YY used)` and exits without invoking the agent.
+
+---
+
 ## Project Initiation
 
 The following documents define the product and architecture:
