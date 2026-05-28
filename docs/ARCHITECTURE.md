@@ -799,6 +799,7 @@ CREATE TABLE runs (
     task_source         TEXT,                           -- NULL when outcome = 'skipped' (no task found)
     task_description    TEXT,
     item_url            TEXT,                           -- GitHub URL of the *source* item selected by the picker (gh-label only); NULL for grafana-alerts and proactive-improvement — agent-created items are in items_touched, not here
+    trigger_label       TEXT,                           -- the specific label that caused the trigger (label_rules only); NULL for actor_rules, grafana-alerts, proactive-improvement, and skipped runs
     agent               TEXT,                           -- e.g. "claude-code"
     model               TEXT,
     started_at          TEXT    NOT NULL,               -- ISO 8601 UTC

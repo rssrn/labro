@@ -51,6 +51,7 @@ def test_runs_table_has_expected_columns() -> None:
         "task_source",
         "task_description",
         "item_url",
+        "trigger_label",
         "agent",
         "model",
         "started_at",

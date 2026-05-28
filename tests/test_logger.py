@@ -105,6 +105,7 @@ def test_write_run_success() -> None:
     assert row["task_source"] == "gh-label"
     assert row["task_description"] == "Fix the flaky test"
     assert row["item_url"] == "https://github.com/owner/repo/issues/42"
+    assert row["trigger_label"] == "ai-dev"
     assert row["agent"] == "claude-code"
     assert row["model"] == "claude-sonnet-4-6"
     assert row["started_at"] == "2026-05-27T10:00:00Z"
@@ -119,6 +120,28 @@ def test_write_run_success() -> None:
     assert row["summary"] == "Closed the flaky test issue."
     assert row["failure_reason"] is None
     assert abs(row["duration_s"] - 4.5) < 1e-9
+
+
+def test_write_run_trigger_label_null_for_actor_rule() -> None:
+    """trigger_label is NULL when the task has no source_label (actor_rule trigger)."""
+    conn = _memory_db()
+    task = _make_task(source_label=None)
+
+    write_run(
+        conn,
+        run_id="run-actor",
+        project="myproject",
+        task=task,
+        agent_cfg=_make_agent_cfg(),
+        agent_result=_make_agent_result(),
+        outcome="success",
+        failure_reason=None,
+        started_at="2026-05-27T10:00:00Z",
+        ended_at="2026-05-27T10:00:04Z",
+    )
+
+    row = conn.execute("SELECT trigger_label FROM runs WHERE run_id = 'run-actor'").fetchone()
+    assert row["trigger_label"] is None
 
 
 def test_write_run_skipped_no_task() -> None:
@@ -144,6 +167,7 @@ def test_write_run_skipped_no_task() -> None:
     assert row["task_source"] is None
     assert row["task_description"] is None
     assert row["item_url"] is None
+    assert row["trigger_label"] is None
     assert row["agent"] is None
     assert row["model"] is None
     assert row["turns_used"] is None

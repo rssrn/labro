@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS runs (
     task_source         TEXT,
     task_description    TEXT,
     item_url            TEXT,
+    trigger_label       TEXT,
     agent               TEXT,
     model               TEXT,
     started_at          TEXT    NOT NULL,

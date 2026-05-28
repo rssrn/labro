@@ -67,7 +67,7 @@ def write_run(
             """
             INSERT INTO runs (
                 run_id, project,
-                task_source, task_description, item_url,
+                task_source, task_description, item_url, trigger_label,
                 agent, model,
                 started_at, ended_at, duration_s,
                 outcome,
@@ -77,7 +77,7 @@ def write_run(
                 summary, actions_taken, failure_reason
             ) VALUES (
                 :run_id, :project,
-                :task_source, :task_description, :item_url,
+                :task_source, :task_description, :item_url, :trigger_label,
                 :agent, :model,
                 :started_at, :ended_at, :duration_s,
                 :outcome,
@@ -93,6 +93,7 @@ def write_run(
                 "task_source": task.source if task is not None else None,
                 "task_description": task.description.splitlines()[0] if task is not None else None,
                 "item_url": task.item_url if task is not None else None,
+                "trigger_label": task.source_label if task is not None else None,
                 "agent": agent_cfg.agent if agent_cfg is not None else None,
                 "model": agent_cfg.model if agent_cfg is not None else None,
                 "started_at": started_at,
