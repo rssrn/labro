@@ -147,7 +147,7 @@ Harness
 ├── task_sources/     Pluggable task source modules
 │   ├── base.py       Abstract base class / interface
 │   ├── grafana_alerts.py
-│   ├── gh_delegated.py
+│   ├── gh_label.py
 │   └── proactive_improvement.py
 ├── picker.py         Priority-stack evaluator → selects one task
 ├── repo.py           Repo preparation: clone or pull to default branch
@@ -200,7 +200,7 @@ Produced by `TaskSource.fetch_task()`; consumed by `prompt_builder.py`, `post_ru
 @dataclass
 class Task:
     task_id: str                          # UUID v4, generated at selection time
-    source: str                           # "grafana-alerts" | "gh-delegated" | "proactive-improvement"
+    source: str                           # "grafana-alerts" | "gh-label" | "proactive-improvement"
     description: str                      # human-readable; inserted into prompt section 2
     permitted_actions: list[PermittedAction]  # effective set; inserted into prompt section 3
 
@@ -211,12 +211,12 @@ class Task:
     item_url: str | None
 
     # Label transitions — post_run.py only; None for sources with no pre-existing item
-    source_label: str | None       # label to remove on success (gh-delegated label_rules only; None for actor_rules and other sources)
-    done_label: str | None         # label to apply on success (gh-delegated only; None for other sources)
+    source_label: str | None       # label to remove on success (gh-label label_rules only; None for actor_rules and other sources)
+    done_label: str | None         # label to apply on success (gh-label only; None for other sources)
     grafana_rule_uid: str | None   # rule UID for grafana-alerts tasks; post_run.py applies ai-alert:<rule-uid> to items_created
 ```
 
-For all tasks, `repo` is always set to the project's configured repo — every task belongs to exactly one project. For `gh-delegated` tasks, `item_type`, `item_number`, and `item_url` are also populated — the item exists before the agent runs, so `store.py` writes the `items_touched` row at task-selection time. For `grafana-alerts` and `proactive-improvement`, `item_type`, `item_number`, and `item_url` are `None` at selection time; `items_touched` rows are written after the run using `task.repo` + each entry in `items_created` from `AgentResult`.
+For all tasks, `repo` is always set to the project's configured repo — every task belongs to exactly one project. For `gh-label` tasks, `item_type`, `item_number`, and `item_url` are also populated — the item exists before the agent runs, so `store.py` writes the `items_touched` row at task-selection time. For `grafana-alerts` and `proactive-improvement`, `item_type`, `item_number`, and `item_url` are `None` at selection time; `items_touched` rows are written after the run using `task.repo` + each entry in `items_created` from `AgentResult`.
 
 #### `AgentConfig`
 
@@ -268,7 +268,7 @@ No in-progress label is used during a run — the project lock (`project_locks` 
 
 `ai-contributed` is applied to every GitHub item that Labro acts on, regardless of outcome. It is the query surface for ad-hoc GitHub lookups and is never removed by the harness.
 
-#### `gh-delegated` — label_rules
+#### `gh-label` — label_rules
 
 The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` label gates re-pickup on failure; the source label is kept so the operator need only remove `ai-failed` to retry.
 
@@ -280,7 +280,7 @@ The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` label ga
 | **Success** | — | Remove source label; apply done label; apply `ai-contributed` |
 | **Failure** | — | Keep source label; apply `ai-failed`; apply `ai-contributed`; post failure comment |
 
-#### `gh-delegated` — actor_rules
+#### `gh-label` — actor_rules
 
 No source label to remove — the done label is the "already processed" gate.
 
@@ -326,7 +326,7 @@ No source item — the agent creates items from scratch. `ai-proactive-suggestio
 | `ai-alert:<rule-uid>` | `post_run.py` (on success, from `task.grafana_rule_uid`) | Dedup key for `grafana-alerts` | — |
 | `ai-proactive-suggestion` | `post_run.py` | Cap counter for open suggestions | — |
 | `<done_label>` (e.g. `ai-dev-done`) | `post_run.py` | Marks successful completion; blocks re-pickup | Source label (removed on success) |
-| Source labels (e.g. `ai-dev`, `ai-review`) | Operator | Trigger pickup for `gh-delegated` label_rules | Done label (removed on success) |
+| Source labels (e.g. `ai-dev`, `ai-review`) | Operator | Trigger pickup for `gh-label` label_rules | Done label (removed on success) |
 
 ---
 
@@ -798,7 +798,7 @@ CREATE TABLE runs (
     project             TEXT    NOT NULL,
     task_source         TEXT,                           -- NULL when outcome = 'skipped' (no task found)
     task_description    TEXT,
-    item_url            TEXT,                           -- GitHub URL of the *source* item selected by the picker (gh-delegated only); NULL for grafana-alerts and proactive-improvement — agent-created items are in items_touched, not here
+    item_url            TEXT,                           -- GitHub URL of the *source* item selected by the picker (gh-label only); NULL for grafana-alerts and proactive-improvement — agent-created items are in items_touched, not here
     agent               TEXT,                           -- e.g. "claude-code"
     model               TEXT,
     started_at          TEXT    NOT NULL,               -- ISO 8601 UTC
@@ -829,7 +829,7 @@ CREATE TABLE project_locks (
 );
 
 -- items_touched: GitHub items acted on during a run; one row per item per run.
--- Written by the harness at run time (for gh-delegated: at task-selection time;
+-- Written by the harness at run time (for gh-label: at task-selection time;
 -- for other sources: from items_created in the agent's structured output).
 -- Outcome signal columns are NULL until the daily digest job collects them.
 CREATE TABLE items_touched (
@@ -968,9 +968,9 @@ model        = "claude-sonnet-4-6" # optional per-source model override
 permitted_actions = ["comment_on_issue", "comment_on_pr", "create_issue"]
 # create_issue: may open a tracking issue for a firing alert
 
-# ── gh-delegated ───────────────────────────────────────────────────────────────
+# ── gh-label ───────────────────────────────────────────────────────────────
 [[projects.task_sources]]
-type = "gh-delegated"
+type = "gh-label"
 # Rule resolution: label_rules and actor_rules are evaluated in config declaration order
 # (label_rules first if not interleaved). First matching rule for a given item determines
 # its done_label, permitted_actions, and source_label. An item matching multiple rules is
@@ -1019,7 +1019,7 @@ repo = "my-org/infra"
 cron = "0 2 * * *"
 
 [[projects.task_sources]]
-type = "gh-delegated"
+type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 label             = "ai-todo"
@@ -1033,7 +1033,7 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 - `model` — passed through opaquely to the CLI; not validated at config load time. Avoids needing schema updates when new model names are released; the CLI surfaces an error if the value is unrecognised.
 - `timeout_s` — subprocess wall-clock timeout in seconds. The stale-lock age threshold in `store.py` is `timeout_s + 60` (fixed 60-second grace period; not configurable). No separate config key — operators set `timeout_s`; the grace period is an implementation detail of `store.py`.
 - `daily_budget_usd` — optional float; omit or set `0.0` to disable. Checked after lock acquisition by querying `SUM(total_cost_usd)` from `runs` for the current UTC date. Skips with a structured reason string so it aggregates cleanly in the digest alongside other skip reasons.
-- `gh-delegated` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
+- `gh-label` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
 
 ### Documentation
 
@@ -1067,7 +1067,7 @@ Quality gates are enforced via pre-commit hooks (`.pre-commit-config.yaml`). Fas
 | `config/` — schema validation | Unit | None — pure Pydantic; test valid and invalid TOML inputs including unknown `permitted_actions` values |
 | `picker.py` — priority list | Unit | `TaskSource.fetch_task` stubbed to return `Task \| None` per scenario |
 | `prompt_builder.py` — four-section prompt | Unit | None — pure function; assert all four sections present, correct ordering, permitted actions enumerated |
-| `task_sources/gh_delegated.py` | Unit | `gh` CLI calls mocked via `subprocess` fixture; fixture responses are real `gh api` JSON payloads captured once |
+| `task_sources/gh_label.py` | Unit | `gh` CLI calls mocked via `subprocess` fixture; fixture responses are real `gh api` JSON payloads captured once |
 | `task_sources/grafana_alerts.py` | Unit | HTTP client mocked; fixture responses from real Grafana API captures |
 | `task_sources/proactive_improvement.py` | Unit | `gh` CLI mocked; cap-check and target-selection paths exercised |
 | `post_run.py` — label state machine | Unit | `gh` CLI calls mocked; assert exact label add/remove sequence per state machine path |
@@ -1139,7 +1139,7 @@ _Testability and quality gates for the architecture._
 | GitHub API rate limits exhausted | Low–Medium | Medium | Authenticated limit is 5 000 req/hour. At 10 projects × hourly runs × ~8 calls/run = 1 920 calls/day — well under the ceiling for normal operation. Risk increases if `grafana-alerts` checks for an open tracking issue every run during a persistent alert storm, or if `items_touched` rows accumulate with pagination across many AI-labelled issues. Mitigation: surface remaining rate-limit headroom in the daily digest (one `gh api rate_limit` call at digest time); add pagination awareness in `grafana_alerts.py` before sustained multi-project operation. |
 | `claude` CLI update silently changes response shape | Medium | High | `structured_output` format is a single point of failure for the result pipeline. Mitigation: pin the `claude` CLI version in the Dockerfile; `runner.py` must schema-validate `structured_output` before use and fail loudly if the shape is unexpected. See Design Notes. |
 | `grafana-alerts` dedup gap creates duplicate tracking issues | Low–Medium | Low–Medium | If the agent creates a tracking issue but `structured_output` is malformed or the run aborts before delivery, `post_run.py` never applies `ai-alert:<rule-uid>` — the alert fires again next run and creates a second issue. Accepted risk for v1; digest failure rate surfaces repeated failures. Operators should check for duplicate `ai-contributed` issues if a persistent alert recurs unexpectedly. |
-| `agent-chooses` runs have higher cost than `harness-random` | Medium | Low–Medium | The `agent-chooses` strategy passes the full target list and lets the agent pick scope; broad targets (e.g. `architecture-review`, `competitor-analysis`) routinely consume more turns and tokens than narrowly-scoped `harness-random` or `gh-delegated` runs. The global `max_turns` and `timeout_s` apply equally to all strategies — there is no per-strategy cap. Mitigation: `daily_budget_usd` limits exposure per project per day; digest cost reporting surfaces unexpectedly expensive proactive runs. Per-strategy turn/cost overrides are a v1.1 candidate if the global cap proves too coarse. |
+| `agent-chooses` runs have higher cost than `harness-random` | Medium | Low–Medium | The `agent-chooses` strategy passes the full target list and lets the agent pick scope; broad targets (e.g. `architecture-review`, `competitor-analysis`) routinely consume more turns and tokens than narrowly-scoped `harness-random` or `gh-label` runs. The global `max_turns` and `timeout_s` apply equally to all strategies — there is no per-strategy cap. Mitigation: `daily_budget_usd` limits exposure per project per day; digest cost reporting surfaces unexpectedly expensive proactive runs. Per-strategy turn/cost overrides are a v1.1 candidate if the global cap proves too coarse. |
 
 ---
 
@@ -1151,7 +1151,7 @@ Each prompt passed to the agent has four sections, in order:
 
 1. **Role + harness context** — a short paragraph explaining that the agent is operating autonomously on behalf of Labro, on a schedule, with no human present. It should act decisively within its permitted actions or explicitly report that it cannot complete the task — it must not ask clarifying questions or wait for input.
 
-2. **Task** — the task description from the task source. For `gh-delegated`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: depends on `selection_strategy` — `harness-random` passes a single pre-selected target; `agent-chooses` passes the full target list with an explicit instruction to pick exactly one and open at most one issue or PR.
+2. **Task** — the task description from the task source. For `gh-label`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: depends on `selection_strategy` — `harness-random` passes a single pre-selected target; `agent-chooses` passes the full target list with an explicit instruction to pick exactly one and open at most one issue or PR.
 
 3. **Permitted actions** — an explicit enumeration of the *GitHub write operations* the agent may and may not perform in this run (derived from the effective action permissions). Scoped narrowly to side-effectful GitHub actions only — read operations, web searches, MCP tool calls (e.g. context7, web fetch), and local file operations are always unrestricted. Example: "You may: post a comment on a GitHub issue or PR, open a pull request. You must not: merge a pull request, approve a pull request, push directly to the default branch."
 
@@ -1233,6 +1233,6 @@ Example top-level response shape (abridged — verified output):
 2. **Schema-validate `structured_output` in `runner.py` before use.** After JSON-parsing the CLI response, `runner.py` must validate that `structured_output` contains the expected fields (`outcome`, `summary`, `actions_taken`, `items_created`) and that `outcome` is one of the declared enum values. A missing or malformed `structured_output` must fail loudly with a clear error — not silently produce a garbage execution record or swallow the run as a success.
 3. **Integration test must cover `structured_output` specifically.** The `runner.py` integration test (see §8 Testing) must assert on the shape of `structured_output` in the parsed response, not just top-level fields.
 
-The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-delegated` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
+The `items_created` field is the structured hook for outcome tracking: after the run, the harness writes one row to the `items_touched` table per entry in `items_created`. For `gh-label` tasks, the harness writes to `items_touched` at task-selection time (before the agent runs) since the item is already known. The daily digest job then queries `items_touched` and reads current GitHub state to populate outcome signals.
 
 `actions_taken` remains a human-readable string array — used for the digest summary and the execution record, not for outcome matching.

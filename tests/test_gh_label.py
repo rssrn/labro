@@ -1,4 +1,4 @@
-"""Tests for actor_rules support in GhDelegatedTaskSource (M2 scope).
+"""Tests for actor_rules support in GhLabelTaskSource (M2 scope).
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -18,9 +18,9 @@ from labro.config.schema import (
     ProjectConfig,
 )
 from labro.config.schema import (
-    GhDelegatedSource as GhDelegatedSourceConfig,
+    GhLabelSource as GhLabelSourceConfig,
 )
-from labro.task_sources.gh_delegated import GhDelegatedTaskSource
+from labro.task_sources.gh_label import GhLabelTaskSource
 
 # ── Shared fixture data ────────────────────────────────────────────────────────
 
@@ -97,9 +97,9 @@ def _source_config(
     actor_rules: list[ActorRule] | None = None,
     permitted_actions: list[PermittedAction] | None = None,
     model: str | None = None,
-) -> GhDelegatedSourceConfig:
-    return GhDelegatedSourceConfig(
-        type="gh-delegated",
+) -> GhLabelSourceConfig:
+    return GhLabelSourceConfig(
+        type="gh-label",
         label_rules=label_rules or [],
         actor_rules=actor_rules or [_actor_rule()],
         permitted_actions=permitted_actions,
@@ -108,7 +108,7 @@ def _source_config(
 
 
 def _project(
-    source_cfg: GhDelegatedSourceConfig | None = None,
+    source_cfg: GhLabelSourceConfig | None = None,
     permitted_actions: list[PermittedAction] | None = None,
     model: str | None = None,
 ) -> ProjectConfig:
@@ -131,7 +131,7 @@ def _config(project: ProjectConfig | None = None) -> LabroConfig:
 
 
 def _fetch(
-    source: GhDelegatedTaskSource,
+    source: GhLabelTaskSource,
     project: ProjectConfig,
     cfg: LabroConfig,
 ) -> Any:
@@ -159,7 +159,7 @@ def test_actor_rule_fetch_eligible() -> None:
     src_cfg = _source_config(actor_rules=[_actor_rule()])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     all_open = [_ACTOR_ITEM, _OTHER_ACTOR_ITEM]
 
@@ -168,14 +168,14 @@ def test_actor_rule_fetch_eligible() -> None:
             return []
         return all_open
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=fake_gh_api):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=fake_gh_api):
         result = _fetch(source, proj, cfg)
 
     assert result is not None
     task, _agent_cfg = result
     assert task.item_number == 100
     assert task.item_type == "pr"
-    assert task.source == "gh-delegated"
+    assert task.source == "gh-label"
     assert task.repo == "org/repo"
 
 
@@ -184,11 +184,11 @@ def test_actor_rule_skip_done_label() -> None:
     src_cfg = _source_config(actor_rules=[_actor_rule(done_label=_DONE_LABEL)])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     all_open = [_ACTOR_ITEM_DONE]
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=all_open):
+    with patch("labro.task_sources.gh_label._run_gh_api", return_value=all_open):
         result = _fetch(source, proj, cfg)
 
     assert result is None
@@ -199,11 +199,11 @@ def test_actor_rule_skip_ai_failed() -> None:
     src_cfg = _source_config(actor_rules=[_actor_rule()])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     all_open = [_ACTOR_ITEM_AI_FAILED]
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=all_open):
+    with patch("labro.task_sources.gh_label._run_gh_api", return_value=all_open):
         result = _fetch(source, proj, cfg)
 
     assert result is None
@@ -214,14 +214,14 @@ def test_actor_rule_source_label_is_none() -> None:
     src_cfg = _source_config(actor_rules=[_actor_rule()])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     def fake_gh_api(url: str) -> list[Any]:
         if "comments" in url:
             return []
         return [_ACTOR_ITEM]
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=fake_gh_api):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=fake_gh_api):
         result = _fetch(source, proj, cfg)
 
     assert result is not None
@@ -238,15 +238,15 @@ def test_label_and_actor_candidates_pooled() -> None:
     """
     label_rule = _label_rule(label="ai-dev", done_label="ai-dev-done")
     actor_rule_cfg = _actor_rule()
-    src_cfg = GhDelegatedSourceConfig(
-        type="gh-delegated",
+    src_cfg = GhLabelSourceConfig(
+        type="gh-label",
         label_rules=[label_rule],
         actor_rules=[actor_rule_cfg],
         permitted_actions=[PermittedAction.COMMENT_ON_ISSUE],
     )
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     label_item: dict[str, Any] = {
         "number": 42,
@@ -272,7 +272,7 @@ def test_label_and_actor_candidates_pooled() -> None:
             return [label_item]
         return [label_item, _ACTOR_ITEM]
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=fake_gh_api):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=fake_gh_api):
         result = _fetch(source, proj, cfg)
 
     assert result is not None
@@ -287,14 +287,14 @@ def test_actor_rule_model_override() -> None:
     src_cfg = _source_config(actor_rules=[rule], model="claude-sonnet-4-6")
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     def fake_gh_api(url: str) -> list[Any]:
         if "comments" in url:
             return []
         return [_ACTOR_ITEM]
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=fake_gh_api):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=fake_gh_api):
         result = _fetch(source, proj, cfg)
 
     assert result is not None

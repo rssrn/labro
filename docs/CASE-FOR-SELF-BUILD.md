@@ -38,7 +38,7 @@ The tools surveyed fall into five clusters. The five originally listed in the PR
 
 | Tool | Licence | Self-hosted? | Description | Gap vs. Labro |
 |---|---|---|---|---|
-| [OpenClaw](https://docs.openclaw.ai/automation/cron-jobs) | OSS | ✅ | General personal AI assistant with cron scheduling; 50+ messaging platform integrations; GitHub PR review is one documented use case. Cron jobs run in isolated sessions with their own context and model. | Chat-agent architecture, not a software maintenance harness; no project-aware priority lists; no multi-source task selection (grafana + gh-delegated + proactive); no outcome tracking; no permission envelopes. |
+| [OpenClaw](https://docs.openclaw.ai/automation/cron-jobs) | OSS | ✅ | General personal AI assistant with cron scheduling; 50+ messaging platform integrations; GitHub PR review is one documented use case. Cron jobs run in isolated sessions with their own context and model. | Chat-agent architecture, not a software maintenance harness; no project-aware priority lists; no multi-source task selection (grafana + gh-label + proactive); no outcome tracking; no permission envelopes. |
 | [Autobot](https://veelenga.github.io/how-agent-loop-and-cron-work-together-inside-autobot/) | OSS | ✅ | Agent framework with built-in cron scheduling; routes scheduled tasks through the same message bus as interactive agent sessions. | General agent loop; no software-project-specific integrations; no GitHub/Grafana sources; no observability. |
 | [CronBox](https://www.producthunt.com/products/cronbox-2) | Closed | ❌ Cloud only | Cloud-hosted product specifically for scheduling AI agents on a cron basis. | Not self-hosted; no software-project-specific integrations. |
 
@@ -93,10 +93,10 @@ Sweep originally had the closest conceptual match (label an issue → autonomous
 After surveying the full landscape, four things exist in Labro that have no free/open equivalent:
 
 **1. Configurable priority-list task selection across heterogeneous sources.**
-The picker that evaluates `grafana-alerts → gh-delegated → proactive-improvement` top-to-bottom, returning the first non-empty task, is architecturally novel. No existing tool has a multi-source priority queue for software maintenance work. This is the core value proposition.
+The picker that evaluates `grafana-alerts → gh-label → proactive-improvement` top-to-bottom, returning the first non-empty task, is architecturally novel. No existing tool has a multi-source priority queue for software maintenance work. This is the core value proposition.
 
 **2. Per-project, per-task-source action permission envelopes.**
-The idea that `grafana-alerts` can open PRs while `gh-delegated` can only comment, all expressed in TOML config, is not available in any free tool. PR-Agent has a coarser model; OpenHands has prompt-level permissions at best. The blast-radius control this provides is what makes unsupervised scheduled operation safe enough to run on real projects.
+The idea that `grafana-alerts` can open PRs while `gh-label` can only comment, all expressed in TOML config, is not available in any free tool. PR-Agent has a coarser model; OpenHands has prompt-level permissions at best. The blast-radius control this provides is what makes unsupervised scheduled operation safe enough to run on real projects.
 
 **3. Passive outcome signal collection attributed to originating runs.**
 The success signal model — PR merge rate, issue close reason, follow-up commits, 👍/👎 reactions, all collected passively from GitHub state and written back to SQLite against the originating `run_id` — is not available in any free tool. This is what distinguishes autonomous work that *compounds in value* (you can see what's working and tune accordingly) from autonomous work you evaluate manually.

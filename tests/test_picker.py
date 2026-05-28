@@ -1,4 +1,4 @@
-"""Tests for picker.py and task_sources/gh_delegated.py.
+"""Tests for picker.py and task_sources/gh_label.py.
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -22,12 +22,12 @@ from labro.config.schema import (
     ProjectConfig,
 )
 from labro.config.schema import (
-    GhDelegatedSource as GhDelegatedSourceConfig,
+    GhLabelSource as GhLabelSourceConfig,
 )
 from labro.models import AgentConfig, Task
 from labro.picker import pick
-from labro.task_sources.gh_delegated import (
-    GhDelegatedTaskSource,
+from labro.task_sources.gh_label import (
+    GhLabelTaskSource,
     _item_type,
     _label_names,
     _resolve_model,
@@ -73,9 +73,9 @@ def _source_config(
     rules: list[LabelRule] | None = None,
     permitted_actions: list[PermittedAction] | None = None,
     model: str | None = None,
-) -> GhDelegatedSourceConfig:
-    return GhDelegatedSourceConfig(
-        type="gh-delegated",
+) -> GhLabelSourceConfig:
+    return GhLabelSourceConfig(
+        type="gh-label",
         label_rules=rules or [_label_rule()],
         permitted_actions=permitted_actions,
         model=model,
@@ -83,7 +83,7 @@ def _source_config(
 
 
 def _project(
-    source_cfg: GhDelegatedSourceConfig | None = None,
+    source_cfg: GhLabelSourceConfig | None = None,
     permitted_actions: list[PermittedAction] | None = None,
     model: str | None = None,
     max_turns: int | None = None,
@@ -177,11 +177,11 @@ def test_resolve_model_defaults_fallback() -> None:
     assert _resolve_model(src, proj, "claude-opus-4-7") == "claude-opus-4-7"
 
 
-# ── GhDelegatedTaskSource tests (gh CLI mocked) ───────────────────────────────
+# ── GhLabelTaskSource tests (gh CLI mocked) ───────────────────────────────
 
 
 @pytest.fixture()
-def gh_source_with_rule() -> tuple[GhDelegatedTaskSource, ProjectConfig, LabroConfig]:
+def gh_source_with_rule() -> tuple[GhLabelTaskSource, ProjectConfig, LabroConfig]:
     src_cfg = _source_config(
         rules=[
             _label_rule(
@@ -191,17 +191,17 @@ def gh_source_with_rule() -> tuple[GhDelegatedTaskSource, ProjectConfig, LabroCo
     )
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    return GhDelegatedTaskSource(src_cfg), proj, cfg
+    return GhLabelTaskSource(src_cfg), proj, cfg
 
 
 def test_fetch_task_returns_oldest_eligible(
-    gh_source_with_rule: tuple[GhDelegatedTaskSource, ProjectConfig, LabroConfig],
+    gh_source_with_rule: tuple[GhLabelTaskSource, ProjectConfig, LabroConfig],
 ) -> None:
     """fetch_task picks the oldest item (issue #42, created Jan 15) over #55 (Feb 1)."""
     source, proj, cfg = gh_source_with_rule
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
@@ -211,27 +211,27 @@ def test_fetch_task_returns_oldest_eligible(
         )
 
     assert result is not None
-    task, agent_cfg = result
+    task, _agent_cfg = result
     assert isinstance(task, Task)
     assert task.item_number == 42
     assert task.item_type == "issue"
     assert task.source_label == "ai-dev"
     assert task.done_label == "ai-dev-done"
     assert task.repo == "org/repo"
-    assert task.source == "gh-delegated"
+    assert task.source == "gh-label"
     assert task.grafana_rule_uid is None
     assert task.item_url == "https://github.com/org/repo/issues/42"
     assert "Fix authentication race condition" in task.description
 
 
 def test_fetch_task_agent_config_defaults(
-    gh_source_with_rule: tuple[GhDelegatedTaskSource, ProjectConfig, LabroConfig],
+    gh_source_with_rule: tuple[GhLabelTaskSource, ProjectConfig, LabroConfig],
 ) -> None:
     """AgentConfig inherits model/max_turns/timeout_s from defaults when not overridden."""
-    source, proj, cfg = gh_source_with_rule
+    source, proj, _cfg = gh_source_with_rule
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model="claude-opus-4-7",
@@ -256,10 +256,10 @@ def test_fetch_task_skips_ai_failed() -> None:
     )
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_ai_dev_with_failed.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
@@ -279,13 +279,13 @@ def test_fetch_task_skips_done_label() -> None:
     src_cfg = _source_config(rules=[rule])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     # Inject done_label into first item
     fixture = load_fixture("gh_issues_ai_dev.json")
     fixture[0]["labels"].append({"name": "ai-dev-done", "color": "0e8a16"})
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
@@ -304,9 +304,9 @@ def test_fetch_task_empty_returns_none() -> None:
     src_cfg = _source_config()
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", return_value=[]):
+    with patch("labro.task_sources.gh_label._run_gh_api", return_value=[]):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
@@ -325,10 +325,10 @@ def test_fetch_task_detects_pr_item_type() -> None:
     )
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_pr.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
@@ -356,7 +356,7 @@ def test_fetch_task_multiple_rules_picks_oldest_across_rules() -> None:
     src_cfg = _source_config(rules=[rule_a, rule_b])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
 
     # rule_a → item #55 created Feb 1; rule_b → item #99 created Mar 1
     fixture_a = load_fixture("gh_issues_ai_dev.json")[1:2]  # only #55
@@ -370,7 +370,7 @@ def test_fetch_task_multiple_rules_picks_oldest_across_rules() -> None:
         call_count += 1
         return result
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=fake_gh_api):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=fake_gh_api):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
@@ -389,10 +389,10 @@ def test_fetch_task_project_overrides_applied() -> None:
     src_cfg = _source_config(rules=[_label_rule()])
     proj = _project(source_cfg=src_cfg, max_turns=5, timeout_s=120)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
@@ -410,7 +410,7 @@ def test_fetch_task_project_overrides_applied() -> None:
 # ── picker tests (stubbed fetch_task) ─────────────────────────────────────────
 
 
-class _StubSource(GhDelegatedTaskSource):
+class _StubSource(GhLabelTaskSource):
     """Configurable stub: returns a fixed result or raises."""
 
     def __init__(self, result: tuple[Task, AgentConfig] | None | Exception) -> None:
@@ -433,7 +433,7 @@ class _StubSource(GhDelegatedTaskSource):
 def _make_task_and_config() -> tuple[Task, AgentConfig]:
     task = Task(
         task_id="test-id",
-        source="gh-delegated",
+        source="gh-label",
         description="Do something",
         permitted_actions=[PermittedAction.COMMENT_ON_ISSUE],
         repo="org/repo",
@@ -495,8 +495,8 @@ def test_picker_skips_erroring_source_and_tries_next() -> None:
 
     rule_a = _label_rule(label="ai-dev", done_label="ai-dev-done")
     rule_b = _label_rule(label="ai-review", done_label="ai-review-done")
-    src_a = GhDelegatedSourceConfig(type="gh-delegated", label_rules=[rule_a])
-    src_b = GhDelegatedSourceConfig(type="gh-delegated", label_rules=[rule_b])
+    src_a = GhLabelSourceConfig(type="gh-label", label_rules=[rule_a])
+    src_b = GhLabelSourceConfig(type="gh-label", label_rules=[rule_b])
 
     proj = ProjectConfig(
         name="test-project",
@@ -534,10 +534,10 @@ def test_task_id_is_uuid_format() -> None:
     src_cfg = _source_config()
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
-    source = GhDelegatedTaskSource(src_cfg)
+    source = GhLabelTaskSource(src_cfg)
     fixture = load_fixture("gh_issues_ai_dev.json")
 
-    with patch("labro.task_sources.gh_delegated._run_gh_api", side_effect=gh_api_mock(fixture)):
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,

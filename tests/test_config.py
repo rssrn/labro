@@ -33,7 +33,7 @@ repo    = "my-org/my-api"
 cron    = "0 * * * *"
 
 [[projects.task_sources]]
-type = "gh-delegated"
+type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 label      = "ai-dev"
@@ -81,7 +81,7 @@ def test_defaults_inherited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         cron    = "0 * * * *"
 
         [[projects.task_sources]]
-        type = "gh-delegated"
+        type = "gh-label"
 
         [[projects.task_sources.label_rules]]
         label      = "ai-fix"
@@ -115,7 +115,7 @@ def test_permitted_actions_parsed(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         ]
 
         [[projects.task_sources]]
-        type = "gh-delegated"
+        type = "gh-label"
 
         [[projects.task_sources.label_rules]]
         label      = "ai-dev"
@@ -147,7 +147,7 @@ def test_digest_enabled_requires_slack_webhook(
         cron    = "0 * * * *"
 
         [[projects.task_sources]]
-        type = "gh-delegated"
+        type = "gh-label"
 
         [[projects.task_sources.label_rules]]
         label      = "ai-dev"
@@ -208,7 +208,7 @@ def test_unknown_permitted_action_is_hard_error(
         permitted_actions = ["comment_on_issue", "fly_to_moon"]
 
         [[projects.task_sources]]
-        type = "gh-delegated"
+        type = "gh-label"
 
         [[projects.task_sources.label_rules]]
         label      = "ai-dev"
@@ -219,13 +219,11 @@ def test_unknown_permitted_action_is_hard_error(
         load_config(p)
 
 
-# ── hard error: gh-delegated with no rules ────────────────────────────────────
+# ── hard error: gh-label with no rules ────────────────────────────────────
 
 
-def test_gh_delegated_no_rules_is_hard_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """gh-delegated with neither label_rules nor actor_rules raises ConfigError."""
+def test_gh_label_no_rules_is_hard_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """gh-label with neither label_rules nor actor_rules raises ConfigError."""
     monkeypatch.setenv("GH_TOKEN", "x")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
 
@@ -241,7 +239,7 @@ def test_gh_delegated_no_rules_is_hard_error(
         cron    = "0 * * * *"
 
         [[projects.task_sources]]
-        type = "gh-delegated"
+        type = "gh-label"
         """,
     )
     with pytest.raises(ConfigError, match="at least one label_rule or actor_rule"):

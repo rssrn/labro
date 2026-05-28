@@ -5,13 +5,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class PermittedAction(str, Enum):
+class PermittedAction(StrEnum):
     """Actions a Labro agent is allowed to perform on GitHub."""
 
     COMMENT_ON_ISSUE = "comment_on_issue"
@@ -27,7 +27,7 @@ class PermittedAction(str, Enum):
 
 
 class LabelRule(BaseModel):
-    """A single label-based eligibility rule within a gh-delegated source."""
+    """A single label-based eligibility rule within a gh-label source."""
 
     label: str
     done_label: str
@@ -35,7 +35,7 @@ class LabelRule(BaseModel):
 
 
 class ActorRule(BaseModel):
-    """An actor-based eligibility rule within a gh-delegated source."""
+    """An actor-based eligibility rule within a gh-label source."""
 
     actor: str
     done_label: str
@@ -43,22 +43,20 @@ class ActorRule(BaseModel):
     permitted_actions: list[PermittedAction] | None = None
 
 
-class GhDelegatedSource(BaseModel):
-    """Task source: gh-delegated (label_rules and/or actor_rules)."""
+class GhLabelSource(BaseModel):
+    """Task source: gh-label (label_rules and/or actor_rules)."""
 
-    type: Literal["gh-delegated"]
+    type: Literal["gh-label"]
     label_rules: list[LabelRule] = Field(default_factory=list)
     actor_rules: list[ActorRule] = Field(default_factory=list)
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
 
     @model_validator(mode="after")
-    def require_at_least_one_rule(self) -> GhDelegatedSource:
-        """gh-delegated with no rules is a hard config error."""
+    def require_at_least_one_rule(self) -> GhLabelSource:
+        """gh-label with no rules is a hard config error."""
         if not self.label_rules and not self.actor_rules:
-            raise ValueError(
-                "gh-delegated source must define at least one label_rule or actor_rule"
-            )
+            raise ValueError("gh-label source must define at least one label_rule or actor_rule")
         return self
 
 
@@ -84,7 +82,7 @@ class ProactiveImprovementSource(BaseModel):
 
 # Union discriminated on `type`.
 TaskSource = Annotated[
-    GhDelegatedSource | GrafanaAlertsSource | ProactiveImprovementSource,
+    GhLabelSource | GrafanaAlertsSource | ProactiveImprovementSource,
     Field(discriminator="type"),
 ]
 

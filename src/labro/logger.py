@@ -91,7 +91,7 @@ def write_run(
                 "run_id": run_id,
                 "project": project,
                 "task_source": task.source if task is not None else None,
-                "task_description": task.description if task is not None else None,
+                "task_description": task.description.splitlines()[0] if task is not None else None,
                 "item_url": task.item_url if task is not None else None,
                 "agent": agent_cfg.agent if agent_cfg is not None else None,
                 "model": agent_cfg.model if agent_cfg is not None else None,

@@ -1,4 +1,4 @@
-"""GhDelegatedTaskSource — label_rules and actor_rules task source (M2 scope).
+"""GhLabelTaskSource — label_rules and actor_rules task source (M2 scope).
 
 Fetches the oldest eligible open GitHub issue/PR carrying a configured label
 (label_rules) or created by a configured GitHub actor (actor_rules), excluding
@@ -22,14 +22,14 @@ from labro.config.schema import (
     ProjectConfig,
 )
 from labro.config.schema import (
-    GhDelegatedSource as GhDelegatedSourceConfig,
+    GhLabelSource as GhLabelSourceConfig,
 )
 from labro.models import AgentConfig, Task, make_task_id
 from labro.task_sources.base import TaskSource
 
 _AI_FAILED_LABEL = "ai-failed"
 
-# Type alias for any rule supported by GhDelegatedTaskSource.
+# Type alias for any rule supported by GhLabelTaskSource.
 _AnyRule = LabelRule | ActorRule
 
 
@@ -66,7 +66,7 @@ def _item_type(item: dict[str, Any]) -> str:
 
 def _resolve_permitted_actions(
     rule: _AnyRule,
-    source: GhDelegatedSourceConfig,
+    source: GhLabelSourceConfig,
     project: ProjectConfig,
 ) -> list[PermittedAction]:
     """Resolve permitted_actions using the override chain.
@@ -85,7 +85,7 @@ def _resolve_permitted_actions(
 
 
 def _resolve_model(
-    source: GhDelegatedSourceConfig,
+    source: GhLabelSourceConfig,
     project: ProjectConfig,
     defaults_model: str,
 ) -> str:
@@ -99,7 +99,7 @@ def _resolve_model(
 
 def _resolve_model_for_actor(
     rule: ActorRule,
-    source: GhDelegatedSourceConfig,
+    source: GhLabelSourceConfig,
     project: ProjectConfig,
     defaults_model: str,
 ) -> str:
@@ -149,7 +149,7 @@ def _fetch_comments_section(repo: str, number: int, max_comments: int) -> str:
     return "\n".join(parts)
 
 
-class GhDelegatedTaskSource(TaskSource):
+class GhLabelTaskSource(TaskSource):
     """Task source that monitors GitHub items via the ``gh`` CLI.
 
     Supports both ``label_rules`` (items carrying a specific label) and
@@ -158,7 +158,7 @@ class GhDelegatedTaskSource(TaskSource):
     (oldest first); the globally oldest eligible item is selected.
     """
 
-    def __init__(self, source_config: GhDelegatedSourceConfig) -> None:
+    def __init__(self, source_config: GhLabelSourceConfig) -> None:
         self._cfg = source_config
 
     def fetch_task(
@@ -242,7 +242,7 @@ class GhDelegatedTaskSource(TaskSource):
 
         task = Task(
             task_id=make_task_id(),
-            source="gh-delegated",
+            source="gh-label",
             description=description,
             permitted_actions=permitted_actions,
             repo=project.repo,

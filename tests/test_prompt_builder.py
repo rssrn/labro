@@ -21,7 +21,7 @@ from labro.prompt_builder import _DIVIDER, build_prompt
 
 # ── shared helpers ─────────────────────────────────────────────────────────────
 
-_ALL_ACTIONS = list(PermittedAction)
+_ALL_ACTIONS: list[PermittedAction] = list(PermittedAction)
 
 
 def _task(
@@ -34,7 +34,7 @@ def _task(
 ) -> Task:
     return Task(
         task_id="test-task-id",
-        source="gh-delegated",
+        source="gh-label",
         description=description,
         permitted_actions=permitted_actions
         if permitted_actions is not None
@@ -250,7 +250,7 @@ def test_impactful_action_appears_in_must_not_when_absent(action: PermittedActio
     """Impactful actions (non-comment) appear in 'must not' when not permitted."""
     from labro.prompt_builder import _ACTION_LABELS
 
-    others = [a for a in _ALL_ACTIONS if a != action]
+    others: list[PermittedAction] = [a for a in _ALL_ACTIONS if a != action]
     prompt = build_prompt(_task(permitted_actions=others))
     perm_section = prompt.split(_DIVIDER)[2]
     assert _ACTION_LABELS[action] in perm_section

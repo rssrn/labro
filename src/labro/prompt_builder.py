@@ -60,7 +60,7 @@ def _section_task(task: Task) -> str:
 
 def _section_permitted_actions(task: Task) -> str:
     permitted_set: set[PermittedAction] = set(task.permitted_actions)
-    all_actions = list(PermittedAction)
+    all_actions: list[PermittedAction] = list(PermittedAction)
 
     allowed = [a for a in all_actions if a in permitted_set]
     # Comment actions are omitted from the forbidden list — they are low-risk

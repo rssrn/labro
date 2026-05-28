@@ -27,7 +27,7 @@ def _memory_db() -> sqlite3.Connection:
 def _make_task(**kwargs: Any) -> Task:
     defaults: dict[str, Any] = dict(
         task_id=make_task_id(),
-        source="gh-delegated",
+        source="gh-label",
         description="Fix the flaky test",
         permitted_actions=[],
         repo="owner/repo",
@@ -102,7 +102,7 @@ def test_write_run_success() -> None:
     assert row is not None
     assert row["run_id"] == "run-001"
     assert row["project"] == "myproject"
-    assert row["task_source"] == "gh-delegated"
+    assert row["task_source"] == "gh-label"
     assert row["task_description"] == "Fix the flaky test"
     assert row["item_url"] == "https://github.com/owner/repo/issues/42"
     assert row["agent"] == "claude-code"

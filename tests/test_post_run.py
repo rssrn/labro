@@ -20,7 +20,7 @@ from labro.post_run import post_run
 
 def _make_task(
     *,
-    source: str = "gh-delegated",
+    source: str = "gh-label",
     item_type: str | None = "issue",
     item_number: int | None = 42,
     source_label: str | None = "ai-dev",
@@ -129,7 +129,10 @@ def test_failure_labels_and_comment(mock_run: MagicMock, _mock_ensure: MagicMock
 
     comments = _comment_cmds(mock_run)
     assert len(comments) == 1
-    assert "the agent timed out" in comments[0]
+    body = comments[0][comments[0].index("--body") + 1]
+    assert "Labro's agent" in body
+    assert "was assigned this issue" in body
+    assert "the agent timed out" in body
 
 
 @patch("labro.post_run._ensure_labels")
@@ -172,8 +175,8 @@ def test_subprocess_failure_logs_warning_no_raise(
 
 
 @patch("labro.post_run.subprocess.run")
-def test_non_gh_delegated_source_no_subprocess(mock_run: MagicMock) -> None:
-    """Non-gh-delegated tasks are silently skipped."""
+def test_non_gh_label_source_no_subprocess(mock_run: MagicMock) -> None:
+    """Non-gh-label tasks are silently skipped."""
     task = _make_task(source="grafana-alerts")
     post_run("run-6", task, _make_result(), outcome="success")
     mock_run.assert_not_called()

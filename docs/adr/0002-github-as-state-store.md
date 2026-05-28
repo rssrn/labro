@@ -27,7 +27,7 @@ Labro labels use the prefix `ai-` but never embed the word `labro`. Rationale: l
 | Label | Applied by | Meaning |
 | :--- | :--- | :--- |
 | `ai-contributed` | harness, post-run | Universal marker: Labro created or acted on this item |
-| `ai-dev-done` (example) | harness, post-run | `gh-delegated` task completed successfully |
+| `ai-dev-done` (example) | harness, post-run | `gh-label` task completed successfully |
 | `ai-failed` | harness, post-run | Run failed; item skipped until operator clears label |
 | `ai-alert:<rule-uid>` | agent, on creation | Issue tracks a specific Grafana alert rule |
 | `ai-proactive-suggestion` | agent, on creation | Issue is a proactive improvement suggestion |

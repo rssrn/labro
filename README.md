@@ -60,7 +60,7 @@ repo       = "my-org/my-repo"
 cron       = "0 * * * *"
 
 [[projects.task_sources]]
-type = "gh-delegated"
+type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 label             = "ai-dev"
@@ -202,6 +202,44 @@ rm /data/LABRO_DISABLED
 
 The check happens before lock acquisition. Any run already in progress finishes normally; only new runs are blocked.
 
+### Label transitions
+
+After each live run, Labro updates the GitHub labels on the acted-on item automatically. The exact transitions depend on the task source rule type and whether the agent succeeded or failed.
+
+#### `label_rule` path (label-triggered tasks)
+
+| Outcome | Labels added | Labels removed |
+|---|---|---|
+| success | `<done_label>` (e.g. `ai-dev-done`), `ai-contributed` | `<source_label>` (e.g. `ai-dev`) |
+| failure | `ai-failed`, `ai-contributed` | _(none — source label kept)_ |
+
+#### `actor_rule` path (polling-based tasks, no source label)
+
+| Outcome | Labels added | Labels removed |
+|---|---|---|
+| success | `<done_label>`, `ai-contributed` | _(none)_ |
+| failure | `ai-failed`, `ai-contributed` | _(none)_ |
+
+#### Retrying a failed item
+
+When an item carries `ai-failed`, the picker will not pick it up again. To re-queue it, remove both `ai-failed` and `ai-contributed`:
+
+```bash
+gh issue edit <number> --remove-label "ai-failed,ai-contributed" --repo <owner/repo>
+```
+
+If the task was label-triggered, also ensure the source label (e.g. `ai-dev`) is still present.
+
+#### `items_touched` table
+
+Labro writes a row to the `items_touched` SQLite table **before** the agent runs, as soon as the task is selected. This means the row exists even if the agent times out or crashes — it records which item was attempted, not whether the attempt succeeded.
+
+```sql
+SELECT repo, item_type, item_number FROM items_touched;
+```
+
+---
+
 ### Daily budget cap — `daily_budget_usd`
 
 Add to your project stanza in `labro.toml` to cap per-project spending per calendar day (UTC):
@@ -214,6 +252,37 @@ daily_budget_usd = 2.00    # skip if today's spend already >= $2.00
 ```
 
 Omit the field (or set it to `0`) to disable the cap. When the budget is exceeded, Labro writes a `skipped` record to SQLite with the reason `skipped: daily budget exceeded ($X.XX of $Y.YY used)` and exits without invoking the agent.
+
+---
+
+## Inspecting run records
+
+The SQLite database is at `/data/labro.db` inside the container, bind-mounted to wherever you point `--volume` on the host (e.g. `/tmp/labro-data/labro.db` in the quickstart examples).
+
+**Everything for one run (host, from a local smoke-test mount):**
+
+```bash
+sqlite3 -column -header /tmp/labro-data/labro.db "
+  SELECT * FROM runs        WHERE run_id = 'a1cf583f-e1e1-4464-993c-b71efa1e279f';
+  SELECT * FROM items_touched WHERE run_id = 'a1cf583f-e1e1-4464-993c-b71efa1e279f';
+"
+```
+
+**Recent runs across all projects:**
+
+```bash
+sqlite3 -column -header /data/labro.db \
+  "SELECT run_id, project, outcome, started_at, failure_reason FROM runs ORDER BY started_at DESC LIMIT 20;"
+```
+
+**Items touched in a specific run:**
+
+```bash
+sqlite3 -column -header /data/labro.db \
+  "SELECT * FROM items_touched WHERE run_id = '<run_id>';"
+```
+
+> **Tip:** `-column -header` formats output as aligned columns with a header row. Add `-json` instead for JSON output, or `-csv` for CSV.
 
 ---
 

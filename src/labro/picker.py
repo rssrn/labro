@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from labro.config.schema import (
-    GhDelegatedSource as GhDelegatedSourceConfig,
+    GhLabelSource as GhLabelSourceConfig,
 )
 from labro.config.schema import (
     LabroConfig,
@@ -20,7 +20,7 @@ from labro.config.schema import (
 )
 from labro.models import AgentConfig, Task
 from labro.task_sources.base import TaskSource
-from labro.task_sources.gh_delegated import GhDelegatedTaskSource
+from labro.task_sources.gh_label import GhLabelTaskSource
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ def _build_source(source_config: object) -> TaskSource | None:
 
     Returns ``None`` for source types that are not yet implemented (M2+).
     """
-    if isinstance(source_config, GhDelegatedSourceConfig):
-        return GhDelegatedTaskSource(source_config)
+    if isinstance(source_config, GhLabelSourceConfig):
+        return GhLabelTaskSource(source_config)
     # GrafanaAlertsSource and ProactiveImprovementSource are M2+ — skip gracefully.
     return None
 

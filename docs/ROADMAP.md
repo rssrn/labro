@@ -21,13 +21,13 @@ Each milestone produces a runnable, testable increment. Every source file and da
 | `.pre-commit-config.yaml` | Full hook config: ruff + mypy + bandit + shellcheck + check-toml (pre-commit stages); pip-audit with once-per-day marker (pre-push stage) |
 | `tests/` scaffold | `tests/test_config.py`, `tests/test_picker.py`, `tests/test_prompt_builder.py`; quality gate in place before any side-effectful code is written in M2 |
 | Docker image | Python 3.12, `gh` CLI, `claude` CLI pre-installed; `gh` availability satisfies REQ-11. Container image is the sandbox envelope for REQ-13 — agent execution inside the container is completed in M2 |
-| `config/` — config loader + Pydantic schema | Full schema validated; only `gh-delegated` label_rules exercised in M1 |
+| `config/` — config loader + Pydantic schema | Full schema validated; only `gh-label` label_rules exercised in M1 |
 | `task_sources/base.py` | `TaskSource` abstract base class |
-| `task_sources/gh_delegated.py` | `label_rules` only — actor_rules added in M2 |
+| `task_sources/gh_label.py` | `label_rules` only — actor_rules added in M2 |
 | `picker.py` | Complete priority-stack evaluator; iterates sources, returns first `Task | None`; no changes required in later milestones when new sources are registered |
 | `prompt_builder.py` | Complete four-section prompt constructor |
 | `agents/base.py` | `Agent` abstract base class |
-| `Task` data model | Full schema; `item_type`/`item_number`/`item_url` populated for `gh-delegated` items |
+| `Task` data model | Full schema; `item_type`/`item_number`/`item_url` populated for `gh-label` items |
 | `AgentConfig` data model | Fully defined; used by dry-run output |
 | `cli.py` — `labro run <project> --dry-run` | Prints resolved task + agent config + full prompt to stdout; exits cleanly |
 | `README.md` | Scaffold: project overview, prerequisites, installation, first-run (`labro init` + `labro check` + `labro run --dry-run`), pointer to `docs/`. Documentation entry point exists before side-effectful code ships |
@@ -54,9 +54,9 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 - `store.py`, `logger.py` — no SQLite
 - `repo.py` — no repo preparation
 - `post_run.py` — no label transitions
-- Actor rules in `gh-delegated`
+- Actor rules in `gh-label`
 
-**Coverage floor at M1 completion:** 70% across `config/`, `picker.py`, `prompt_builder.py`, `task_sources/gh_delegated.py`. Floor rises 5 pp each milestone; see ARCHITECTURE.md §8 Testing & Static Analysis for full policy.
+**Coverage floor at M1 completion:** 70% across `config/`, `picker.py`, `prompt_builder.py`, `task_sources/gh_label.py`. Floor rises 5 pp each milestone; see ARCHITECTURE.md §8 Testing & Static Analysis for full policy.
 
 ---
 
@@ -68,7 +68,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 | Component | Notes |
 | :--- | :--- |
-| `task_sources/gh_delegated.py` — actor_rules | Completes `gh_delegated.py`; no further changes required |
+| `task_sources/gh_label.py` — actor_rules | Completes `gh_label.py`; no further changes required |
 | `AgentResult` + `ItemRef` data models | Fully defined |
 | `agents/claude_code.py` | Complete Claude Code CLI agent implementation |
 | `runner.py` | Subprocess invocation; stdin prompt delivery; JSON parse; timeout handling; validates `structured_output` shape and fails loudly if missing |
@@ -88,14 +88,14 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 ## M3 — Label transitions and full loop
 
-**Goal:** complete the run loop with GitHub label transitions and `items_touched` tracking. The system now produces all side effects of a real run on a `gh-delegated` project.
+**Goal:** complete the run loop with GitHub label transitions and `items_touched` tracking. The system now produces all side effects of a real run on a `gh-label` project.
 
 **Completed here:**
 
 | Component | Notes |
 | :--- | :--- |
-| `post_run.py` | Label transitions for both `gh-delegated` rule types: label_rules (remove source label on success; keep on failure) and actor_rules (no source label to remove). Both paths apply done_label on success, `ai-failed` on failure, `ai-contributed` in all cases. Failure comment posted on both rule types. Extended in M6 (`ai-alert:<rule-uid>`) and M7 (`ai-proactive-suggestion` enforcement) |
-| `items_touched` writes | For `gh-delegated`: written at task-selection time (item already known). For other sources (M6, M7): written post-run from `items_created` in `AgentResult` |
+| `post_run.py` | Label transitions for both `gh-label` rule types: label_rules (remove source label on success; keep on failure) and actor_rules (no source label to remove). Both paths apply done_label on success, `ai-failed` on failure, `ai-contributed` in all cases. Failure comment posted on both rule types. Extended in M6 (`ai-alert:<rule-uid>`) and M7 (`ai-proactive-suggestion` enforcement) |
+| `items_touched` writes | For `gh-label`: written at task-selection time (item already known). For other sources (M6, M7): written post-run from `items_created` in `AgentResult` |
 | `cli.py` — add post_run call | Completes the run loop; `store.py` `items_touched` write wired in |
 | `README.md` | Document label transitions, `items_touched`, retry workflow (remove `ai-failed` to re-enable) |
 
@@ -124,7 +124,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 1. Push a version tag (`v0.4.0`) to the labro repo; confirm the image appears in GHCR
 2. Create a private config repo; copy `docs/config-repo-scaffold/` workflow files into `.github/workflows/`
-3. Add `labro.toml` with at least one `gh-delegated` project
+3. Add `labro.toml` with at least one `gh-label` project
 4. Add GitHub Secrets to the config repo: `GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
 5. Deploy the container to the VPS; confirm `labro run <project>` completes a real run and writes a record to SQLite
 
@@ -200,10 +200,10 @@ Maps every PRD requirement to the milestone where it is first completed. Require
 | REQ-01 | Per-project cron schedules | M4 | `entrypoint.sh` generates crontab from `labro.toml` |
 | REQ-02 | Deterministic task selector | M1 | `picker.py` complete; no changes in later milestones |
 | REQ-03 | Priority list in config | M1 | Full schema; picker evaluates top-to-bottom |
-| REQ-04 | Built-in task source modules | M1 | `TaskSource` ABC; `gh-delegated` first concrete source |
+| REQ-04 | Built-in task source modules | M1 | `TaskSource` ABC; `gh-label` first concrete source |
 | REQ-05 | `grafana-alerts` task source | M6 | Alert fetch, severity filter |
 | REQ-05a | Alert dedup via `ai-alert:<rule-uid>` | M6 | Open-issue check before acting; cleared-alert comment path |
-| REQ-06 | `gh-delegated` task source | M1 + M2 | `label_rules` in M1; `actor_rules` completed in M2 |
+| REQ-06 | `gh-label` task source | M1 + M2 | `label_rules` in M1; `actor_rules` completed in M2 |
 | REQ-07 | `proactive-improvement` task source | M7 | Cap check, target selection strategies |
 | REQ-08 | Configurable output mode for proactive work | M7 | `gh-issue` and `open-pr` modes |
 | REQ-09 | Model config per task source + project default | M1 | `AgentConfig` defined; passed to agent from M2 |

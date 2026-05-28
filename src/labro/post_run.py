@@ -1,4 +1,4 @@
-"""Post-run label transitions and failure comments for gh-delegated tasks.
+"""Post-run label transitions and failure comments for gh-label tasks.
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_FAILURE_MSG = (
     "Labro attempted to work on this item but the agent did not complete successfully. "
-    "Remove this label and the ai-failed label to re-queue the item."
+    "Remove the `ai-failed` and `ai-contributed` labels to re-queue the item."
 )
 
 
@@ -76,6 +76,7 @@ def post_run(
     agent_result: AgentResult | None,
     *,
     outcome: str,
+    agent_name: str = "claude-code",
 ) -> None:
     """Apply label transitions and post failure comments after a run.
 
@@ -84,8 +85,9 @@ def post_run(
         task: The task that was executed.
         agent_result: Structured result from the agent, or None on timeout/error.
         outcome: ``"success"`` or ``"failure"`` as mapped by cli.py.
+        agent_name: Agent identifier string (e.g. ``"claude-code"``).
     """
-    if task.source != "gh-delegated" or task.item_number is None:
+    if task.source != "gh-label" or task.item_number is None:
         return
 
     item_type = task.item_type or "issue"
@@ -102,7 +104,13 @@ def post_run(
     else:
         _gh_edit(item_type, item_number, repo, add=["ai-failed", "ai-contributed"], remove=[])
         if agent_result is not None:
-            body = agent_result.failure_reason or agent_result.summary or _GENERIC_FAILURE_MSG
+            detail = agent_result.failure_reason or agent_result.summary
+            body = (
+                f"Labro's agent (`{agent_name}`) was assigned this {item_type}"
+                f" but reported failure.\n\n**Reason:** {detail}"
+                if detail
+                else _GENERIC_FAILURE_MSG
+            )
         else:
             body = _GENERIC_FAILURE_MSG
         _gh_comment(item_type, item_number, repo, body)

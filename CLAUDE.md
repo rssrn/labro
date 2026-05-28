@@ -32,7 +32,7 @@ src/labro/
   picker.py           # priority-stack evaluator
   prompt_builder.py   # 4-section prompt constructor
   config/             # schema.py (Pydantic), loader.py
-  task_sources/       # base.py, gh_delegated.py
+  task_sources/       # base.py, gh_label.py
   agents/             # placeholder (M2+)
 tests/
 docs/                 # PRD, ARCHITECTURE, ROADMAP, ADRs
@@ -59,5 +59,5 @@ if you skip it, requiring a second commit attempt.
 
 ## Current Milestone
 
-**M1 complete** — dry-run, config loading, gh-delegated task source, prompt builder.
+**M1 complete** — dry-run, config loading, gh-label task source, prompt builder.
 **M2 in progress** — live agent invocation, lock management, SQLite logging, crond scheduling.

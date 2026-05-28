@@ -21,7 +21,7 @@ class Task:
     """
 
     task_id: str  # UUID v4, generated at selection time
-    source: str  # "grafana-alerts" | "gh-delegated" | "proactive-improvement"
+    source: str  # "grafana-alerts" | "gh-label" | "proactive-improvement"
     description: str  # human-readable; inserted into prompt section 2
     permitted_actions: list[PermittedAction]  # effective set; inserted into prompt section 3
 
@@ -32,8 +32,8 @@ class Task:
     item_url: str | None
 
     # Label transitions — post_run.py only; None for sources with no pre-existing item
-    source_label: str | None  # label to remove on success (gh-delegated label_rules only)
-    done_label: str | None  # label to apply on success (gh-delegated only)
+    source_label: str | None  # label to remove on success (gh-label label_rules only)
+    done_label: str | None  # label to apply on success (gh-label only)
     grafana_rule_uid: str | None  # rule UID for grafana-alerts tasks
 
 

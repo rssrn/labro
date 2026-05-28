@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import labro.logger as logger_mod
+import labro.post_run as post_run_mod
 import labro.store as store_mod
 from labro.agents.claude_code import ClaudeCodeAgent
 from labro.config.loader import ConfigError, load_config
@@ -253,6 +254,16 @@ def _cmd_run_live(
             print(f"skipped: no eligible task found for project {project_name!r}")
             return 0
 
+        # Write items_touched row before agent runs (item already known for gh-label)
+        if task.item_number is not None:
+            store_mod.insert_items_touched(
+                conn,
+                run_id=run_id,
+                repo=task.repo,
+                item_type=task.item_type or "issue",
+                item_number=task.item_number,
+            )
+
         # ── Prepare repo ───────────────────────────────────────────────────────
         repo_path = prepare_repo(task.repo, repos_dir)
         _log.info("repo ready at %s", repo_path)
@@ -269,6 +280,18 @@ def _cmd_run_live(
         outcome = "failure"
         failure_reason: str | None = None
 
+        item_ref = (
+            f"{task.item_type} #{task.item_number}"
+            if task.item_number is not None
+            else "(no item)"
+        )
+        _log.info(
+            "invoking agent %s (model=%s) on %s %s",
+            agent_cfg.agent,
+            agent_cfg.model,
+            task.repo,
+            item_ref,
+        )
         try:
             agent_result = ClaudeCodeAgent().invoke(prompt, agent_cfg)
             # "partial" counts as failure in the runs table (ARCHITECTURE line 263)
@@ -278,6 +301,11 @@ def _cmd_run_live(
             failure_reason = "timeout"
         except RunnerOutputError as exc:
             failure_reason = str(exc)
+
+        # ── Post-run label transitions ─────────────────────────────────────────
+        post_run_mod.post_run(
+            run_id, task, agent_result, outcome=outcome, agent_name=agent_cfg.agent
+        )
 
         # ── Write run record ───────────────────────────────────────────────────
         ended_at = _now_utc()

@@ -24,7 +24,7 @@ A single GitHub repository configured in `labro.toml`. Each project has its own 
 A single unit of work selected by the Picker for a given run. Produced by exactly one Task Source. A run produces at most one task; if no task is found, the run is logged as `skipped`.
 
 **Task Source**
-A pluggable module that knows how to find work for a given project. Built-in sources: `grafana-alerts`, `gh-delegated`, `proactive-improvement`. Each source implements a single `fetch_task()` method, returning a `Task` or `None`.
+A pluggable module that knows how to find work for a given project. Built-in sources: `grafana-alerts`, `gh-label`, `proactive-improvement`. Each source implements a single `fetch_task()` method, returning a `Task` or `None`.
 
 *Note: "Task Source" is intentionally not called a "trigger" (the term used in Zapier, n8n, and GitHub Actions). Triggers imply push-event delivery; task sources are polled — they are evaluated on a schedule and may return nothing. This pull model is a deliberate design choice for a cron-based harness.*
 
@@ -77,4 +77,4 @@ Before acting on a Grafana alert, `grafana-alerts` checks for an open Labro-crea
 A lagging indicator of real usefulness read from passive GitHub state: PR merged vs. closed-unmerged, issue close reason (`completed` vs. `not planned`), follow-up commits before merge, and 👍/👎 reactions on Labro comments. Collected by the daily digest job (not the run loop), written back to SQLite against the originating `run_id`.
 
 **`items_touched` Table**
-A SQLite table populated by the harness per run, recording every GitHub item Labro created or acted on: `(run_id, repo, item_type, item_number)`. For `gh-delegated` tasks, written at task-selection time. For agent-created items, written post-run from the `items_created` field of the agent's structured output. The daily digest job queries this table to collect outcome signals.
+A SQLite table populated by the harness per run, recording every GitHub item Labro created or acted on: `(run_id, repo, item_type, item_number)`. For `gh-label` tasks, written at task-selection time. For agent-created items, written post-run from the `items_created` field of the agent's structured output. The daily digest job queries this table to collect outcome signals.

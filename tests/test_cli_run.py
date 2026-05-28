@@ -27,7 +27,7 @@ from labro.config.schema import (
     ProjectConfig,
 )
 from labro.config.schema import (
-    GhDelegatedSource as GhDelegatedSourceConfig,
+    GhLabelSource as GhLabelSourceConfig,
 )
 from labro.models import AgentConfig, AgentResult, Task
 
@@ -41,7 +41,7 @@ def _make_config(
 ) -> LabroConfig:
     """Build a minimal ``LabroConfig`` with a single project."""
     label_rule = LabelRule(label="ai-dev", done_label="ai-dev-done")
-    src = GhDelegatedSourceConfig(type="gh-delegated", label_rules=[label_rule])
+    src = GhLabelSourceConfig(type="gh-label", label_rules=[label_rule])
     project = ProjectConfig(
         name=project_name,
         repo="org/repo",
@@ -61,7 +61,7 @@ def _make_config(
 def _make_task(project_name: str = "labro") -> Task:
     return Task(
         task_id="test-task-id",
-        source="gh-delegated",
+        source="gh-label",
         description="#1: Fix something\n\nBody text.",
         permitted_actions=[PermittedAction.COMMENT_ON_ISSUE],
         repo="org/repo",

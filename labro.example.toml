@@ -61,7 +61,7 @@ context = "Follow the coding conventions documented in CLAUDE.md closely."
 # Sources are evaluated top-to-bottom; the first eligible task wins.
 
 [[projects.task_sources]]
-type = "gh-delegated"
+type = "gh-label"
 
 # label_rules: monitor open issues/PRs carrying a label.
 # The agent is invoked on the oldest eligible item that:
@@ -88,7 +88,7 @@ done_label = "ai-dev-done"  # applied by post_run.py on success (M3+)
 # permitted_actions = ["comment_on_issue"]
 #
 # [[projects.task_sources]]
-# type = "gh-delegated"
+# type = "gh-label"
 #
 # [[projects.task_sources.label_rules]]
 # label      = "ai-dev"
