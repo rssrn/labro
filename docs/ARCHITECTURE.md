@@ -169,7 +169,7 @@ Harness
 | :--- | :--- |
 | `labro run <project>` | Trigger a single run for a project immediately (bypasses scheduler). Accepts `--dry-run` flag: runs task selection and prompt construction but does not acquire a lock, prepare the repo, invoke the agent, write execution records, or apply label transitions. Prints resolved task, agent config, and full prompt text to stdout — useful for inspecting configuration before spending tokens. |
 | `labro init` | Bootstrap all configured projects: creates required GitHub labels in each repo if absent. Idempotent — safe to re-run. Labels created: `ai-contributed` (blue `#0075ca`), `ai-failed` (yellow `#e4e669`, description "remove to retry"), `ai-proactive-suggestion` (grey `#cfd3d7`), plus any configured done labels (green `#0e8a16`) and source labels (purple `#7057ff`). `ai-alert:<rule-uid>` labels are created dynamically by `post_run.py` on first alert success, not by `init`; they use blue `#0075ca` with description `"Labro alert tracker: <rule-uid>"`. |
-| `labro check` | Pre-flight health check: validates config, checks all required env vars are set, verifies GitHub token has `repo` or `public_repo` scope (via `gh auth status`; may produce false negatives for fine-grained PATs), and confirms required labels exist in each configured repo. Reports pass/fail per check. Safe to run at any time — makes no writes. |
+| `labro check` | Pre-flight health check: validates config, checks all required env vars are set, verifies GitHub token has `repo` or `public_repo` scope (via `gh auth status`; may produce false negatives for fine-grained PATs), confirms required labels exist in each configured repo, and — if `claude_assignee` is set — verifies that user is a collaborator on each configured repo (via `gh api repos/{repo}/collaborators/{user}`). Reports pass/fail per check. Safe to run at any time — makes no writes. |
 | `labro list-locks` | Show all currently held project locks with `project`, `locked_at`, and age. |
 | `labro unlock <project>` | Manually release a stale lock for a project. |
 | `labro review` | Print a table of recent execution records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `task_source`, `outcome`, `turns_used`, `total_cost_usd`, `task_description` (truncated). Failures include `failure_reason`. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|skipped>`. Plain text to stdout. |
@@ -909,6 +909,13 @@ Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery
 ```toml
 # labro.toml — annotated reference configuration
 # All fields are required unless marked (optional).
+
+# ── Global: Claude assignee (optional) ────────────────────────────────────────
+# GitHub login assigned to an issue/PR while Claude is working on it.
+# Labro assigns this user before invoking the agent and restores the original
+# assignee afterwards, regardless of outcome.  Soft-fail: if the user is not a
+# collaborator the run continues; `labro check` (M5) verifies this in advance.
+# claude_assignee = "claude-code-youruser"   # optional
 
 # ── Global: digest ─────────────────────────────────────────────────────────────
 [digest]

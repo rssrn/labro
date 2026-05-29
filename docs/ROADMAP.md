@@ -139,7 +139,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | Component | Notes |
 | :--- | :--- |
 | `cli.py` — `labro init` | Idempotent GitHub label creation across all configured repos; completing this command means a new project is fully onboarded with a config change + `labro init` only (REQ-19) |
-| `cli.py` — `labro check` | Pre-flight: config validity, env vars, GitHub token scope, label existence; no writes |
+| `cli.py` — `labro check` | Pre-flight: config validity, env vars, GitHub token scope, label existence; if `claude_assignee` is set, verifies that user is a collaborator on each configured repo; no writes |
 | `cli.py` — `labro review` | Tabular run history from SQLite; `--limit`, `--project`, `--outcome` flags; token and time costs shown per run and aggregated by agent/model (REQ-17) |
 | `cli.py` — `labro list-locks` | Show held project locks with age |
 | `cli.py` — `labro unlock <project>` | Manual stale-lock release |

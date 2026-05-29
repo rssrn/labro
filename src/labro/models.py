@@ -36,6 +36,10 @@ class Task:
     done_label: str | None  # label to apply on success (gh-label only)
     grafana_rule_uid: str | None  # rule UID for grafana-alerts tasks
 
+    # Original GitHub assignees (logins) at task-selection time — used by
+    # assignee.py to restore after the run.
+    assignees: list[str] = field(default_factory=list)
+
     # Optional persona prompt prepended to the role section of the agent prompt.
     persona_prompt: str | None = None
 

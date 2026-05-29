@@ -98,6 +98,14 @@ persona           = "architect"
 permitted_actions = ["comment_on_issue"]
 effort            = "medium"       # design review is read-only; lower effort is sufficient
 
+# ── Claude assignee (optional) ─────────────────────────────────────────────────
+# GitHub login to assign to an issue/PR while Claude is working on it.
+# Labro assigns this user before invoking the agent and restores the original
+# assignee afterwards, regardless of outcome.  Useful as a "in progress" signal.
+# Run `labro check` (M5) to verify the user is a collaborator on every repo.
+
+# claude_assignee = "claude-code-youruser"
+
 # ── Digest ─────────────────────────────────────────────────────────────────────
 
 [digest]

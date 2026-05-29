@@ -28,12 +28,14 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import labro.assignee as assignee_mod
 import labro.logger as logger_mod
 import labro.post_run as post_run_mod
 import labro.store as store_mod
 from labro.agents.claude_code import ClaudeCodeAgent
 from labro.config.loader import ConfigError, load_config
 from labro.config.schema import LabroConfig, ProjectConfig
+from labro.models import AgentResult, Task
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
 from labro.repo import prepare_repo
@@ -136,6 +138,10 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
         print(f"  grafana_rule_uid : {task.grafana_rule_uid}")
     actions_str = ", ".join(a.value for a in task.permitted_actions) or "(none)"
     print(f"  permitted_actions: {actions_str}")
+    if task.assignees:
+        print(f"  assignees        : {', '.join(task.assignees)}")
+    if config.claude_assignee and task.item_number is not None:
+        print(f"  [dry-run] would assign {config.claude_assignee!r} during run")
     print()
     print("  description:")
     for line in task.description.splitlines():
@@ -209,6 +215,8 @@ def _cmd_run_live(
 
     run_id = str(uuid.uuid4())
     started_at = _now_utc()
+    # Set to the task after assign_claude so the finally block knows to restore.
+    _assigned_task: Task | None = None
 
     try:
         # ── Budget check ───────────────────────────────────────────────────────
@@ -273,9 +281,12 @@ def _cmd_run_live(
         # ── Build prompt ───────────────────────────────────────────────────────
         prompt = build_prompt(task=task, project_context=project.context)
 
-        # ── Invoke agent ───────────────────────────────────────────────────────
-        from labro.models import AgentResult
+        # ── Assign Claude user (optional) ──────────────────────────────────────
+        if config.claude_assignee and task.item_number is not None:
+            assignee_mod.assign_claude(task, config.claude_assignee)
+            _assigned_task = task
 
+        # ── Invoke agent ───────────────────────────────────────────────────────
         agent_result: AgentResult | None = None
         outcome = "failure"
         failure_reason: str | None = None
@@ -326,6 +337,8 @@ def _cmd_run_live(
         return 0 if outcome == "success" else 1
 
     finally:
+        if _assigned_task is not None and config.claude_assignee:
+            assignee_mod.restore_assignees(_assigned_task, config.claude_assignee)
         store_mod.release_lock(conn, project_name)
         conn.close()
 

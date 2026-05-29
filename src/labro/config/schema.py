@@ -191,6 +191,11 @@ class LabroConfig(BaseModel):
     digest: DigestConfig = Field(default_factory=DigestConfig)
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     projects: list[ProjectConfig] = Field(default_factory=list)
+    # GitHub login to assign during runs (e.g. "claude-code-youruser").
+    # If set, labro assigns this user before invoking the agent and restores
+    # the original assignee afterwards — irrespective of success or failure.
+    # labro check (M5) verifies this user is a collaborator on each repo.
+    claude_assignee: str | None = None
 
     @model_validator(mode="after")
     def resolve_and_validate_rules(self) -> LabroConfig:

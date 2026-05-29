@@ -38,6 +38,7 @@ def _make_config(
     project_name: str = "labro",
     daily_budget_usd: float | None = None,
     timeout_s: int | None = None,
+    claude_assignee: str | None = None,
 ) -> LabroConfig:
     """Build a minimal ``LabroConfig`` with a single project."""
     label_rule = LabelRule(label="ai-dev", done_label="ai-dev-done")
@@ -55,6 +56,7 @@ def _make_config(
         digest=DigestConfig(enabled=False),
         defaults=DefaultsConfig(model="claude-opus-4-7", max_turns=20, timeout_s=600),
         projects=[project],
+        claude_assignee=claude_assignee,
     )
 
 
@@ -373,5 +375,84 @@ def test_lock_released_on_exception(tmp_path: Path) -> None:
 
     # The finally block must have fired and released the lock.
     mock_release.assert_called_once()
+
+    conn.close()
+
+
+def test_claude_assignee_assigned_and_restored_on_success(tmp_path: Path) -> None:
+    """When claude_assignee is set, assign before agent and restore after (success path)."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config(claude_assignee="claude-code-bot")
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    agent_result = _make_agent_result(outcome="success")
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.assignee_mod.assign_claude") as mock_assign,
+        patch("labro.cli.assignee_mod.restore_assignees") as mock_restore,
+    ):
+        mock_instance = MockAgent.return_value
+        mock_instance.invoke.return_value = agent_result
+
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 0
+    mock_assign.assert_called_once_with(task, "claude-code-bot")
+    mock_restore.assert_called_once_with(task, "claude-code-bot")
+
+    conn.close()
+
+
+def test_claude_assignee_restored_on_agent_failure(tmp_path: Path) -> None:
+    """restore_assignees is called in finally even when the agent raises."""
+    from labro.runner import RunnerTimeoutError
+
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config(claude_assignee="claude-code-bot")
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.assignee_mod.assign_claude"),
+        patch("labro.cli.assignee_mod.restore_assignees") as mock_restore,
+    ):
+        mock_instance = MockAgent.return_value
+        mock_instance.invoke.side_effect = RunnerTimeoutError("timed out")
+
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 1
+    # restore must be called even though the agent timed out
+    mock_restore.assert_called_once_with(task, "claude-code-bot")
 
     conn.close()
