@@ -2,6 +2,9 @@
 set -euo pipefail
 
 # Export container env so crond jobs inherit secrets (GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, etc.)
+# LABRO_CONFIG is set here (not by the caller) so crond jobs find the config regardless of cwd.
+LABRO_CONFIG="${LABRO_CONFIG:-/app/labro.toml}"
+export LABRO_CONFIG
 printenv | sed 's/=\(.*\)/="\1"/' > /etc/labro-env
 chmod 600 /etc/labro-env
 

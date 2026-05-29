@@ -21,10 +21,27 @@ The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and 
 ### Prerequisites
 
 - **[Docker](https://docs.docker.com/get-docker/)** (or a compatible runtime such as Podman)
-- A **GitHub token** with read access to the repos you want to monitor (`GH_TOKEN`)
+- A **GitHub token** for the repos you want to monitor (`GH_TOKEN`) — see [GitHub token setup](#github-token-setup) below
 - A **claude CLI auth credential** — needed for live agent runs (M2+), not for `--dry-run`. Two options:
   - **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended) — OAuth token tied to your Claude subscription (Pro/Max). Generate once with `claude setup-token` on your dev machine.
   - **`ANTHROPIC_API_KEY`** (untested) — standard Anthropic API key; bills your API account. If both vars are set, this takes precedence over the OAuth token.
+
+### GitHub token setup
+
+`GH_TOKEN` must belong to an account that has **collaborator access** (or ownership) of every repo in your `labro.toml`. The token needs the following permissions on those repos:
+
+| Permission | Level | Why |
+|---|---|---|
+| Contents | Read & write | Push branches for PRs |
+| Issues | Read & write | Comment on issues, add/remove labels |
+| Metadata | Read-only | List issues, repo lookup (required by GitHub) |
+| Pull requests | Read & write | Open PRs |
+
+**Fine-grained PAT (recommended):** create the token under the account that owns the repos (e.g. your personal account), not under a bot account. Fine-grained PATs issued for account A cannot access private repos owned by account B even when account A is a collaborator — GitHub only grants fine-grained PAT access to repos owned by the token's issuing account. Select "Only select repositories" and add each repo explicitly.
+
+**Classic PAT:** use `repo` scope. Simpler, but broader than necessary.
+
+> **Bot accounts:** if you run Labro as a dedicated bot user (e.g. `my-bot`), create the token on your main account (the repo owner), not on the bot account. The token controls what the `gh` CLI can read/write; the `claude_assignee` field in `labro.toml` controls which GitHub user the agent acts as on issues and PRs.
 
 ### 1. Clone and build
 
@@ -184,7 +201,7 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 
 | Variable | Required | Notes |
 |---|---|---|
-| `GH_TOKEN` | Yes | GitHub personal access token with `repo` read scope |
+| `GH_TOKEN` | Yes | GitHub token with Issues/PRs/Contents read & write on monitored repos — see [GitHub token setup](#github-token-setup) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Recommended | OAuth token from `claude setup-token` on your dev machine; tied to your Pro/Max subscription |
 | `ANTHROPIC_API_KEY` | Alternative | Standard Anthropic API key; bills your API account. If **both** are set, this takes precedence |
 
