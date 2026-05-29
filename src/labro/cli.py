@@ -491,7 +491,10 @@ def main() -> None:
             backupCount=5,
         )
         fh.setFormatter(logging.Formatter(log_fmt))
-        logging.getLogger().addHandler(fh)
+        # Replace the stderr StreamHandler — cron redirects stderr to the same
+        # file, so keeping both would double every log line.
+        root = logging.getLogger()
+        root.handlers = [fh]
 
     parser = _build_parser()
     args = parser.parse_args()
