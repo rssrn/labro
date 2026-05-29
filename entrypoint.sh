@@ -5,7 +5,7 @@ set -euo pipefail
 # LABRO_CONFIG is set here (not by the caller) so crond jobs find the config regardless of cwd.
 LABRO_CONFIG="${LABRO_CONFIG:-/app/labro.toml}"
 export LABRO_CONFIG
-printenv | sed 's/=\(.*\)/="\1"/' > /etc/labro-env
+export -p > /etc/labro-env
 chmod 600 /etc/labro-env
 
 # One-shot mode (GitHub Actions / manual): pass args through to labro
