@@ -487,7 +487,7 @@ def test_picker_skips_erroring_source_and_tries_next() -> None:
 
     call_count = 0
 
-    def build_side_effect(source_cfg: object) -> _StubSource:
+    def build_side_effect(source_cfg: object, personas: object) -> _StubSource:
         nonlocal call_count
         stub = stub_error if call_count == 0 else stub_ok
         call_count += 1

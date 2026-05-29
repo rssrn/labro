@@ -38,8 +38,8 @@ _COMMENT_ACTIONS: frozenset[PermittedAction] = frozenset(
 _DIVIDER = "\n---\n"
 
 
-def _section_role() -> str:
-    return (
+def _section_role(persona_prompt: str | None = None) -> str:
+    base = (
         "You are an autonomous coding agent running unattended on a schedule."
         " No human is present during this session.\n\n"
         "Act decisively within your permitted actions (listed below under **Action permissions**)."
@@ -47,6 +47,9 @@ def _section_role() -> str:
         " brief explanation and stop — do **not** ask clarifying questions, request"
         " approval, or wait for input."
     )
+    if persona_prompt:
+        return base + "\n\n" + persona_prompt.strip()
+    return base
 
 
 def _section_task(task: Task) -> str:
@@ -123,7 +126,7 @@ def build_prompt(
         The full prompt string ready to be piped to ``claude -p`` via stdin.
     """
     sections = [
-        _section_role(),
+        _section_role(task.persona_prompt),
         _section_task(task),
         _section_permitted_actions(task),
         _section_project_context(task, default_branch, project_context),

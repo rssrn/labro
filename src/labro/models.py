@@ -36,6 +36,9 @@ class Task:
     done_label: str | None  # label to apply on success (gh-label only)
     grafana_rule_uid: str | None  # rule UID for grafana-alerts tasks
 
+    # Optional persona prompt prepended to the role section of the agent prompt.
+    persona_prompt: str | None = None
+
 
 def make_task_id() -> str:
     """Generate a fresh UUID v4 task identifier."""

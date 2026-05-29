@@ -20,6 +20,7 @@ from labro.config.schema import (
     ActorRule,
     LabelRule,
     PermittedAction,
+    PersonaConfig,
     ProjectConfig,
 )
 from labro.config.schema import (
@@ -161,8 +162,13 @@ class GhLabelTaskSource(TaskSource):
     (oldest first); the globally oldest eligible item is selected.
     """
 
-    def __init__(self, source_config: GhLabelSourceConfig) -> None:
+    def __init__(
+        self,
+        source_config: GhLabelSourceConfig,
+        personas: dict[str, PersonaConfig] | None = None,
+    ) -> None:
         self._cfg = source_config
+        self._personas: dict[str, PersonaConfig] = personas or {}
 
     def fetch_task(
         self,
@@ -261,6 +267,13 @@ class GhLabelTaskSource(TaskSource):
         description = f"#{number}: {title}\n\n{body}".strip()
         description += _fetch_comments_section(project.repo, number, max_comments)
 
+        persona_slug = winning_rule.persona if hasattr(winning_rule, "persona") else None
+        persona_prompt: str | None = None
+        if persona_slug is not None:
+            p = self._personas.get(persona_slug)
+            if p is not None:
+                persona_prompt = p.prompt
+
         task = Task(
             task_id=make_task_id(),
             source="gh-label",
@@ -273,6 +286,7 @@ class GhLabelTaskSource(TaskSource):
             source_label=source_label,
             done_label=done_label,
             grafana_rule_uid=None,
+            persona_prompt=persona_prompt,
         )
         agent_cfg = AgentConfig(
             agent="claude-code",

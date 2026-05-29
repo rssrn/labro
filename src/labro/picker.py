@@ -16,6 +16,7 @@ from labro.config.schema import (
 )
 from labro.config.schema import (
     LabroConfig,
+    PersonaConfig,
     ProjectConfig,
 )
 from labro.models import AgentConfig, Task
@@ -25,13 +26,13 @@ from labro.task_sources.gh_label import GhLabelTaskSource
 logger = logging.getLogger(__name__)
 
 
-def _build_source(source_config: object) -> TaskSource | None:
+def _build_source(source_config: object, personas: dict[str, PersonaConfig]) -> TaskSource | None:
     """Instantiate a TaskSource from a config object.
 
     Returns ``None`` for source types that are not yet implemented (M2+).
     """
     if isinstance(source_config, GhLabelSourceConfig):
-        return GhLabelTaskSource(source_config)
+        return GhLabelTaskSource(source_config, personas)
     # GrafanaAlertsSource and ProactiveImprovementSource are M2+ — skip gracefully.
     return None
 
@@ -52,7 +53,7 @@ def pick(
     defaults = config.defaults
 
     for source_cfg in project.task_sources:
-        source = _build_source(source_cfg)
+        source = _build_source(source_cfg, config.personas)
         if source is None:
             # Source type not implemented yet — skip silently.
             continue

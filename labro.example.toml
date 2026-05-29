@@ -14,78 +14,168 @@
 #   Point labro at your config with the --config flag or LABRO_CONFIG env var:
 #     export LABRO_CONFIG=/path/to/your/config/repo/labro.toml
 #     labro run <project> --dry-run
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# TWO STYLES
+#
+# Style A (below): personas + shared_rules — define prompt snippets and label
+#   conventions once, reference them across many projects.
+#
+# Style B (further below): everything inline — no shared sections, good for
+#   simple single-project setups.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STYLE A — personas + shared_rules
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Personas ───────────────────────────────────────────────────────────────────
+# Named prompt snippets prepended to the agent role section.
+# Reference them from any rule or source with  persona = "<name>".
+
+[personas.senior-developer]
+prompt = """
+Act as a senior developer. If reasonably possible, raise a PR for this ticket.
+If a PR is not reasonably possible (e.g. unclear or contradictory requirements),
+post a comment asking questions. In your comment, namecheck an appropriate
+person or people from the issue history.
+"""
+
+[personas.business-analyst]
+prompt = """
+Act as a business analyst. If the ticket describes a proposed feature or
+change, evaluate its feasibility, risks, and fit with the existing architecture.
+Post a comment structured as a short proposal with these sections:
+
+**Summary** — one paragraph restating the proposal in your own words.
+**Risks & concerns** — bullet list of technical or process risks.
+**Open questions** — anything that needs clarification before work can start.
+**Recommended approach** — your suggested next step (implement as-is, spike
+first, reject, needs more detail, etc.) with a brief rationale.
+
+Do not implement changes.
+"""
+
+[personas.frontline-support]
+prompt = """
+Act as a frontline support engineer. Your goal is rapid triage: classify the
+alert severity, identify the most likely root cause from recent changes and
+metrics, and create a GitHub issue with a clear summary, reproduction steps,
+and suggested owner. If the alert is a known flap, note that and close it.
+"""
+
+[personas.architect]
+prompt = """
+Act as a software architect. Review the ticket for architectural implications:
+identify coupling risks, boundary violations, scalability concerns, and
+consistency with the existing design. Post a comment with your assessment and,
+where relevant, a recommended approach or links to prior decisions. Do not
+implement changes — your output is design guidance only.
+"""
+
+# ── Shared rules ───────────────────────────────────────────────────────────────
+# Reusable label rule templates.  Projects reference them with  rule = "<name>".
+# Any field can be overridden at the project level.
+
+[shared_rules.dev]
+label             = "ai-dev"
+done_label        = "ai-dev-done"
+persona           = "senior-developer"
+permitted_actions = ["comment_on_issue", "open_pr"]
+
+[shared_rules.ba]
+label             = "ai-ba"
+done_label        = "ai-ba-done"
+persona           = "business-analyst"
+permitted_actions = ["comment_on_issue"]
+
+[shared_rules.architect]
+label             = "ai-architect"
+done_label        = "ai-architect-done"
+persona           = "architect"
+permitted_actions = ["comment_on_issue"]
 
 # ── Digest ─────────────────────────────────────────────────────────────────────
-# Optional Slack summary of all runs. Requires SLACK_WEBHOOK_URL.
 
 [digest]
 enabled = false
-cron    = "0 8 * * *"   # when to post the daily digest (cron expression)
+cron    = "0 8 * * *"
 
 # ── Defaults ───────────────────────────────────────────────────────────────────
-# Global fallbacks inherited by every project; all fields are optional.
 
 [defaults]
-model        = "claude-opus-4-7"   # Claude model slug — passed through opaquely
-max_turns    = 20                  # maximum agent turns per run
-timeout_s    = 600                 # subprocess wall-clock timeout in seconds
-max_comments = 10                  # max issue/PR comments to include in the prompt
+model        = "claude-opus-4-7"
+max_turns    = 20
+timeout_s    = 600
+max_comments = 10
 
 # ── Projects ───────────────────────────────────────────────────────────────────
-# Add one [[projects]] block per managed repo.
+#
+# Task sources are evaluated top-to-bottom; the first source that finds an
+# eligible item wins.  To interleave label rules with other source types, split
+# them into separate gh-label blocks at the positions you want in the order.
+#
+# Example priority order: dev → grafana alerts → ba → architect
 
 [[projects]]
-name    = "my-project"             # unique identifier used in `labro run <name>`
-repo    = "owner/repo"             # GitHub repo in owner/repo format
-cron    = "0 9 * * 1-5"           # when to run (cron expression; weekdays at 09:00)
-enabled = true                     # set false to pause without removing config
+name    = "my-api"
+repo    = "owner/my-api"
+cron    = "0 9 * * 1-5"
+context = "Follow the coding conventions in CLAUDE.md closely."
 
-# Optional project-level overrides (all fall back to [defaults] if omitted):
-# model           = "claude-sonnet-4-6"
-# max_turns       = 10
-# timeout_s       = 300
-# max_comments    = 5
-# daily_budget_usd = 2.00         # spending cap per calendar day (M2+)
-
-# Permitted GitHub write operations for this project.
-# Valid values: comment_on_issue, comment_on_pr, open_pr, merge_pr,
-#               push_default, close_issue, create_issue
-# Can be overridden at source or label_rule level.
-permitted_actions = ["comment_on_issue", "open_pr"]
-
-# Free-text appended to section 4 (project context) of every prompt.
-# Use this to pass project-specific conventions the agent should follow.
-context = "Follow the coding conventions documented in CLAUDE.md closely."
-
-# ── Task sources ───────────────────────────────────────────────────────────────
-# Sources are evaluated top-to-bottom; the first eligible task wins.
-
+# (1) dev label — highest priority; acted on before anything else
 [[projects.task_sources]]
 type = "gh-label"
 
-# label_rules: monitor open issues/PRs carrying a label.
-# The agent is invoked on the oldest eligible item that:
-#   - carries `label`
-#   - does NOT carry `done_label`
-#   - does NOT carry `ai-failed`
-#
-# Optional per-rule overrides: permitted_actions, model
 [[projects.task_sources.label_rules]]
-label      = "ai-dev"       # trigger label
-done_label = "ai-dev-done"  # applied by post_run.py on success (M3+)
-# permitted_actions = ["comment_on_issue"]  # overrides project-level if set
+rule = "dev"
 
-# Add more label rules as needed:
-# [[projects.task_sources.label_rules]]
-# label      = "ai-review"
-# done_label = "ai-review-done"
+# (2) grafana alerts — only reached when no dev items are waiting
+[[projects.task_sources]]
+type         = "grafana-alerts"
+min_severity = "warning"
+persona      = "frontline-support"
+permitted_actions = ["create_issue"]
 
-# ── Additional projects ────────────────────────────────────────────────────────
+# (3) ba label — lower priority than alerts
+[[projects.task_sources]]
+type = "gh-label"
+
+[[projects.task_sources.label_rules]]
+rule = "ba"
+
+# (4) architect label — lowest priority; background design review
+[[projects.task_sources]]
+type = "gh-label"
+
+[[projects.task_sources.label_rules]]
+rule = "architect"
+
+[[projects]]
+name    = "another-service"
+repo    = "owner/another-service"
+cron    = "0 11 * * 1-5"
+
+[[projects.task_sources]]
+type         = "grafana-alerts"
+min_severity = "critical"
+persona      = "frontline-support"   # same persona reused across projects
+permitted_actions = ["create_issue", "comment_on_issue"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STYLE B — everything inline, no personas or shared_rules
+# Remove this section and the Style A section above to use one or the other.
+# ══════════════════════════════════════════════════════════════════════════════
+
 # [[projects]]
-# name = "another-project"
-# repo = "owner/another-repo"
-# cron = "0 10 * * *"
-# permitted_actions = ["comment_on_issue"]
+# name    = "simple-project"
+# repo    = "owner/simple-project"
+# cron    = "0 9 * * 1-5"
+# enabled = true
+# permitted_actions = ["comment_on_issue", "open_pr"]
+# context = "Follow the coding conventions in CLAUDE.md closely."
 #
 # [[projects.task_sources]]
 # type = "gh-label"
@@ -93,3 +183,14 @@ done_label = "ai-dev-done"  # applied by post_run.py on success (M3+)
 # [[projects.task_sources.label_rules]]
 # label      = "ai-dev"
 # done_label = "ai-dev-done"
+# permitted_actions = ["comment_on_issue", "open_pr"]
+#
+# [[projects.task_sources.label_rules]]
+# label      = "ai-ba"
+# done_label = "ai-ba-done"
+# permitted_actions = ["comment_on_issue"]
+#
+# [[projects.task_sources.label_rules]]
+# label      = "ai-architect"
+# done_label = "ai-architect-done"
+# permitted_actions = ["comment_on_issue"]

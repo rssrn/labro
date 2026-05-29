@@ -215,6 +215,33 @@ def test_prompt_deterministic() -> None:
     assert build_prompt(t) == build_prompt(t)
 
 
+# ── persona prompt ─────────────────────────────────────────────────────────────
+
+
+def test_persona_prompt_appears_in_section_1() -> None:
+    """When task.persona_prompt is set it is included in the role section."""
+    snippet = "Act as a senior developer and raise a PR if reasonably possible."
+    task = _task()
+    task.persona_prompt = snippet
+    role_section = build_prompt(task).split(_DIVIDER)[0]
+    assert snippet in role_section
+
+
+def test_persona_prompt_does_not_add_fifth_section() -> None:
+    """A persona prompt must not create a fifth section."""
+    task = _task()
+    task.persona_prompt = "Act as a business analyst."
+    assert len(build_prompt(task).split(_DIVIDER)) == 4
+
+
+def test_no_persona_prompt_section_1_unchanged() -> None:
+    """Without a persona_prompt, section 1 is identical to the baseline."""
+    baseline = build_prompt(_task()).split(_DIVIDER)[0]
+    task_no_persona = _task()
+    task_no_persona.persona_prompt = None
+    assert build_prompt(task_no_persona).split(_DIVIDER)[0] == baseline
+
+
 @pytest.mark.parametrize(
     "action",
     [

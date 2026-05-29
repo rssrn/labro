@@ -23,15 +23,51 @@ class PermittedAction(StrEnum):
     CREATE_ISSUE = "create_issue"
 
 
+# ── Persona and shared-rule models ─────────────────────────────────────────────
+
+
+class PersonaConfig(BaseModel):
+    """A named persona: a prompt snippet prepended to the role section of every run."""
+
+    prompt: str
+
+
+class SharedRuleConfig(BaseModel):
+    """A reusable label rule template, referenced by name from label_rules entries."""
+
+    label: str
+    done_label: str
+    persona: str | None = None
+    permitted_actions: list[PermittedAction] | None = None
+    model: str | None = None
+
+
 # ── Task source models ─────────────────────────────────────────────────────────
 
 
 class LabelRule(BaseModel):
-    """A single label-based eligibility rule within a gh-label source."""
+    """A single label-based eligibility rule within a gh-label source.
 
-    label: str
-    done_label: str
+    Either provide ``rule`` (a shared_rule name) and any overrides, or specify
+    ``label`` and ``done_label`` directly.  Per-rule fields always take
+    precedence over values inherited from a shared rule.
+    """
+
+    rule: str | None = None
+    label: str | None = None
+    done_label: str | None = None
+    persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
+    model: str | None = None
+
+    @model_validator(mode="after")
+    def require_label_source(self) -> LabelRule:
+        if self.rule is None and (self.label is None or self.done_label is None):
+            raise ValueError(
+                "label_rule must specify either 'rule' (a shared_rule name) "
+                "or both 'label' and 'done_label' directly"
+            )
+        return self
 
 
 class ActorRule(BaseModel):
@@ -39,6 +75,7 @@ class ActorRule(BaseModel):
 
     actor: str
     done_label: str
+    persona: str | None = None
     model: str | None = None
     permitted_actions: list[PermittedAction] | None = None
 
@@ -65,6 +102,7 @@ class GrafanaAlertsSource(BaseModel):
 
     type: Literal["grafana-alerts"]
     min_severity: Literal["info", "warning", "critical"] = "info"
+    persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
 
@@ -76,6 +114,7 @@ class ProactiveImprovementSource(BaseModel):
     selection_strategy: Literal["agent-chooses", "harness-random"] = "agent-chooses"
     max_open_suggestions: int = 3
     targets: list[str] = Field(default_factory=list)
+    persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
 
@@ -129,6 +168,59 @@ class DefaultsConfig(BaseModel):
 class LabroConfig(BaseModel):
     """Root config object parsed from labro.toml."""
 
+    personas: dict[str, PersonaConfig] = Field(default_factory=dict)
+    shared_rules: dict[str, SharedRuleConfig] = Field(default_factory=dict)
     digest: DigestConfig = Field(default_factory=DigestConfig)
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     projects: list[ProjectConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def resolve_and_validate_rules(self) -> LabroConfig:
+        """Expand shared_rule references and validate persona references."""
+        for project in self.projects:
+            for source in project.task_sources:
+                if not isinstance(source, GhLabelSource):
+                    continue
+                for rule in source.label_rules:
+                    if rule.rule is not None:
+                        template = self.shared_rules.get(rule.rule)
+                        if template is None:
+                            raise ValueError(
+                                f"label_rule references shared_rule {rule.rule!r} "
+                                f"which is not defined in [shared_rules]"
+                            )
+                        if rule.label is None:
+                            rule.label = template.label
+                        if rule.done_label is None:
+                            rule.done_label = template.done_label
+                        if rule.persona is None and template.persona is not None:
+                            rule.persona = template.persona
+                        if (
+                            rule.permitted_actions is None
+                            and template.permitted_actions is not None
+                        ):
+                            rule.permitted_actions = template.permitted_actions
+                        if rule.model is None and template.model is not None:
+                            rule.model = template.model
+
+        # Validate all persona references across every source type.
+        for project in self.projects:
+            for source in project.task_sources:
+                if isinstance(source, GhLabelSource):
+                    for lrule in source.label_rules:
+                        if lrule.persona is not None and lrule.persona not in self.personas:
+                            raise ValueError(
+                                f"persona {lrule.persona!r} is not defined in [personas]"
+                            )
+                    for arule in source.actor_rules:
+                        if arule.persona is not None and arule.persona not in self.personas:
+                            raise ValueError(
+                                f"persona {arule.persona!r} is not defined in [personas]"
+                            )
+                elif isinstance(source, GrafanaAlertsSource | ProactiveImprovementSource):
+                    if source.persona is not None and source.persona not in self.personas:
+                        raise ValueError(
+                            f"persona {source.persona!r} is not defined in [personas]"
+                        )
+
+        return self
