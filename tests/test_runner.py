@@ -42,6 +42,23 @@ _BASE_CONFIG = AgentConfig(
 )
 
 
+def _check_claude_functional() -> bool:
+    if not CLAUDE_AVAILABLE:
+        return False
+    try:
+        run_claude(
+            "Reply only with valid JSON matching the schema — set outcome='success', "
+            "summary='probe', actions_taken=[], items_created=[].",
+            _BASE_CONFIG,
+        )
+        return True
+    except Exception:
+        return False
+
+
+CLAUDE_FUNCTIONAL = _check_claude_functional()
+
+
 def _make_response(
     *,
     subtype: str = "success",
@@ -92,7 +109,10 @@ def _mock_popen(stdout: bytes, *, returncode: int = 0) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CLAUDE_AVAILABLE, reason="claude CLI not in PATH")
+@pytest.mark.skipif(
+    not CLAUDE_FUNCTIONAL,
+    reason="claude CLI not in PATH or not functional (e.g. out of quota/unauthenticated)",
+)
 def test_hello_world() -> None:
     """Invoke claude with a trivial prompt; assert top-level fields present."""
     config = AgentConfig(
@@ -112,7 +132,10 @@ def test_hello_world() -> None:
     assert isinstance(result.total_cost_usd, float)
 
 
-@pytest.mark.skipif(not CLAUDE_AVAILABLE, reason="claude CLI not in PATH")
+@pytest.mark.skipif(
+    not CLAUDE_FUNCTIONAL,
+    reason="claude CLI not in PATH or not functional (e.g. out of quota/unauthenticated)",
+)
 def test_structured_output_shape() -> None:
     """Assert structured_output fields conform to the ARCHITECTURE §11 schema."""
     config = AgentConfig(

@@ -228,6 +228,8 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
     # Validate structured_output
     so = response.get("structured_output")
     if so is None:
+        if subtype:
+            _log.warning("claude error subtype: %s", subtype)
         _log.warning(
             "claude response missing structured_output; top-level keys=%s is_error=%s subtype=%r",
             sorted(response.keys()),
