@@ -81,8 +81,9 @@ def prepare_repo(repo: str, repos_dir: Path) -> Path:
     -----
     * All subprocess calls use list-form args with ``shell=False`` (bandit B602
       is never violated).
-    * If the working copy is dirty after checkout/pull, a ``git reset --hard``
-      and ``git clean -fd`` are performed automatically and a warning is logged.
+    * If the working copy is dirty before pulling, a ``git reset --hard``
+      and ``git clean -fd`` are performed first so the pull cannot be blocked
+      by changes left by a previous run.
     """
     repo_name = repo.split("/", 1)[1]
     dest = repos_dir / repo_name
@@ -96,6 +97,26 @@ def prepare_repo(repo: str, repos_dir: Path) -> Path:
     else:
         logger.info("Updating existing working copy at %s", dest)
         _run(["git", "-C", str(dest), "checkout", default_branch])
+
+        # Reset any local changes left by a previous run before pulling,
+        # otherwise git pull aborts when tracked files are dirty.
+        status_result = subprocess.run(
+            ["git", "-C", str(dest), "status", "--porcelain"],
+            shell=False,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        dirty_files = status_result.stdout.strip()
+        if dirty_files:
+            logger.warning(
+                "Working copy %s is dirty before pull; resetting. Affected files:\n%s",
+                dest,
+                dirty_files,
+            )
+            _run(["git", "-C", str(dest), "reset", "--hard"])
+            _run(["git", "-C", str(dest), "clean", "-fd"])
+
         # Pass gh as the credential helper so GH_TOKEN is used for HTTPS auth.
         # git pull doesn't inherit gh's auth automatically — only gh subcommands do.
         _run(
@@ -108,23 +129,5 @@ def prepare_repo(repo: str, repos_dir: Path) -> Path:
                 "pull",
             ]
         )
-
-    # Dirty-repo check
-    status_result = subprocess.run(
-        ["git", "-C", str(dest), "status", "--porcelain"],
-        shell=False,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    dirty_files = status_result.stdout.strip()
-    if dirty_files:
-        logger.warning(
-            "Working copy %s is dirty; resetting. Affected files:\n%s",
-            dest,
-            dirty_files,
-        )
-        _run(["git", "-C", str(dest), "reset", "--hard"])
-        _run(["git", "-C", str(dest), "clean", "-fd"])
 
     return dest

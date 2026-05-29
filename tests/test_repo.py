@@ -37,11 +37,10 @@ class TestCloneWhenAbsent:
     def test_clone_when_absent(self, tmp_path: Path) -> None:
         dest = tmp_path / "cli"  # does NOT exist yet
 
-        # gh repo view → default branch; gh repo clone; git status --porcelain (clean)
+        # gh repo view → default branch; gh repo clone (no status check on fresh clone)
         side_effects = [
             _make_completed(stdout="main\n"),  # gh repo view
             _make_completed(),  # gh repo clone
-            _make_completed(stdout=""),  # git status --porcelain (clean)
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
@@ -63,8 +62,6 @@ class TestCloneWhenAbsent:
         ]
         # Second call: gh repo clone
         assert calls[1].args[0] == ["gh", "repo", "clone", "cli/cli", str(dest)]
-        # Third call: git status
-        assert calls[2].args[0] == ["git", "-C", str(dest), "status", "--porcelain"]
 
         # No checkout or pull
         all_cmds = [c.args[0] for c in calls]
@@ -79,11 +76,12 @@ class TestPullWhenPresent:
         dest = tmp_path / "cli"
         dest.mkdir()  # directory EXISTS
 
+        # Status check now happens BEFORE pull so dirty repos can be reset first.
         side_effects = [
             _make_completed(stdout="main\n"),  # gh repo view
             _make_completed(),  # git checkout main
-            _make_completed(),  # git pull
             _make_completed(stdout=""),  # git status --porcelain (clean)
+            _make_completed(),  # git pull
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
@@ -113,8 +111,8 @@ class TestPullWhenPresent:
         side_effects = [
             _make_completed(stdout="develop\n"),
             _make_completed(),  # checkout
+            _make_completed(stdout=""),  # status (clean)
             _make_completed(),  # pull
-            _make_completed(stdout=""),
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
@@ -125,7 +123,7 @@ class TestPullWhenPresent:
 
 
 class TestDirtyRepoTriggersRecovery:
-    """If `git status --porcelain` returns output, reset + clean are called."""
+    """If `git status --porcelain` returns output, reset + clean are called before pull."""
 
     def test_dirty_repo_triggers_recovery(self, tmp_path: Path) -> None:
         dest = tmp_path / "myrepo"
@@ -135,10 +133,10 @@ class TestDirtyRepoTriggersRecovery:
         side_effects = [
             _make_completed(stdout="main\n"),  # gh repo view
             _make_completed(),  # git checkout
-            _make_completed(),  # git pull
             _make_completed(stdout=dirty_output),  # git status --porcelain (DIRTY)
             _make_completed(),  # git reset --hard
             _make_completed(),  # git clean -fd
+            _make_completed(),  # git pull
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
@@ -147,6 +145,8 @@ class TestDirtyRepoTriggersRecovery:
         cmds = [c.args[0] for c in mock_run.call_args_list]
         assert ["git", "-C", str(dest), "reset", "--hard"] in cmds
         assert ["git", "-C", str(dest), "clean", "-fd"] in cmds
+        # Pull must still run after the reset
+        assert any("pull" in cmd for cmd in cmds), "git pull should run after dirty-repo recovery"
 
     def test_warning_logged_when_dirty(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -156,11 +156,11 @@ class TestDirtyRepoTriggersRecovery:
 
         side_effects = [
             _make_completed(stdout="main\n"),
-            _make_completed(),
-            _make_completed(),
-            _make_completed(stdout=" M dirty.py"),
-            _make_completed(),
-            _make_completed(),
+            _make_completed(),  # checkout
+            _make_completed(stdout=" M dirty.py"),  # status (dirty)
+            _make_completed(),  # reset
+            _make_completed(),  # clean
+            _make_completed(),  # pull
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects):
@@ -180,8 +180,8 @@ class TestCleanRepoNoRecovery:
         side_effects = [
             _make_completed(stdout="main\n"),
             _make_completed(),  # checkout
+            _make_completed(stdout=""),  # status (clean)
             _make_completed(),  # pull
-            _make_completed(stdout=""),  # clean status
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
@@ -200,7 +200,6 @@ class TestShellFalseEnforced:
         side_effects = [
             _make_completed(stdout="main\n"),
             _make_completed(),
-            _make_completed(stdout=""),
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
@@ -216,9 +215,9 @@ class TestShellFalseEnforced:
 
         side_effects = [
             _make_completed(stdout="main\n"),
-            _make_completed(),
-            _make_completed(),
-            _make_completed(stdout=""),
+            _make_completed(),  # checkout
+            _make_completed(stdout=""),  # status (clean)
+            _make_completed(),  # pull
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
@@ -234,11 +233,11 @@ class TestShellFalseEnforced:
 
         side_effects = [
             _make_completed(stdout="main\n"),
-            _make_completed(),
-            _make_completed(),
-            _make_completed(stdout=" M dirty.py"),
-            _make_completed(),
-            _make_completed(),
+            _make_completed(),  # checkout
+            _make_completed(stdout=" M dirty.py"),  # status (dirty)
+            _make_completed(),  # reset
+            _make_completed(),  # clean
+            _make_completed(),  # pull
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
