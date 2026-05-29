@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from labro.config.schema import (
+    AgentEffort,
     DefaultsConfig,
     DigestConfig,
     LabelRule,
@@ -205,6 +206,7 @@ def test_fetch_task_returns_oldest_eligible(
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,
@@ -235,6 +237,7 @@ def test_fetch_task_agent_config_defaults(
         result = source.fetch_task(
             project=proj,
             defaults_model="claude-opus-4-7",
+            defaults_effort=None,
             defaults_max_turns=20,
             defaults_timeout_s=600,
             defaults_max_comments=10,
@@ -263,6 +266,7 @@ def test_fetch_task_skips_ai_failed() -> None:
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,
@@ -289,6 +293,7 @@ def test_fetch_task_skips_done_label() -> None:
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,
@@ -310,6 +315,7 @@ def test_fetch_task_empty_returns_none() -> None:
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,
@@ -332,6 +338,7 @@ def test_fetch_task_detects_pr_item_type() -> None:
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,
@@ -374,6 +381,7 @@ def test_fetch_task_multiple_rules_picks_oldest_across_rules() -> None:
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,
@@ -396,6 +404,7 @@ def test_fetch_task_project_overrides_applied() -> None:
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,
@@ -421,6 +430,7 @@ class _StubSource(GhLabelTaskSource):
         self,
         project: ProjectConfig,
         defaults_model: str,
+        defaults_effort: AgentEffort | None,
         defaults_max_turns: int,
         defaults_timeout_s: int,
         defaults_max_comments: int,
@@ -541,6 +551,7 @@ def test_task_id_is_uuid_format() -> None:
         result = source.fetch_task(
             project=proj,
             defaults_model=cfg.defaults.model,
+            defaults_effort=cfg.defaults.effort,
             defaults_max_turns=cfg.defaults.max_turns,
             defaults_timeout_s=cfg.defaults.timeout_s,
             defaults_max_comments=cfg.defaults.max_comments,

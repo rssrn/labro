@@ -138,6 +138,7 @@ def _fetch(
     return source.fetch_task(
         project=project,
         defaults_model=cfg.defaults.model,
+        defaults_effort=cfg.defaults.effort,
         defaults_max_turns=cfg.defaults.max_turns,
         defaults_timeout_s=cfg.defaults.timeout_s,
         defaults_max_comments=cfg.defaults.max_comments,

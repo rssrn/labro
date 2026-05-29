@@ -23,6 +23,16 @@ class PermittedAction(StrEnum):
     CREATE_ISSUE = "create_issue"
 
 
+class AgentEffort(StrEnum):
+    """Effort level passed to the Claude Code CLI via --effort."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
+
+
 # ── Persona and shared-rule models ─────────────────────────────────────────────
 
 
@@ -40,6 +50,7 @@ class SharedRuleConfig(BaseModel):
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
+    effort: AgentEffort | None = None
 
 
 # ── Task source models ─────────────────────────────────────────────────────────
@@ -59,6 +70,7 @@ class LabelRule(BaseModel):
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
+    effort: AgentEffort | None = None
 
     @model_validator(mode="after")
     def require_label_source(self) -> LabelRule:
@@ -77,6 +89,7 @@ class ActorRule(BaseModel):
     done_label: str
     persona: str | None = None
     model: str | None = None
+    effort: AgentEffort | None = None
     permitted_actions: list[PermittedAction] | None = None
 
 
@@ -88,6 +101,7 @@ class GhLabelSource(BaseModel):
     actor_rules: list[ActorRule] = Field(default_factory=list)
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
+    effort: AgentEffort | None = None
 
     @model_validator(mode="after")
     def require_at_least_one_rule(self) -> GhLabelSource:
@@ -105,6 +119,7 @@ class GrafanaAlertsSource(BaseModel):
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
+    effort: AgentEffort | None = None
 
 
 class ProactiveImprovementSource(BaseModel):
@@ -117,6 +132,7 @@ class ProactiveImprovementSource(BaseModel):
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: str | None = None
+    effort: AgentEffort | None = None
 
 
 # Union discriminated on `type`.
@@ -137,6 +153,7 @@ class ProjectConfig(BaseModel):
     cron: str
     enabled: bool = True
     model: str | None = None
+    effort: AgentEffort | None = None
     max_turns: int | None = None
     timeout_s: int | None = None
     max_comments: int | None = None
@@ -160,6 +177,7 @@ class DefaultsConfig(BaseModel):
     """Global defaults inherited by all projects."""
 
     model: str = "claude-opus-4-7"
+    effort: AgentEffort | None = None
     max_turns: int = 20
     timeout_s: int = 600
     max_comments: int = 10
@@ -202,6 +220,8 @@ class LabroConfig(BaseModel):
                             rule.permitted_actions = template.permitted_actions
                         if rule.model is None and template.model is not None:
                             rule.model = template.model
+                        if rule.effort is None and template.effort is not None:
+                            rule.effort = template.effort
 
         # Validate all persona references across every source type.
         for project in self.projects:

@@ -83,6 +83,7 @@ label             = "ai-dev"
 done_label        = "ai-dev-done"
 persona           = "senior-developer"
 permitted_actions = ["comment_on_issue", "open_pr"]
+effort            = "max"          # dev work warrants maximum reasoning
 
 [shared_rules.ba]
 label             = "ai-ba"
@@ -95,6 +96,7 @@ label             = "ai-architect"
 done_label        = "ai-architect-done"
 persona           = "architect"
 permitted_actions = ["comment_on_issue"]
+effort            = "medium"       # design review is read-only; lower effort is sufficient
 
 # ── Digest ─────────────────────────────────────────────────────────────────────
 
@@ -106,6 +108,7 @@ cron    = "0 8 * * *"
 
 [defaults]
 model        = "claude-opus-4-7"
+effort       = "high"              # default effort for all runs; omit to let Claude decide
 max_turns    = 20
 timeout_s    = 600
 max_comments = 10
@@ -175,6 +178,7 @@ permitted_actions = ["create_issue", "comment_on_issue"]
 # cron    = "0 9 * * 1-5"
 # enabled = true
 # permitted_actions = ["comment_on_issue", "open_pr"]
+# effort  = "high"               # project-level override (falls back to [defaults].effort)
 # context = "Follow the coding conventions in CLAUDE.md closely."
 #
 # [[projects.task_sources]]

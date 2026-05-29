@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from labro.config.schema import ProjectConfig
+from labro.config.schema import AgentEffort, ProjectConfig
 from labro.models import AgentConfig, Task
 
 
@@ -26,6 +26,7 @@ class TaskSource(ABC):
         self,
         project: ProjectConfig,
         defaults_model: str,
+        defaults_effort: AgentEffort | None,
         defaults_max_turns: int,
         defaults_timeout_s: int,
         defaults_max_comments: int,

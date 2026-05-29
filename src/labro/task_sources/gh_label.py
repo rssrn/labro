@@ -18,6 +18,7 @@ from typing import Any
 
 from labro.config.schema import (
     ActorRule,
+    AgentEffort,
     LabelRule,
     PermittedAction,
     PersonaConfig,
@@ -117,6 +118,22 @@ def _resolve_model_for_actor(
     return defaults_model
 
 
+def _resolve_effort(
+    rule: _AnyRule,
+    source: GhLabelSourceConfig,
+    project: ProjectConfig,
+    defaults_effort: AgentEffort | None,
+) -> AgentEffort | None:
+    """Resolve effort: rule → source → project → defaults (None means omit --effort)."""
+    if rule.effort is not None:
+        return rule.effort
+    if source.effort is not None:
+        return source.effort
+    if project.effort is not None:
+        return project.effort
+    return defaults_effort
+
+
 def _fetch_comments_section(repo: str, number: int, max_comments: int) -> str:
     """Fetch the last *max_comments* comments on *repo* issue/PR *number*.
 
@@ -174,6 +191,7 @@ class GhLabelTaskSource(TaskSource):
         self,
         project: ProjectConfig,
         defaults_model: str,
+        defaults_effort: AgentEffort | None,
         defaults_max_turns: int,
         defaults_timeout_s: int,
         defaults_max_comments: int,
@@ -253,6 +271,7 @@ class GhLabelTaskSource(TaskSource):
 
         done_label = winning_rule.done_label
         permitted_actions = _resolve_permitted_actions(winning_rule, self._cfg, project)
+        effort = _resolve_effort(winning_rule, self._cfg, project, defaults_effort)
         max_turns = project.max_turns if project.max_turns is not None else defaults_max_turns
         timeout_s = project.timeout_s if project.timeout_s is not None else defaults_timeout_s
         max_comments = (
@@ -291,6 +310,7 @@ class GhLabelTaskSource(TaskSource):
         agent_cfg = AgentConfig(
             agent="claude-code",
             model=model,
+            effort=effort,
             max_turns=max_turns,
             timeout_s=timeout_s,
             permitted_actions=task.permitted_actions,

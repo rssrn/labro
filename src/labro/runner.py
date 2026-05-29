@@ -176,6 +176,8 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
         "--allowedTools",
         *allowed_tools,
     ]
+    if config.effort is not None:
+        cmd += ["--effort", config.effort]
 
     proc = subprocess.Popen(
         cmd,
