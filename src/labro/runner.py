@@ -22,8 +22,12 @@ from labro.models import AgentConfig, AgentResult, ItemRef
 _log = logging.getLogger(__name__)
 
 # Read-only tools always granted — safe baseline for any task.
+# Edit/Write included because the agent runs in a cloned repo; file changes are
+# harmless without an explicit PUSH_DEFAULT permitted action.
 _BASE_TOOLS: list[str] = [
     "Read",
+    "Edit",
+    "Write",
     "WebFetch",
     "Bash(gh issue view *)",
     "Bash(gh issue list *)",
