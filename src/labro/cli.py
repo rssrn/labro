@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import os
 import sys
 import uuid
@@ -66,6 +67,12 @@ def _default_repos_dir() -> Path:
     """Resolve the repos mount dir from ``LABRO_REPOS_DIR`` env var or default to ``/repos``."""
     env = os.environ.get("LABRO_REPOS_DIR")
     return Path(env) if env else Path("/repos")
+
+
+def _default_log_path() -> Path:
+    """Resolve the log file path from ``LABRO_LOG_PATH`` env var or ``/data/labro.log``."""
+    env = os.environ.get("LABRO_LOG_PATH")
+    return Path(env) if env else Path("/data/labro.log")
 
 
 def _find_project(config: LabroConfig, name: str) -> ProjectConfig | None:
@@ -333,6 +340,15 @@ def _cmd_run_live(
             ended_at=ended_at,
         )
 
+        if outcome == "success":
+            _log.info("run complete: outcome=%r run_id=%s", outcome, run_id)
+        else:
+            _log.warning(
+                "run complete: outcome=%r run_id=%s failure_reason=%s",
+                outcome,
+                run_id,
+                failure_reason,
+            )
         print(f"run complete: outcome={outcome!r} run_id={run_id}")
         return 0 if outcome == "success" else 1
 
@@ -361,11 +377,11 @@ def _cmd_gen_crontab(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    log_path = os.environ.get("LABRO_LOG_PATH", "/data/labro.log")
     lines = [_CRONTAB_HEADER, "# Projects"]
     for project in config.projects:
         if not project.enabled:
             continue
-        log_path = f"/var/log/labro/{project.name}.log"
         lines.append(
             f"{project.cron}   root  . /etc/labro-env;"
             f" labro run {project.name}  >> {log_path}  2>&1"
@@ -375,8 +391,7 @@ def _cmd_gen_crontab(args: argparse.Namespace) -> int:
         lines.append("")
         lines.append("# Digest (covers all projects)")
         lines.append(
-            f"{config.digest.cron}   root  . /etc/labro-env;"
-            f" labro digest  >> /var/log/labro/digest.log  2>&1"
+            f"{config.digest.cron}   root  . /etc/labro-env; labro digest  >> {log_path}  2>&1"
         )
 
     print("\n".join(lines))
@@ -465,7 +480,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Entry point for the ``labro`` CLI."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    log_fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    logging.basicConfig(level=logging.INFO, format=log_fmt)
+
+    log_path = _default_log_path()
+    if log_path.parent.exists():
+        fh = logging.handlers.RotatingFileHandler(
+            log_path,
+            maxBytes=5 * 1024 * 1024,  # 5 MB
+            backupCount=5,
+        )
+        fh.setFormatter(logging.Formatter(log_fmt))
+        logging.getLogger().addHandler(fh)
+
     parser = _build_parser()
     args = parser.parse_args()
     sys.exit(args.func(args))

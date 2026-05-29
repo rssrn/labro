@@ -12,11 +12,14 @@ Prompt is passed via **stdin** (not as a CLI arg) to avoid ARG_MAX limits.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from typing import Any
 
 from labro.config.schema import PermittedAction
 from labro.models import AgentConfig, AgentResult, ItemRef
+
+_log = logging.getLogger(__name__)
 
 # Read-only tools always granted — safe baseline for any task.
 _BASE_TOOLS: list[str] = [
@@ -189,7 +192,7 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
     )
 
     try:
-        stdout, _stderr = proc.communicate(input=prompt.encode(), timeout=config.timeout_s)
+        stdout, stderr = proc.communicate(input=prompt.encode(), timeout=config.timeout_s)
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.communicate()  # drain to avoid blocking
@@ -201,6 +204,8 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
     try:
         response: dict[str, Any] = json.loads(stdout.decode())
     except json.JSONDecodeError as exc:
+        if stderr:
+            _log.warning("claude stderr: %s", stderr.decode(errors="replace"))
         raise RunnerOutputError(f"Failed to parse claude JSON response: {exc}") from exc
 
     # Extract top-level fields
@@ -219,6 +224,14 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
     # Validate structured_output
     so = response.get("structured_output")
     if so is None:
+        _log.warning(
+            "claude response missing structured_output; top-level keys=%s is_error=%s subtype=%r",
+            sorted(response.keys()),
+            is_error,
+            subtype,
+        )
+        if stderr:
+            _log.warning("claude stderr: %s", stderr.decode(errors="replace"))
         raise RunnerOutputError("claude response missing required 'structured_output' key")
     _validate_structured_output(so)
 
