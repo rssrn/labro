@@ -269,8 +269,8 @@ def test_successful_agent_run_writes_success_record(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_partial_outcome_stored_as_failure(tmp_path: Path) -> None:
-    """AgentResult.outcome='partial' is stored as outcome='failure' (ARCHITECTURE line 263)."""
+def test_partial_outcome_stored_as_partial(tmp_path: Path) -> None:
+    """AgentResult.outcome='partial' is stored as outcome='partial' in the runs table."""
     db_path = tmp_path / "labro.db"
     repos_dir = tmp_path / "repos"
     conn = _open_mem_db()
@@ -286,6 +286,7 @@ def test_partial_outcome_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
     ):
@@ -302,7 +303,48 @@ def test_partial_outcome_stored_as_failure(tmp_path: Path) -> None:
 
     assert result == 1  # non-success → non-zero exit
     call_kwargs = mock_write.call_args.kwargs
-    assert call_kwargs["outcome"] == "failure"
+    assert call_kwargs["outcome"] == "partial"
+
+    conn.close()
+
+
+def test_partial_outcome_wip_preservation_attempted(tmp_path: Path) -> None:
+    """On a partial outcome, preserve_wip is called and its URL passed to post_run."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    repo_path = tmp_path / "repos" / "org" / "repo"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    agent_result = _make_agent_result(outcome="partial")
+    wip_url = "https://github.com/org/repo/tree/labro-wip/run-123"
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=repo_path),
+        patch("labro.cli.preserve_wip", return_value=wip_url) as mock_preserve,
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.post_run") as mock_post_run,
+    ):
+        mock_instance = MockAgent.return_value
+        mock_instance.invoke.return_value = agent_result
+
+        _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    mock_preserve.assert_called_once_with(repo_path, "org/repo", mock_preserve.call_args[0][2])
+    call_kwargs = mock_post_run.call_args.kwargs
+    assert call_kwargs["wip_branch_url"] == wip_url
 
     conn.close()
 
@@ -325,6 +367,7 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
     ):
@@ -436,6 +479,7 @@ def test_claude_assignee_restored_on_agent_failure(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.assignee_mod.assign_claude"),

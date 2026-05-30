@@ -39,7 +39,7 @@ from labro.config.schema import LabroConfig, ProjectConfig
 from labro.models import AgentResult, Task
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
-from labro.repo import prepare_repo
+from labro.repo import prepare_repo, preserve_wip
 from labro.runner import RunnerOutputError, RunnerTimeoutError
 
 _log = logging.getLogger(__name__)
@@ -312,17 +312,26 @@ def _cmd_run_live(
         )
         try:
             agent_result = ClaudeCodeAgent().invoke(prompt, agent_cfg)
-            # "partial" counts as failure in the runs table (ARCHITECTURE line 263)
-            outcome = "failure" if agent_result.outcome in ("failure", "partial") else "success"
+            outcome = agent_result.outcome
             failure_reason = agent_result.failure_reason
         except RunnerTimeoutError:
             failure_reason = "timeout"
         except RunnerOutputError as exc:
             failure_reason = str(exc)
 
+        # ── WIP preservation (non-success outcomes) ────────────────────────────
+        wip_branch_url: str | None = None
+        if outcome != "success":
+            wip_branch_url = preserve_wip(repo_path, task.repo, run_id)
+
         # ── Post-run label transitions ─────────────────────────────────────────
         post_run_mod.post_run(
-            run_id, task, agent_result, outcome=outcome, agent_name=agent_cfg.agent
+            run_id,
+            task,
+            agent_result,
+            outcome=outcome,
+            agent_name=agent_cfg.agent,
+            wip_branch_url=wip_branch_url,
         )
 
         # ── Write run record ───────────────────────────────────────────────────

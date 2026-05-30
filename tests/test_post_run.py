@@ -188,3 +188,81 @@ def test_no_item_number_no_subprocess(mock_run: MagicMock) -> None:
     task = _make_task(item_number=None)
     post_run("run-7", task, _make_result(), outcome="success")
     mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Partial / handover path
+# ---------------------------------------------------------------------------
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
+def test_partial_adds_handover_labels(mock_run: MagicMock, _mock_ensure: MagicMock) -> None:
+    """Partial outcome: ai-handover + ai-contributed applied."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="partial")
+    post_run("run-p1", task, result, outcome="partial")
+
+    edits = _edit_cmds(mock_run)
+    assert len(edits) == 1
+    assert "ai-handover" in edits[0]
+    assert "ai-contributed" in edits[0]
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
+def test_partial_posts_handover_comment_with_wip_url(
+    mock_run: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """Partial outcome: handover comment includes WIP branch URL and re-trigger instruction."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="partial")
+    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-abc"
+    post_run("run-p2", task, result, outcome="partial", wip_branch_url=wip_url)
+
+    comments = _comment_cmds(mock_run)
+    assert len(comments) == 1
+    body = comments[0][comments[0].index("--body") + 1]
+    assert "ran out of turns" in body
+    assert wip_url in body
+    assert "ai-handover" in body
+    assert "re-queue" in body
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
+def test_partial_posts_handover_comment_without_wip(
+    mock_run: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """Partial outcome without a WIP branch: no branch link, but re-trigger instruction present."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="partial")
+    post_run("run-p3", task, result, outcome="partial", wip_branch_url=None)
+
+    comments = _comment_cmds(mock_run)
+    assert len(comments) == 1
+    body = comments[0][comments[0].index("--body") + 1]
+    assert "ran out of turns" in body
+    assert "github.com" not in body
+    assert "ai-handover" in body
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
+def test_failure_with_wip_url_appends_branch_link(
+    mock_run: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """Failure with a WIP branch URL: branch link appended to the failure comment."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="failure", failure_reason="unexpected crash")
+    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-xyz"
+    post_run("run-f1", task, result, outcome="failure", wip_branch_url=wip_url)
+
+    comments = _comment_cmds(mock_run)
+    assert len(comments) == 1
+    body = comments[0][comments[0].index("--body") + 1]
+    assert wip_url in body

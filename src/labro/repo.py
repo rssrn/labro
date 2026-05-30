@@ -131,3 +131,86 @@ def prepare_repo(repo: str, repos_dir: Path) -> Path:
         )
 
     return dest
+
+
+def _gh_user_identity() -> tuple[str, str]:
+    """Return (name, email) for the authenticated gh user.
+
+    Email uses GitHub's noreply address so private emails are never exposed.
+    Falls back to ("Labro", "labro@users.noreply.github.com") if the gh call fails.
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "api", "user", "--jq", '[.login, .id] | join(" ")'],
+            shell=False,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        parts = result.stdout.strip().split()
+        login = parts[0]
+        uid = parts[1] if len(parts) > 1 else ""
+        email = (
+            f"{uid}+{login}@users.noreply.github.com"
+            if uid
+            else f"{login}@users.noreply.github.com"
+        )
+        return login, email
+    except Exception:
+        return "Labro", "labro@users.noreply.github.com"
+
+
+def preserve_wip(repo_path: Path, repo: str, run_id: str) -> str | None:
+    """Push any dirty working copy to a ``labro-wip/<run-id>`` branch.
+
+    Best-effort — never raises. Returns the branch web URL on success, or
+    ``None`` if the copy is clean or if any git/push step fails.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    try:
+        status_result = subprocess.run(
+            ["git", "-C", str(repo_path), "status", "--porcelain"],
+            shell=False,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if not status_result.stdout.strip():
+            return None
+
+        git_name, git_email = _gh_user_identity()
+        branch = f"labro-wip/{run_id}"
+        _run(["git", "-C", str(repo_path), "checkout", "-b", branch])
+        _run(["git", "-C", str(repo_path), "add", "-A"])
+        _run(
+            [
+                "git",
+                "-C",
+                str(repo_path),
+                "-c",
+                f"user.name={git_name}",
+                "-c",
+                f"user.email={git_email}",
+                "commit",
+                "-m",
+                f"WIP: labro run {run_id}",
+            ]
+        )
+        _run(
+            [
+                "git",
+                "-C",
+                str(repo_path),
+                "-c",
+                "credential.helper=!gh auth git-credential",
+                "push",
+                "--set-upstream",
+                "origin",
+                branch,
+            ]
+        )
+        return f"https://github.com/{repo}/tree/{branch}"
+    except Exception:
+        logger.warning("preserve_wip failed for run %s", run_id, exc_info=True)
+        return None

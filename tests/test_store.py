@@ -250,3 +250,90 @@ def test_get_daily_spend_different_project_excluded() -> None:
 
     spend = get_daily_spend(conn, "myproject")
     assert spend == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Migration — 'partial' outcome
+# ---------------------------------------------------------------------------
+
+_OLD_DDL = """\
+CREATE TABLE runs (
+    run_id              TEXT    PRIMARY KEY,
+    project             TEXT    NOT NULL,
+    task_source         TEXT,
+    task_description    TEXT,
+    item_url            TEXT,
+    trigger_label       TEXT,
+    agent               TEXT,
+    model               TEXT,
+    started_at          TEXT    NOT NULL,
+    ended_at            TEXT,
+    duration_s          REAL,
+    outcome             TEXT    NOT NULL
+                            CHECK (outcome IN ('success', 'failure', 'skipped')),
+    turns_used          INTEGER,
+    total_cost_usd      REAL,
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    cache_read_tokens   INTEGER,
+    cache_write_tokens  INTEGER,
+    summary             TEXT,
+    actions_taken       TEXT,
+    failure_reason      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_runs_project    ON runs (project);
+CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs (started_at);
+CREATE INDEX IF NOT EXISTS idx_runs_outcome    ON runs (outcome);
+"""
+
+
+def _old_schema_db() -> sqlite3.Connection:
+    """Open an in-memory DB with the pre-migration schema (no 'partial' in CHECK)."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript(_OLD_DDL)
+    conn.commit()
+    return conn
+
+
+def test_migration_adds_partial_outcome() -> None:
+    """open_db on a pre-migration DB adds 'partial' to the CHECK constraint."""
+    conn = _old_schema_db()
+    # Insert a pre-existing success row to verify it survives the migration.
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
+        ("run-old", "proj", "2024-01-01T00:00:00Z", "success"),
+    )
+    conn.commit()
+
+    # Simulate open_db being called on this existing connection by calling the
+    # migration directly (open_db would need a file path; use internal fn instead).
+    from labro.store import _migrate_runs_add_partial
+
+    _migrate_runs_add_partial(conn)
+
+    # Pre-existing row survived.
+    row = conn.execute("SELECT outcome FROM runs WHERE run_id = 'run-old'").fetchone()
+    assert row["outcome"] == "success"
+
+    # 'partial' can now be inserted.
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
+        ("run-partial", "proj", "2024-01-02T00:00:00Z", "partial"),
+    )
+    conn.commit()
+    row2 = conn.execute("SELECT outcome FROM runs WHERE run_id = 'run-partial'").fetchone()
+    assert row2["outcome"] == "partial"
+
+
+def test_open_db_accepts_partial_outcome() -> None:
+    """A fresh DB created by open_db accepts outcome='partial'."""
+    conn = _memory_db()
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
+        ("run-p", "proj", "2024-01-01T00:00:00Z", "partial"),
+    )
+    conn.commit()
+    row = conn.execute("SELECT outcome FROM runs WHERE run_id = 'run-p'").fetchone()
+    assert row["outcome"] == "partial"

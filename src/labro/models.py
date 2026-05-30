@@ -62,9 +62,9 @@ class AgentResult:
     """Structured outcome returned by an agent after a run.
 
     Token fields map directly to Claude API usage fields.
-    ``partial`` is a valid agent outcome but is stored as ``failure``
-    in the SQLite runs table (ARCHITECTURE line 263); the distinction
-    is preserved only in ``summary`` / ``failure_reason``.
+    ``partial`` is a valid agent outcome stored as ``partial`` in the SQLite
+    runs table; it indicates the agent was cut short (e.g. by a turn limit)
+    and triggers WIP-branch preservation and a handover comment.
     """
 
     outcome: str  # "success" | "failure" | "partial"

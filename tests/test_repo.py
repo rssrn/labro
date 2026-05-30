@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from labro.repo import prepare_repo
+from labro.repo import prepare_repo, preserve_wip
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -245,3 +245,93 @@ class TestShellFalseEnforced:
 
         for c in mock_run.call_args_list:
             assert c.kwargs.get("shell", False) is False, f"shell=True found in call: {c}"
+
+
+# ---------------------------------------------------------------------------
+# preserve_wip
+# ---------------------------------------------------------------------------
+
+
+class TestPreserveWip:
+    """Unit tests for preserve_wip — WIP branch creation and push."""
+
+    def test_clean_repo_returns_none(self, tmp_path: Path) -> None:
+        """Clean working copy → return None without running any git commands."""
+        with patch("labro.repo.subprocess.run") as mock_run:
+            mock_run.return_value = _make_completed(stdout="")  # clean
+            result = preserve_wip(tmp_path, "owner/repo", "run-123")
+
+        assert result is None
+        # Only git status should have been called
+        called_cmds = [c.args[0] for c in mock_run.call_args_list]
+        assert len(called_cmds) == 1
+        assert "status" in called_cmds[0]
+
+    def test_dirty_repo_creates_branch_and_pushes(self, tmp_path: Path) -> None:
+        """Dirty working copy → branch/add/commit/push sequence; returns URL."""
+        dirty_output = " M some_file.py"
+        side_effects = [
+            _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
+            _make_completed(),  # git checkout -b
+            _make_completed(),  # git add -A
+            _make_completed(),  # git commit
+            _make_completed(),  # git push
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
+            url = preserve_wip(tmp_path, "owner/repo", "run-abc")
+
+        assert url == "https://github.com/owner/repo/tree/labro-wip/run-abc"
+        cmds = [c.args[0] for c in mock_run.call_args_list]
+        assert any("checkout" in cmd and "labro-wip/run-abc" in cmd for cmd in cmds)
+        assert any("add" in cmd for cmd in cmds)
+        assert any("commit" in cmd for cmd in cmds)
+        assert any("push" in cmd for cmd in cmds)
+
+    def test_push_failure_returns_none_and_warns(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """If push fails, return None (best-effort) and log a warning."""
+        import subprocess
+
+        dirty_output = " M some_file.py"
+        side_effects = [
+            _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
+            _make_completed(),  # git checkout -b
+            _make_completed(),  # git add -A
+            _make_completed(),  # git commit
+            MagicMock(returncode=1, stdout="", stderr="push denied"),  # git push (fails)
+        ]
+
+        def fake_run(args: list[str], **kwargs: object) -> MagicMock:
+            effect = side_effects.pop(0)
+            if isinstance(effect, MagicMock) and effect.returncode != 0:
+                raise subprocess.CalledProcessError(1, args, stderr="push denied")
+            return effect
+
+        with patch("labro.repo.subprocess.run", side_effect=fake_run):
+            with caplog.at_level(logging.WARNING, logger="labro.repo"):
+                result = preserve_wip(tmp_path, "owner/repo", "run-fail")
+
+        assert result is None
+        assert any("preserve_wip" in rec.message for rec in caplog.records)
+
+    def test_shell_false_enforced(self, tmp_path: Path) -> None:
+        """All subprocess calls in preserve_wip must use shell=False."""
+        dirty_output = " M x.py"
+        side_effects = [
+            _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
+            _make_completed(),  # git checkout -b
+            _make_completed(),  # git add -A
+            _make_completed(),  # git commit
+            _make_completed(),  # git push
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
+            preserve_wip(tmp_path, "owner/repo", "run-shell-check")
+
+        for c in mock_run.call_args_list:
+            assert c.kwargs.get("shell", False) is False, f"shell=True in: {c}"

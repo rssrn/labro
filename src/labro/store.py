@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS runs (
     ended_at            TEXT,
     duration_s          REAL,
     outcome             TEXT    NOT NULL
-                            CHECK (outcome IN ('success', 'failure', 'skipped')),
+                            CHECK (outcome IN ('success', 'failure', 'partial', 'skipped')),
     turns_used          INTEGER,
     total_cost_usd      REAL,
     input_tokens        INTEGER,
@@ -75,6 +75,58 @@ CREATE INDEX IF NOT EXISTS idx_items_touched_repo_item
 """
 
 
+_RUNS_COLS = (
+    "run_id, project, task_source, task_description, item_url, trigger_label, "
+    "agent, model, started_at, ended_at, duration_s, outcome, turns_used, "
+    "total_cost_usd, input_tokens, output_tokens, cache_read_tokens, "
+    "cache_write_tokens, summary, actions_taken, failure_reason"
+)
+
+
+def _migrate_runs_add_partial(conn: sqlite3.Connection) -> None:
+    """Rebuild runs table to add 'partial' to the outcome CHECK constraint.
+
+    SQLite cannot ALTER a CHECK constraint in place, so we rename → create →
+    copy → drop → recreate indexes — all inside a single transaction.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    new_table_sql = """CREATE TABLE runs (
+        run_id              TEXT    PRIMARY KEY,
+        project             TEXT    NOT NULL,
+        task_source         TEXT,
+        task_description    TEXT,
+        item_url            TEXT,
+        trigger_label       TEXT,
+        agent               TEXT,
+        model               TEXT,
+        started_at          TEXT    NOT NULL,
+        ended_at            TEXT,
+        duration_s          REAL,
+        outcome             TEXT    NOT NULL
+                                CHECK (outcome IN ('success', 'failure', 'partial', 'skipped')),
+        turns_used          INTEGER,
+        total_cost_usd      REAL,
+        input_tokens        INTEGER,
+        output_tokens       INTEGER,
+        cache_read_tokens   INTEGER,
+        cache_write_tokens  INTEGER,
+        summary             TEXT,
+        actions_taken       TEXT,
+        failure_reason      TEXT
+    )"""
+    with conn:
+        conn.execute("ALTER TABLE runs RENAME TO _runs_old")
+        conn.execute(new_table_sql)
+        # _RUNS_COLS is a module-level literal — no user input, not an injection vector.
+        copy_sql = f"INSERT INTO runs SELECT {_RUNS_COLS} FROM _runs_old"  # noqa: S608  # nosec B608
+        conn.execute(copy_sql)
+        conn.execute("DROP TABLE _runs_old")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_project ON runs (project)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs (started_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_outcome ON runs (outcome)")
+
+
 def open_db(db_path: str | Path) -> sqlite3.Connection:
     """Open (or create) the SQLite database in WAL mode and apply the schema.
 
@@ -90,6 +142,14 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_DDL)
     conn.commit()
+
+    # Migrate existing runs tables that predate the 'partial' outcome value.
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'"
+    ).fetchone()
+    if row is not None and "'partial'" not in row[0]:
+        _migrate_runs_add_partial(conn)
+
     return conn
 
 

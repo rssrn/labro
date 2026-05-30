@@ -301,3 +301,49 @@ def test_actor_rule_model_override() -> None:
     assert result is not None
     _, agent_cfg = result
     assert agent_cfg.model == "claude-haiku-4-5"
+
+
+def test_actor_rule_skip_ai_handover() -> None:
+    """Items with the ``ai-handover`` label are excluded from actor_rules."""
+    src_cfg = _source_config(actor_rules=[_actor_rule()])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhLabelTaskSource(src_cfg)
+
+    handover_item: dict[str, Any] = {
+        **_ACTOR_ITEM,
+        "number": 202,
+        "labels": [{"name": "ai-handover"}],
+    }
+    all_open = [handover_item]
+
+    with patch("labro.task_sources.gh_label._run_gh_api", return_value=all_open):
+        result = _fetch(source, proj, cfg)
+
+    assert result is None
+
+
+def test_label_rule_skip_ai_handover() -> None:
+    """Items with the ``ai-handover`` label are excluded from label_rules."""
+    label_rule = _label_rule(label="ai-dev", done_label="ai-dev-done")
+    src_cfg = _source_config(label_rules=[label_rule], actor_rules=[])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhLabelTaskSource(src_cfg)
+
+    handover_item: dict[str, Any] = {
+        "number": 77,
+        "title": "Handed over item",
+        "body": "",
+        "html_url": "https://github.com/org/repo/issues/77",
+        "state": "open",
+        "created_at": "2024-01-01T00:00:00Z",
+        "user": {"login": "someone"},
+        "labels": [{"name": "ai-dev"}, {"name": "ai-handover"}],
+        "assignees": [],
+    }
+
+    with patch("labro.task_sources.gh_label._run_gh_api", return_value=[handover_item]):
+        result = _fetch(source, proj, cfg)
+
+    assert result is None

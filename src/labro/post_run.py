@@ -17,6 +17,8 @@ _GENERIC_FAILURE_MSG = (
     "Remove the `ai-failed` and `ai-contributed` labels to re-queue the item."
 )
 
+_AI_HANDOVER_LABEL = "ai-handover"
+
 
 def _ensure_labels(repo: str, labels: list[str]) -> None:
     """Create any labels that don't already exist in the repo.
@@ -77,15 +79,17 @@ def post_run(
     *,
     outcome: str,
     agent_name: str = "claude-code",
+    wip_branch_url: str | None = None,
 ) -> None:
-    """Apply label transitions and post failure comments after a run.
+    """Apply label transitions and post failure/handover comments after a run.
 
     Args:
         run_id: Run identifier (informational; not used in gh calls).
         task: The task that was executed.
         agent_result: Structured result from the agent, or None on timeout/error.
-        outcome: ``"success"`` or ``"failure"`` as mapped by cli.py.
+        outcome: ``"success"``, ``"failure"``, or ``"partial"``.
         agent_name: Agent identifier string (e.g. ``"claude-code"``).
+        wip_branch_url: URL of the preserved WIP branch, if one was created.
     """
     if task.source != "gh-label" or task.item_number is None:
         return
@@ -101,6 +105,20 @@ def post_run(
         add_labels.append("ai-contributed")
         remove_labels = [task.source_label] if task.source_label else []
         _gh_edit(item_type, item_number, repo, add=add_labels, remove=remove_labels)
+    elif outcome == "partial":
+        _gh_edit(
+            item_type, item_number, repo, add=[_AI_HANDOVER_LABEL, "ai-contributed"], remove=[]
+        )
+        progress = (agent_result.summary or "") if agent_result is not None else ""
+        parts: list[str] = [
+            f"Labro's agent (`{agent_name}`) ran out of turns before completing this {item_type}."
+        ]
+        if progress:
+            parts.append(f"\n\n**Progress so far:**\n{progress}")
+        if wip_branch_url:
+            parts.append(f"\n\nWork in progress preserved on branch: {wip_branch_url}")
+        parts.append("\n\nRemove the `ai-handover` label to re-queue this item.")
+        _gh_comment(item_type, item_number, repo, "".join(parts))
     else:
         _gh_edit(item_type, item_number, repo, add=["ai-failed", "ai-contributed"], remove=[])
         if agent_result is not None:
@@ -113,4 +131,6 @@ def post_run(
             )
         else:
             body = _GENERIC_FAILURE_MSG
+        if wip_branch_url:
+            body += f"\n\nWork in progress preserved on branch: {wip_branch_url}"
         _gh_comment(item_type, item_number, repo, body)

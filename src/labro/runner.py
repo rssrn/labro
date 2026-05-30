@@ -238,15 +238,39 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
         )
         if stderr:
             _log.warning("claude stderr: %s", stderr.decode(errors="replace"))
-        raise RunnerOutputError("claude response missing required 'structured_output' key")
+        # Salvage cost/token data and the agent's last message. subtype==error_max_turns
+        # means the agent was cut short by the turn limit → partial; any other missing-SO
+        # case is a generic failure.
+        result_text: str = str(response.get("result") or "")
+        if subtype == "error_max_turns":
+            so_outcome = "partial"
+            so_summary = result_text or "Agent reached the turn limit before completing the task."
+        else:
+            so_outcome = "failure"
+            so_summary = result_text or "Agent terminated without a structured result."
+        return AgentResult(
+            outcome=so_outcome,
+            summary=so_summary,
+            failure_reason=subtype or None,
+            is_error=is_error,
+            num_turns=num_turns,
+            total_cost_usd=total_cost_usd,
+            duration_ms=duration_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        )
     _validate_structured_output(so)
 
     # Build AgentResult from validated structured_output
     outcome: str = so["outcome"]
 
-    # Failure detection: is_error==True OR subtype != "success" → override outcome
+    # Failure detection: is_error==True OR subtype != "success" → downgrade success to failure.
+    # A genuine agent-reported "partial" is preserved even when the CLI signals an error.
     if is_error or subtype != "success":
-        outcome = "failure"
+        if outcome == "success":
+            outcome = "failure"
 
     items_created: list[ItemRef] = [
         ItemRef(item_type=item["item_type"], item_number=item["number"])

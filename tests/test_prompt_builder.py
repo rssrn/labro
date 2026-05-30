@@ -281,3 +281,51 @@ def test_impactful_action_appears_in_must_not_when_absent(action: PermittedActio
     prompt = build_prompt(_task(permitted_actions=others))
     perm_section = prompt.split(_DIVIDER)[2]
     assert _ACTION_LABELS[action] in perm_section
+
+
+# ── durable-progress guidance ──────────────────────────────────────────────────
+
+
+def test_durable_progress_present_with_item_and_comment_permission() -> None:
+    """Durable-progress guidance appears when item_number set and COMMENT_ON_ISSUE permitted."""
+    task = _task(
+        item_number=42,
+        permitted_actions=[PermittedAction.COMMENT_ON_ISSUE],
+    )
+    prompt = build_prompt(task)
+    role_section = prompt.split(_DIVIDER)[0]
+    assert "gh issue comment" in role_section
+    assert "--edit-last" in role_section
+
+
+def test_durable_progress_present_with_comment_on_pr() -> None:
+    """Durable-progress guidance appears when COMMENT_ON_PR is the permitted comment action."""
+    task = _task(
+        item_number=7,
+        permitted_actions=[PermittedAction.COMMENT_ON_PR],
+    )
+    prompt = build_prompt(task)
+    role_section = prompt.split(_DIVIDER)[0]
+    assert "--edit-last" in role_section
+
+
+def test_durable_progress_absent_without_item_number() -> None:
+    """No durable-progress guidance when item_number is None (no specific item)."""
+    task = _task(
+        item_number=None,
+        permitted_actions=[PermittedAction.COMMENT_ON_ISSUE],
+    )
+    prompt = build_prompt(task)
+    role_section = prompt.split(_DIVIDER)[0]
+    assert "--edit-last" not in role_section
+
+
+def test_durable_progress_absent_without_comment_permission() -> None:
+    """No durable-progress guidance when no comment action is permitted."""
+    task = _task(
+        item_number=42,
+        permitted_actions=[PermittedAction.OPEN_PR, PermittedAction.PUSH_DEFAULT],
+    )
+    prompt = build_prompt(task)
+    role_section = prompt.split(_DIVIDER)[0]
+    assert "--edit-last" not in role_section

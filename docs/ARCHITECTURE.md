@@ -260,7 +260,13 @@ class ItemRef:
     item_number: int
 ```
 
-`post_run.py` treats `is_error == True` or `outcome != "success"` as a failure and applies `ai-failed` accordingly. A `"partial"` agent outcome is stored as `"failure"` in the `runs` table — the distinction is preserved in `summary` and `failure_reason` for operator review, but no harness logic branches on `partial` vs `failure`.
+`post_run.py` branches on `"success"`, `"partial"`, and `"failure"`. A `"partial"` outcome (agent cut short by turn limit) triggers a handover path distinct from plain failure — see §error_max_turns recovery below.
+
+#### `error_max_turns` recovery
+
+When the Claude CLI exits with `subtype == "error_max_turns"` and no `structured_output`, the runner builds an `AgentResult(outcome="partial")` from salvaged fields (`result`, `total_cost_usd`, token counts) rather than raising `RunnerOutputError`. This preserves budget data and feeds the handover path.
+
+After any non-success outcome, `cli.py` calls `repo.preserve_wip(repo_path, repo, run_id)`, which creates a `labro-wip/<run-id>` branch from any dirty working copy and pushes it to the remote. This is a harness action independent of `permitted_actions` — the user opted into the harness writing WIP branches unconditionally.
 
 ### Label State Machine
 
@@ -270,23 +276,25 @@ No in-progress label is used during a run — the project lock (`project_locks` 
 
 #### `gh-label` — label_rules
 
-The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` label gates re-pickup on failure; the source label is kept so the operator need only remove `ai-failed` to retry.
+The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` and `ai-handover` labels gate re-pickup; the source label is kept so the operator need only remove `ai-failed` to retry. For `ai-handover`, removing the label also re-queues the item.
 
 | Phase | Labels on item | Harness action |
 | :--- | :--- | :--- |
-| **Eligible** | Has source label (e.g. `ai-dev`) AND NOT `ai-failed` | Picker selects item |
+| **Eligible** | Has source label (e.g. `ai-dev`) AND NOT `ai-failed` AND NOT `ai-handover` | Picker selects item |
 | **Skipped — failed** | Has `ai-failed` | Picker ignores; operator removes `ai-failed` to re-enable |
+| **Skipped — handed over** | Has `ai-handover` | Picker ignores; operator removes `ai-handover` to re-queue |
 | **Skipped — done** | Has done label (e.g. `ai-dev-done`) | Picker ignores (source label already removed) |
 | **Success** | — | Remove source label; apply done label; apply `ai-contributed` |
-| **Failure** | — | Keep source label; apply `ai-failed`; apply `ai-contributed`; post failure comment |
+| **Partial (turn limit)** | — | Apply `ai-handover` + `ai-contributed`; post handover comment (includes WIP branch URL if code was preserved) |
+| **Failure** | — | Keep source label; apply `ai-failed`; apply `ai-contributed`; post failure comment (includes WIP branch URL if any) |
 
 #### `gh-label` — actor_rules
 
-No source label to remove — the done label is the "already processed" gate.
+No source label to remove — the done label is the "already processed" gate. `ai-failed` and `ai-handover` exclusions apply here too.
 
 | Phase | Labels on item | Harness action |
 | :--- | :--- | :--- |
-| **Eligible** | Opened by configured actor AND NOT has done label AND NOT `ai-failed` | Picker selects item |
+| **Eligible** | Opened by configured actor AND NOT has done label AND NOT `ai-failed` AND NOT `ai-handover` | Picker selects item |
 | **Skipped — done** | Has done label | Picker ignores |
 | **Skipped — failed** | Has `ai-failed` | Picker ignores |
 | **Success** | — | Apply done label; apply `ai-contributed` |

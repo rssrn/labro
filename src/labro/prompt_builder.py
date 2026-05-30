@@ -38,7 +38,7 @@ _COMMENT_ACTIONS: frozenset[PermittedAction] = frozenset(
 _DIVIDER = "\n---\n"
 
 
-def _section_role(persona_prompt: str | None = None) -> str:
+def _section_role(persona_prompt: str | None = None, durable_progress: bool = False) -> str:
     base = (
         "You are an autonomous coding agent running unattended on a schedule."
         " No human is present during this session.\n\n"
@@ -47,6 +47,13 @@ def _section_role(persona_prompt: str | None = None) -> str:
         " brief explanation and stop — do **not** ask clarifying questions, request"
         " approval, or wait for input."
     )
+    if durable_progress:
+        base += (
+            "\n\nIf this task may take a while, post an early comment on the in-scope item"
+            " summarising your plan, and update that same comment as you make progress"
+            " (e.g. `gh issue comment <n> --edit-last`). This ensures your analysis"
+            " survives if the session ends before you finish."
+        )
     if persona_prompt:
         return base + "\n\n" + persona_prompt.strip()
     return base
@@ -125,8 +132,13 @@ def build_prompt(
     Returns:
         The full prompt string ready to be piped to ``claude -p`` via stdin.
     """
+    has_item = task.item_number is not None
+    has_comment = any(
+        a in (PermittedAction.COMMENT_ON_ISSUE, PermittedAction.COMMENT_ON_PR)
+        for a in task.permitted_actions
+    )
     sections = [
-        _section_role(task.persona_prompt),
+        _section_role(task.persona_prompt, durable_progress=has_item and has_comment),
         _section_task(task),
         _section_permitted_actions(task),
         _section_project_context(task, default_branch, project_context),

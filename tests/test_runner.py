@@ -160,37 +160,40 @@ def test_structured_output_shape() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_missing_structured_output_raises() -> None:
-    """Response JSON without 'structured_output' key must raise RunnerOutputError."""
+def test_missing_structured_output_returns_failure() -> None:
+    """Response without 'structured_output' key returns AgentResult(outcome='failure')."""
     payload = json.dumps(
         {
             "type": "result",
             "subtype": "success",
             "is_error": False,
             "num_turns": 1,
-            "total_cost_usd": 0.0,
+            "total_cost_usd": 0.005,
             "duration_ms": 100,
-            "result": "",
-            "usage": {},
+            "result": "some last message",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
             # structured_output deliberately absent
         }
     ).encode()
 
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(payload)
-        with pytest.raises(RunnerOutputError, match="structured_output"):
-            run_claude("prompt", _BASE_CONFIG)
+        result = run_claude("prompt", _BASE_CONFIG)
+
+    assert result.outcome == "failure"
+    assert result.total_cost_usd == pytest.approx(0.005)
+    assert result.summary == "some last message"
 
 
-def test_structured_output_none_raises() -> None:
-    """Response with structured_output=null must raise RunnerOutputError."""
+def test_structured_output_none_returns_failure() -> None:
+    """Response with structured_output=null returns AgentResult(outcome='failure')."""
     payload = json.dumps(
         {
             "type": "result",
             "subtype": "success",
             "is_error": False,
             "num_turns": 1,
-            "total_cost_usd": 0.0,
+            "total_cost_usd": 0.003,
             "duration_ms": 100,
             "result": "",
             "usage": {},
@@ -200,8 +203,101 @@ def test_structured_output_none_raises() -> None:
 
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(payload)
-        with pytest.raises(RunnerOutputError, match="structured_output"):
+        result = run_claude("prompt", _BASE_CONFIG)
+
+    assert result.outcome == "failure"
+    assert result.total_cost_usd == pytest.approx(0.003)
+
+
+def test_error_max_turns_returns_partial() -> None:
+    """error_max_turns with no structured_output returns AgentResult(outcome='partial')."""
+    payload = json.dumps(
+        {
+            "type": "result",
+            "subtype": "error_max_turns",
+            "is_error": True,
+            "num_turns": 5,
+            "total_cost_usd": 0.012,
+            "duration_ms": 3000,
+            "result": "Completed steps 1-3 of 5.",
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 20,
+                "cache_creation_input_tokens": 10,
+            },
+            # structured_output absent — turn limit hit before agent could fill it
+        }
+    ).encode()
+
+    with patch("subprocess.Popen") as mock_popen_cls:
+        mock_popen_cls.return_value = _mock_popen(payload)
+        result = run_claude("prompt", _BASE_CONFIG)
+
+    assert result.outcome == "partial"
+    assert result.summary == "Completed steps 1-3 of 5."
+    assert result.failure_reason == "error_max_turns"
+    assert result.total_cost_usd == pytest.approx(0.012)
+    assert result.num_turns == 5
+    assert result.input_tokens == 100
+    assert result.output_tokens == 50
+    assert result.cache_read_tokens == 20
+    assert result.cache_write_tokens == 10
+
+
+def test_missing_so_non_max_turns_returns_failure() -> None:
+    """Non-max-turns subtype with no structured_output returns outcome='failure'."""
+    payload = json.dumps(
+        {
+            "type": "result",
+            "subtype": "error_other",
+            "is_error": True,
+            "num_turns": 2,
+            "total_cost_usd": 0.007,
+            "duration_ms": 500,
+            "result": "",
+            "usage": {},
+        }
+    ).encode()
+
+    with patch("subprocess.Popen") as mock_popen_cls:
+        mock_popen_cls.return_value = _mock_popen(payload)
+        result = run_claude("prompt", _BASE_CONFIG)
+
+    assert result.outcome == "failure"
+    assert result.failure_reason == "error_other"
+    assert result.total_cost_usd == pytest.approx(0.007)
+
+
+def test_malformed_structured_output_still_raises() -> None:
+    """A present-but-malformed structured_output still raises RunnerOutputError."""
+    bad_so = {
+        "outcome": "bad_value",
+        "summary": "x",
+        "actions_taken": [],
+        "items_created": [],
+    }
+    with patch("subprocess.Popen") as mock_popen_cls:
+        mock_popen_cls.return_value = _mock_popen(_make_response(structured_output=bad_so))
+        with pytest.raises(RunnerOutputError, match="outcome"):
             run_claude("prompt", _BASE_CONFIG)
+
+
+def test_agent_partial_preserved_when_cli_success() -> None:
+    """Agent-reported 'partial' in a successful CLI response is kept as 'partial'."""
+    so = {
+        "outcome": "partial",
+        "summary": "Did half the work.",
+        "actions_taken": [],
+        "items_created": [],
+    }
+    with patch("subprocess.Popen") as mock_popen_cls:
+        mock_popen_cls.return_value = _mock_popen(
+            _make_response(subtype="success", is_error=False, structured_output=so)
+        )
+        result = run_claude("prompt", _BASE_CONFIG)
+
+    assert result.outcome == "partial"
 
 
 def test_malformed_outcome_raises() -> None:
@@ -315,8 +411,8 @@ def test_is_error_true_overrides_outcome_to_failure() -> None:
     assert result.is_error is True
 
 
-def test_subtype_not_success_overrides_outcome_to_failure() -> None:
-    """subtype != 'success' must force outcome to 'failure'."""
+def test_subtype_not_success_downgrades_success_to_failure() -> None:
+    """subtype != 'success' downgrades a structured_output outcome of 'success' to 'failure'."""
     so = {
         "outcome": "success",
         "summary": "Partial run.",

@@ -33,6 +33,7 @@ from labro.task_sources.base import TaskSource
 logger = logging.getLogger(__name__)
 
 _AI_FAILED_LABEL = "ai-failed"
+_AI_HANDOVER_LABEL = "ai-handover"
 
 # Type alias for any rule supported by GhLabelTaskSource.
 _AnyRule = LabelRule | ActorRule
@@ -156,7 +157,12 @@ def _fetch_comments_section(repo: str, number: int, max_comments: int) -> str:
     showing = len(tail)
 
     if total > showing:
-        header = f"\n\n**Comments (showing last {showing} of {total}):**"
+        header = (
+            f"\n\n**Comments (showing last {showing} of {total}):**"
+            f"\n*{total - showing} earlier comment(s) not shown."
+            f" Run `gh api repos/{repo}/issues/{number}/comments`"
+            f" to fetch the full thread if earlier context seems relevant.*"
+        )
     else:
         header = f"\n\n**Comments ({total}):**"
 
@@ -208,6 +214,8 @@ class GhLabelTaskSource(TaskSource):
                 labels = _label_names(item)
                 if _AI_FAILED_LABEL in labels:
                     continue
+                if _AI_HANDOVER_LABEL in labels:
+                    continue
                 if rule.done_label in labels:
                     continue
                 created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
@@ -228,6 +236,8 @@ class GhLabelTaskSource(TaskSource):
                     continue
                 labels = _label_names(item)
                 if _AI_FAILED_LABEL in labels:
+                    continue
+                if _AI_HANDOVER_LABEL in labels:
                     continue
                 if actor_rule.done_label in labels:
                     continue

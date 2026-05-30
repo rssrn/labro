@@ -4,7 +4,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](pyproject.toml)
-[![Docker](https://ghcr-badge.egpl.dev/rssrn/labro/latest_tag?trim=major&label=ghcr.io)](https://github.com/rssrn/labro/pkgs/container/labro)
+[![Docker](https://img.shields.io/github/v/release/rssrn/labro?label=ghcr.io&logo=docker&logoColor=white)](https://github.com/rssrn/labro/pkgs/container/labro)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![mypy: strict](https://img.shields.io/badge/mypy-strict-blue)](https://mypy-lang.org/)
@@ -203,9 +203,11 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 5. **Pick task** — run the picker over all configured task sources; if nothing is found, write a skipped record and exit
 6. **Prepare repo** — clone or pull the target repo into `/repos/<slug>`; if the working copy is dirty (agent was interrupted mid-edit), log a warning then `git reset --hard && git clean -fd`
 7. **Build prompt** — construct the four-section prompt from the resolved task and project context
-8. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload
-9. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list
-10. **Release lock** — DELETE from `project_locks` (always; in a `finally` block)
+8. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload. If the agent hits its turn limit (`--max-turns`), the harness recovers gracefully — see [Turn limits and partial runs](#turn-limits-and-partial-runs) below
+9. **Preserve WIP** — on any non-success outcome, if the working copy is dirty the harness commits it to a `labro-wip/<run-id>` branch and pushes it, so no in-progress code edits are silently discarded
+10. **Post-run labels** — apply label transitions and post a comment to the GitHub item (see [Label transitions](#label-transitions))
+11. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list
+12. **Release lock** — DELETE from `project_locks` (always; in a `finally` block)
 
 ### Required environment variables
 
@@ -229,15 +231,31 @@ rm /data/LABRO_DISABLED
 
 The check happens before lock acquisition. Any run already in progress finishes normally; only new runs are blocked.
 
+### Turn limits and partial runs
+
+Labro is designed for budget-conscious use. Low `max_turns` values keep costs predictable, but they mean the agent will sometimes hit its limit mid-task — especially on larger issues. This is expected and handled as a first-class outcome rather than a hard error.
+
+When the agent exhausts its turn budget:
+
+1. **Cost is recorded** — `total_cost_usd` and token counts are salvaged from the CLI response and written to the `runs` table as normal, so daily-budget accounting stays accurate even for incomplete runs.
+2. **Code is preserved** — if the agent made any file edits before being cut off, the harness commits them to a `labro-wip/<run-id>` branch and pushes it to the remote. The branch URL appears in the handover comment.
+3. **Handover comment posted** — Labro comments on the issue/PR with the agent's last message, a link to the WIP branch (if any), and the instruction to remove `ai-handover` to re-queue.
+4. **Item is parked** — the `ai-handover` label is applied. The picker will not re-attempt the item until a human reviews the comment and removes the label — intentional friction to avoid burning the turn budget again without a config change.
+
+> **Tuning tip:** if an item is repeatedly hitting the turn limit, either raise `max_turns` for that project/rule in `labro.toml`, or break the issue into smaller scoped tasks before re-queuing.
+
+The prompt also asks the agent to post an early progress comment on the item and update it in place as work proceeds (`gh issue comment --edit-last`). This way analysis work is visible on the ticket even if the session ends before the agent can fill in `structured_output`.
+
 ### Label transitions
 
-After each live run, Labro updates the GitHub labels on the acted-on item automatically. The exact transitions depend on the task source rule type and whether the agent succeeded or failed.
+After each live run, Labro updates the GitHub labels on the acted-on item automatically. The exact transitions depend on the task source rule type and the run outcome.
 
 #### `label_rule` path (label-triggered tasks)
 
 | Outcome | Labels added | Labels removed |
 |---|---|---|
 | success | `<done_label>` (e.g. `ai-dev-done`), `ai-contributed` | `<source_label>` (e.g. `ai-dev`) |
+| partial (turn limit) | `ai-handover`, `ai-contributed` | _(none — source label kept)_ |
 | failure | `ai-failed`, `ai-contributed` | _(none — source label kept)_ |
 
 #### `actor_rule` path (polling-based tasks, no source label)
@@ -245,14 +263,21 @@ After each live run, Labro updates the GitHub labels on the acted-on item automa
 | Outcome | Labels added | Labels removed |
 |---|---|---|
 | success | `<done_label>`, `ai-contributed` | _(none)_ |
+| partial (turn limit) | `ai-handover`, `ai-contributed` | _(none)_ |
 | failure | `ai-failed`, `ai-contributed` | _(none)_ |
 
-#### Retrying a failed item
+#### Re-queueing items
 
-When an item carries `ai-failed`, the picker will not pick it up again. To re-queue it, remove both `ai-failed` and `ai-contributed`:
+**After a partial run (`ai-handover`):** review the handover comment (and WIP branch if present), then remove `ai-handover` to re-queue:
 
 ```bash
-gh issue edit <number> --remove-label "ai-failed,ai-contributed" --repo <owner/repo>
+gh issue edit <number> --remove-label "ai-handover" --repo <owner/repo>
+```
+
+**After a failure (`ai-failed`):** remove `ai-failed` to re-queue (`ai-contributed` can stay — it's informational and never blocks re-pickup):
+
+```bash
+gh issue edit <number> --remove-label "ai-failed" --repo <owner/repo>
 ```
 
 If the task was label-triggered, also ensure the source label (e.g. `ai-dev`) is still present.

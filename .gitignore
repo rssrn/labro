@@ -35,5 +35,8 @@ htmlcov/
 # OS
 .DS_Store
 
+# Claude Code session files (dropped by agent during live runs)
+.antigravitycli/
+
 # User-specific config (lives in a separate private repo — see labro.example.toml)
 labro.toml
