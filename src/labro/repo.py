@@ -60,7 +60,9 @@ def _get_default_branch(repo: str) -> str:
     return result.stdout.strip()
 
 
-def prepare_repo(repo: str, repos_dir: Path) -> Path:
+def prepare_repo(
+    repo: str, repos_dir: Path, wip_branch: str | None = None
+) -> tuple[Path, str | None]:
     """Clone or update a repository and return the path to the working copy.
 
     Parameters
@@ -71,11 +73,16 @@ def prepare_repo(repo: str, repos_dir: Path) -> Path:
         Directory under which working copies are stored.  The copy will be
         placed at ``repos_dir/<repo-slug>`` where ``<repo-slug>`` is the
         repository name portion of the slug (everything after the ``/``).
+    wip_branch:
+        If provided, try to check out this branch (e.g. ``labro-wip/<run-id>``)
+        after the normal clone/pull.  The second return value reports whether
+        the checkout succeeded.
 
     Returns
     -------
-    Path
-        Absolute path to the local working copy.
+    tuple[Path, str | None]
+        ``(repo_path, checked_out_wip)`` where ``checked_out_wip`` is the WIP
+        branch name if it was successfully checked out, else ``None``.
 
     Notes
     -----
@@ -130,7 +137,70 @@ def prepare_repo(repo: str, repos_dir: Path) -> Path:
             ]
         )
 
-    return dest
+    if wip_branch is not None:
+        # Credential helper required — git ls-remote doesn't inherit gh auth automatically.
+        # Exit code 2 means "no matching refs"; other non-zero codes mean auth/network error.
+        ls_result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(dest),
+                "-c",
+                "credential.helper=!gh auth git-credential",
+                "ls-remote",
+                "--exit-code",
+                "origin",
+                wip_branch,
+            ],
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if ls_result.returncode == 0:
+            logger.info("Checking out WIP branch %s for resume", wip_branch)
+            _run(
+                [
+                    "git",
+                    "-C",
+                    str(dest),
+                    "-c",
+                    "credential.helper=!gh auth git-credential",
+                    "fetch",
+                    "origin",
+                    wip_branch,
+                ]
+            )
+            # -B creates the local branch if absent, or resets it to the remote ref.
+            _run(
+                [
+                    "git",
+                    "-C",
+                    str(dest),
+                    "checkout",
+                    "-B",
+                    wip_branch,
+                    f"origin/{wip_branch}",
+                ]
+            )
+            return dest, wip_branch
+        if ls_result.returncode == 2:
+            logger.warning(
+                "WIP branch %s not found on remote; starting from default branch %s",
+                wip_branch,
+                default_branch,
+            )
+        else:
+            logger.warning(
+                "ls-remote failed (exit %d) checking for WIP branch %s;"
+                " starting from default branch %s\n%s",
+                ls_result.returncode,
+                wip_branch,
+                default_branch,
+                ls_result.stderr.strip(),
+            )
+
+    return dest, None
 
 
 def _gh_user_identity() -> tuple[str, str]:
@@ -179,9 +249,23 @@ def preserve_wip(repo_path: Path, repo: str, run_id: str) -> str | None:
         if not status_result.stdout.strip():
             return None
 
+        # Reuse the current branch if already on a WIP branch (resume path).
+        current_result = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"],
+            shell=False,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        current_branch = current_result.stdout.strip()
+
         git_name, git_email = _gh_user_identity()
-        branch = f"labro-wip/{run_id}"
-        _run(["git", "-C", str(repo_path), "checkout", "-b", branch])
+
+        if current_branch.startswith("labro-wip/"):
+            branch = current_branch
+        else:
+            branch = f"labro-wip/{run_id}"
+            _run(["git", "-C", str(repo_path), "checkout", "-b", branch])
         _run(["git", "-C", str(repo_path), "add", "-A"])
         _run(
             [

@@ -100,6 +100,8 @@ def _section_project_context(
     task: Task,
     default_branch: str,
     extra_context: str | None,
+    wip_branch: str | None = None,
+    prior_summary: str | None = None,
 ) -> str:
     lines: list[str] = ["## Project context"]
     lines.append(f"**Repository:** {task.repo}")
@@ -110,6 +112,18 @@ def _section_project_context(
         " It encodes project-specific conventions, no-go zones, and style rules"
         " that take precedence over your general defaults."
     )
+    if wip_branch is not None:
+        lines.append("")
+        lines.append(
+            f"**Resuming from a previous partial run.** The working copy has been"
+            f" checked out to branch `{wip_branch}`, which contains code changes"
+            f" from the previous session. Review what was already changed before"
+            f" continuing — do not duplicate work that is already done."
+        )
+        if prior_summary:
+            lines.append("")
+            lines.append("**Previous session summary:**")
+            lines.append(prior_summary.strip())
     if extra_context:
         lines.append("")
         lines.append(extra_context.strip())
@@ -120,6 +134,8 @@ def build_prompt(
     task: Task,
     project_context: str | None = None,
     default_branch: str = "main",
+    wip_branch: str | None = None,
+    prior_summary: str | None = None,
 ) -> str:
     """Construct the four-section agent prompt for *task*.
 
@@ -128,6 +144,10 @@ def build_prompt(
         project_context: Optional free-text from ``labro.toml`` ``context`` field;
             appended verbatim to section 4.
         default_branch: Default branch of the managed repo (defaults to ``"main"``).
+        wip_branch: WIP branch checked out for a resume run (e.g. ``labro-wip/<id>``);
+            included in section 4 to inform the agent it is resuming.
+        prior_summary: Summary text from the previous partial run; appended under
+            the resume notice in section 4.
 
     Returns:
         The full prompt string ready to be piped to ``claude -p`` via stdin.
@@ -141,6 +161,6 @@ def build_prompt(
         _section_role(task.persona_prompt, durable_progress=has_item and has_comment),
         _section_task(task),
         _section_permitted_actions(task),
-        _section_project_context(task, default_branch, project_context),
+        _section_project_context(task, default_branch, project_context, wip_branch, prior_summary),
     ]
     return _DIVIDER.join(sections)

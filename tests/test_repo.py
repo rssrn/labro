@@ -44,9 +44,10 @@ class TestCloneWhenAbsent:
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            result = prepare_repo("cli/cli", tmp_path)
+            path, wip = prepare_repo("cli/cli", tmp_path)
 
-        assert result == dest
+        assert path == dest
+        assert wip is None
 
         calls = mock_run.call_args_list
         # First call: gh repo view
@@ -85,9 +86,10 @@ class TestPullWhenPresent:
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            result = prepare_repo("cli/cli", tmp_path)
+            path, wip = prepare_repo("cli/cli", tmp_path)
 
-        assert result == dest
+        assert path == dest
+        assert wip is None
 
         calls = mock_run.call_args_list
         cmds = [c.args[0] for c in calls]
@@ -272,6 +274,7 @@ class TestPreserveWip:
         dirty_output = " M some_file.py"
         side_effects = [
             _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
             _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
             _make_completed(),  # git checkout -b
             _make_completed(),  # git add -A
@@ -298,6 +301,7 @@ class TestPreserveWip:
         dirty_output = " M some_file.py"
         side_effects = [
             _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
             _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
             _make_completed(),  # git checkout -b
             _make_completed(),  # git add -A
@@ -323,6 +327,7 @@ class TestPreserveWip:
         dirty_output = " M x.py"
         side_effects = [
             _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
             _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
             _make_completed(),  # git checkout -b
             _make_completed(),  # git add -A
@@ -335,3 +340,102 @@ class TestPreserveWip:
 
         for c in mock_run.call_args_list:
             assert c.kwargs.get("shell", False) is False, f"shell=True in: {c}"
+
+    def test_already_on_wip_branch_reuses_it(self, tmp_path: Path) -> None:
+        """If already on a labro-wip/* branch, no new branch is created — commits to existing."""
+        dirty_output = " M some_file.py"
+        side_effects = [
+            _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="labro-wip/prior-run-id\n"),  # git rev-parse (on WIP branch)
+            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
+            # No checkout -b — already on branch
+            _make_completed(),  # git add -A
+            _make_completed(),  # git commit
+            _make_completed(),  # git push
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
+            url = preserve_wip(tmp_path, "owner/repo", "new-run-id")
+
+        assert url == "https://github.com/owner/repo/tree/labro-wip/prior-run-id"
+        cmds = [c.args[0] for c in mock_run.call_args_list]
+        assert not any("checkout" in cmd for cmd in cmds), "should not create new branch"
+        assert any("add" in cmd for cmd in cmds)
+        assert any("commit" in cmd for cmd in cmds)
+        assert any("push" in cmd for cmd in cmds)
+
+
+# ---------------------------------------------------------------------------
+# prepare_repo — WIP branch checkout
+# ---------------------------------------------------------------------------
+
+
+class TestWipBranchCheckout:
+    """prepare_repo checks out a WIP branch when wip_branch is given and exists on remote."""
+
+    def test_wip_branch_found_and_checked_out(self, tmp_path: Path) -> None:
+        """WIP branch exists on remote → fetch + checkout -B; returns (path, branch)."""
+        dest = tmp_path / "repo"
+        dest.mkdir()
+        wip = "labro-wip/prior-run-id"
+
+        side_effects = [
+            _make_completed(stdout="main\n"),  # gh repo view
+            _make_completed(),  # git checkout main
+            _make_completed(stdout=""),  # git status (clean)
+            _make_completed(),  # git pull
+            _make_completed(stdout="refs/heads/labro-wip/prior-run-id\n"),  # ls-remote
+            _make_completed(),  # git fetch
+            _make_completed(),  # git checkout -B
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
+            path, checked_out = prepare_repo("owner/repo", tmp_path, wip_branch=wip)
+
+        assert path == dest
+        assert checked_out == wip
+
+        # ls-remote and fetch must both use the credential helper
+        cmds = [c.args[0] for c in mock_run.call_args_list]
+        ls_remote_cmd = next(cmd for cmd in cmds if "ls-remote" in cmd)
+        fetch_cmd = next(cmd for cmd in cmds if "fetch" in cmd)
+        assert "credential.helper=!gh auth git-credential" in ls_remote_cmd
+        assert "credential.helper=!gh auth git-credential" in fetch_cmd
+
+    def test_wip_branch_not_found_falls_back(self, tmp_path: Path) -> None:
+        """WIP branch absent on remote → returns (path, None)."""
+        dest = tmp_path / "repo"
+        dest.mkdir()
+        wip = "labro-wip/stale-run-id"
+
+        side_effects = [
+            _make_completed(stdout="main\n"),  # gh repo view
+            _make_completed(),  # git checkout main
+            _make_completed(stdout=""),  # git status (clean)
+            _make_completed(),  # git pull
+            _make_completed(returncode=2),  # ls-remote — branch not found
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects):
+            path, checked_out = prepare_repo("owner/repo", tmp_path, wip_branch=wip)
+
+        assert path == dest
+        assert checked_out is None
+
+    def test_no_wip_branch_returns_none(self, tmp_path: Path) -> None:
+        """When wip_branch is not specified, second return value is always None."""
+        dest = tmp_path / "repo"
+        dest.mkdir()
+
+        side_effects = [
+            _make_completed(stdout="main\n"),
+            _make_completed(),  # checkout
+            _make_completed(stdout=""),  # status
+            _make_completed(),  # pull
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects):
+            path, checked_out = prepare_repo("owner/repo", tmp_path)
+
+        assert path == dest
+        assert checked_out is None

@@ -244,7 +244,7 @@ def test_successful_agent_run_writes_success_record(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.acquire_lock", return_value=True),
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
     ):
@@ -285,7 +285,7 @@ def test_partial_outcome_stored_as_partial(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.acquire_lock", return_value=True),
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
@@ -326,7 +326,7 @@ def test_partial_outcome_wip_preservation_attempted(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.acquire_lock", return_value=True),
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=repo_path),
+        patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
         patch("labro.cli.preserve_wip", return_value=wip_url) as mock_preserve,
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
@@ -366,7 +366,7 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.acquire_lock", return_value=True),
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
@@ -438,7 +438,7 @@ def test_claude_assignee_assigned_and_restored_on_success(tmp_path: Path) -> Non
         patch("labro.cli.store_mod.acquire_lock", return_value=True),
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.assignee_mod.assign_claude") as mock_assign,
@@ -478,7 +478,7 @@ def test_claude_assignee_restored_on_agent_failure(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.acquire_lock", return_value=True),
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=tmp_path / "repos" / "org" / "repo"),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
@@ -498,5 +498,108 @@ def test_claude_assignee_restored_on_agent_failure(tmp_path: Path) -> None:
     assert result == 1
     # restore must be called even though the agent timed out
     mock_restore.assert_called_once_with(task, "claude-code-bot")
+
+    conn.close()
+
+
+def test_wip_resume_passes_branch_to_prepare_and_prompt(tmp_path: Path) -> None:
+    """When a prior partial run exists for the item, harness resumes from its WIP branch."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    repo_path = tmp_path / "repos" / "org" / "repo"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    agent_result = _make_agent_result(outcome="success")
+    wip_branch = "labro-wip/prior-run-uuid"
+    wip_url = f"https://github.com/org/repo/tree/{wip_branch}"
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch(
+            "labro.cli.store_mod.get_prior_wip_run",
+            return_value=(wip_url, "Did X and Y."),
+        ),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(repo_path, wip_branch)) as mock_prep,
+        patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.post_run") as mock_post_run,
+    ):
+        mock_instance = MockAgent.return_value
+        mock_instance.invoke.return_value = agent_result
+
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 0
+    # prepare_repo must receive the WIP branch
+    mock_prep.assert_called_once()
+    assert mock_prep.call_args.kwargs.get("wip_branch") == wip_branch or (
+        len(mock_prep.call_args.args) >= 3 and mock_prep.call_args.args[2] == wip_branch
+    )
+    # build_prompt must receive wip_branch and prior_summary
+    mock_build.assert_called_once()
+    build_kwargs = mock_build.call_args.kwargs
+    assert build_kwargs.get("wip_branch") == wip_branch
+    assert build_kwargs.get("prior_summary") == "Did X and Y."
+    # post_run must NOT set resuming_wip (success path; wip_branch still set on success)
+    mock_post_run.assert_called_once()
+
+    conn.close()
+
+
+def test_wip_branch_not_found_clears_resume_context(tmp_path: Path) -> None:
+    """If WIP branch is absent on remote, agent runs from scratch (no resume context in prompt)."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    repo_path = tmp_path / "repos" / "org" / "repo"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    agent_result = _make_agent_result(outcome="success")
+    stale_wip_url = "https://github.com/org/repo/tree/labro-wip/stale-run-uuid"
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch(
+            "labro.cli.store_mod.get_prior_wip_run",
+            return_value=(stale_wip_url, "Did stuff."),
+        ),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        # prepare_repo returns None for checked_out_wip — branch not found
+        patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
+        patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.post_run"),
+    ):
+        mock_instance = MockAgent.return_value
+        mock_instance.invoke.return_value = agent_result
+
+        _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    # build_prompt must get wip_branch=None (branch was cleared after checkout failed)
+    build_kwargs = mock_build.call_args.kwargs
+    assert build_kwargs.get("wip_branch") is None
+    assert build_kwargs.get("prior_summary") is None
 
     conn.close()

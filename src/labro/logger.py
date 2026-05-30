@@ -26,6 +26,7 @@ def write_run(
     failure_reason: str | None,
     started_at: str,
     ended_at: str,
+    wip_branch_url: str | None = None,
 ) -> None:
     """Write a single run record to the ``runs`` table.
 
@@ -33,9 +34,6 @@ def write_run(
     where no task was found).  ``outcome`` must be one of ``"success"``,
     ``"failure"``, or ``"skipped"`` — the CHECK constraint on the ``runs``
     table will reject any other value.
-
-    ``AgentResult.outcome = "partial"`` must be mapped to ``"failure"`` by
-    the caller before passing *outcome* here (ARCHITECTURE line 263).
 
     Args:
         conn: Open database connection (WAL mode, created by ``store.open_db``).
@@ -45,10 +43,11 @@ def write_run(
         agent_cfg: Resolved :class:`~labro.models.AgentConfig`, or ``None``.
         agent_result: :class:`~labro.models.AgentResult` from the agent
             subprocess, or ``None`` if the agent was never invoked.
-        outcome: ``"success"``, ``"failure"``, or ``"skipped"``.
+        outcome: ``"success"``, ``"failure"``, ``"partial"``, or ``"skipped"``.
         failure_reason: Human-readable failure / skip description, or ``None``.
         started_at: ISO 8601 UTC timestamp for run start.
         ended_at: ISO 8601 UTC timestamp for run end.
+        wip_branch_url: URL of the WIP branch preserved by ``preserve_wip``, if any.
     """
     # Derive duration_s from agent_result.duration_ms when available.
     duration_s: float | None = None
@@ -74,7 +73,8 @@ def write_run(
                 turns_used, total_cost_usd,
                 input_tokens, output_tokens,
                 cache_read_tokens, cache_write_tokens,
-                summary, actions_taken, failure_reason
+                summary, actions_taken, failure_reason,
+                wip_branch_url
             ) VALUES (
                 :run_id, :project,
                 :task_source, :task_description, :item_url, :trigger_label,
@@ -84,7 +84,8 @@ def write_run(
                 :turns_used, :total_cost_usd,
                 :input_tokens, :output_tokens,
                 :cache_read_tokens, :cache_write_tokens,
-                :summary, :actions_taken, :failure_reason
+                :summary, :actions_taken, :failure_reason,
+                :wip_branch_url
             )
             """,
             {
@@ -109,5 +110,6 @@ def write_run(
                 "summary": ar.summary if ar is not None else None,
                 "actions_taken": actions_taken_json,
                 "failure_reason": failure_reason,
+                "wip_branch_url": wip_branch_url,
             },
         )

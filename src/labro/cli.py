@@ -279,14 +279,44 @@ def _cmd_run_live(
                 item_number=task.item_number,
             )
 
+        # ── Detect prior WIP branch for resume ─────────────────────────────────
+        prior_wip_branch: str | None = None
+        prior_summary: str | None = None
+        if task.item_url:
+            prior = store_mod.get_prior_wip_run(conn, task.item_url)
+            if prior is not None:
+                prior_wip_url, prior_summary = prior
+                # Extract branch name from URL: …/tree/<branch>
+                prior_wip_branch = (
+                    prior_wip_url.split("/tree/", 1)[1] if "/tree/" in prior_wip_url else None
+                )
+                _log.info(
+                    "prior WIP branch found; will attempt to resume %s",
+                    prior_wip_branch,
+                )
+
         # ── Prepare repo ───────────────────────────────────────────────────────
-        repo_path = prepare_repo(task.repo, repos_dir)
+        repo_path, checked_out_wip = prepare_repo(
+            task.repo, repos_dir, wip_branch=prior_wip_branch
+        )
+        if prior_wip_branch is not None and checked_out_wip is None:
+            _log.warning(
+                "WIP branch %s not found on remote; agent will start from scratch",
+                prior_wip_branch,
+            )
+            prior_wip_branch = None
+            prior_summary = None
         _log.info("repo ready at %s", repo_path)
         # Set agent working directory to the cloned repo (ARCHITECTURE line 630).
         agent_cfg.cwd = repo_path
 
         # ── Build prompt ───────────────────────────────────────────────────────
-        prompt = build_prompt(task=task, project_context=project.context)
+        prompt = build_prompt(
+            task=task,
+            project_context=project.context,
+            wip_branch=prior_wip_branch,
+            prior_summary=prior_summary,
+        )
 
         # ── Assign Claude user (optional) ──────────────────────────────────────
         if config.claude_assignee and task.item_number is not None:
@@ -332,6 +362,7 @@ def _cmd_run_live(
             outcome=outcome,
             agent_name=agent_cfg.agent,
             wip_branch_url=wip_branch_url,
+            resuming_wip=prior_wip_branch is not None,
         )
 
         # ── Write run record ───────────────────────────────────────────────────
@@ -347,6 +378,7 @@ def _cmd_run_live(
             failure_reason=failure_reason,
             started_at=started_at,
             ended_at=ended_at,
+            wip_branch_url=wip_branch_url,
         )
 
         if outcome == "success":

@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS runs (
     cache_write_tokens  INTEGER,
     summary             TEXT,
     actions_taken       TEXT,
-    failure_reason      TEXT
+    failure_reason      TEXT,
+    wip_branch_url      TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project    ON runs (project);
@@ -150,6 +151,12 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
     if row is not None and "'partial'" not in row[0]:
         _migrate_runs_add_partial(conn)
 
+    # Add wip_branch_url column if absent (SQLite allows ADD COLUMN for nullable columns).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    if "wip_branch_url" not in cols:
+        with conn:
+            conn.execute("ALTER TABLE runs ADD COLUMN wip_branch_url TEXT")
+
     return conn
 
 
@@ -247,6 +254,26 @@ def insert_items_touched(
         (run_id, repo, item_type, item_number),
     )
     conn.commit()
+
+
+def get_prior_wip_run(conn: sqlite3.Connection, item_url: str) -> tuple[str, str] | None:
+    """Return (wip_branch_url, summary) of the most recent partial run that has a preserved
+    WIP branch for item_url, or None.
+
+    Only returns rows where wip_branch_url IS NOT NULL so that partial runs where
+    preserve_wip failed or was skipped are not mistakenly treated as resumable.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    row = conn.execute(
+        "SELECT wip_branch_url, summary FROM runs"
+        " WHERE item_url = ? AND outcome = 'partial' AND wip_branch_url IS NOT NULL"
+        " ORDER BY started_at DESC LIMIT 1",
+        (item_url,),
+    ).fetchone()
+    if row is None:
+        return None
+    return row["wip_branch_url"], row["summary"] or ""
 
 
 def get_daily_spend(conn: sqlite3.Connection, project: str) -> float:

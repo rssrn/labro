@@ -80,6 +80,7 @@ def post_run(
     outcome: str,
     agent_name: str = "claude-code",
     wip_branch_url: str | None = None,
+    resuming_wip: bool = False,
 ) -> None:
     """Apply label transitions and post failure/handover comments after a run.
 
@@ -90,6 +91,8 @@ def post_run(
         outcome: ``"success"``, ``"failure"``, or ``"partial"``.
         agent_name: Agent identifier string (e.g. ``"claude-code"``).
         wip_branch_url: URL of the preserved WIP branch, if one was created.
+        resuming_wip: True if this run resumed from a prior WIP branch (changes
+            the branch-reference wording in the handover comment).
     """
     if task.source != "gh-label" or task.item_number is None:
         return
@@ -116,7 +119,12 @@ def post_run(
         if progress:
             parts.append(f"\n\n**Progress so far:**\n{progress}")
         if wip_branch_url:
-            parts.append(f"\n\nWork in progress preserved on branch: {wip_branch_url}")
+            if resuming_wip:
+                parts.append(
+                    f"\n\nExisting WIP branch updated with latest progress: {wip_branch_url}"
+                )
+            else:
+                parts.append(f"\n\nWork in progress preserved on new branch: {wip_branch_url}")
         parts.append("\n\nRemove the `ai-handover` label to re-queue this item.")
         _gh_comment(item_type, item_number, repo, "".join(parts))
     else:

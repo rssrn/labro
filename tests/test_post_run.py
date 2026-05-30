@@ -266,3 +266,39 @@ def test_failure_with_wip_url_appends_branch_link(
     assert len(comments) == 1
     body = comments[0][comments[0].index("--body") + 1]
     assert wip_url in body
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
+def test_partial_fresh_run_uses_new_branch_wording(
+    mock_run: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """Partial outcome on first run: comment says 'new branch'."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="partial")
+    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-new"
+    post_run("run-p4", task, result, outcome="partial", wip_branch_url=wip_url, resuming_wip=False)
+
+    comments = _comment_cmds(mock_run)
+    body = comments[0][comments[0].index("--body") + 1]
+    assert "new branch" in body
+    assert wip_url in body
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
+def test_partial_resume_run_uses_existing_branch_wording(
+    mock_run: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """Partial outcome on a resume run: comment says 'Existing WIP branch updated'."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="partial")
+    wip_url = "https://github.com/owner/repo/tree/labro-wip/prior-run"
+    post_run("run-p5", task, result, outcome="partial", wip_branch_url=wip_url, resuming_wip=True)
+
+    comments = _comment_cmds(mock_run)
+    body = comments[0][comments[0].index("--body") + 1]
+    assert "Existing WIP branch updated" in body
+    assert wip_url in body

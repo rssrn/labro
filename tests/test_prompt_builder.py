@@ -329,3 +329,38 @@ def test_durable_progress_absent_without_comment_permission() -> None:
     prompt = build_prompt(task)
     role_section = prompt.split(_DIVIDER)[0]
     assert "--edit-last" not in role_section
+
+
+# ── wip_branch resume context ──────────────────────────────────────────────────
+
+
+def test_wip_branch_appears_in_section_4() -> None:
+    """When wip_branch is set, section 4 names the branch and says 'Resuming'."""
+    prompt = build_prompt(_task(), wip_branch="labro-wip/prior-run-id")
+    ctx_section = prompt.split(_DIVIDER)[3]
+    assert "labro-wip/prior-run-id" in ctx_section
+    assert "Resuming" in ctx_section
+
+
+def test_wip_branch_prior_summary_appears_in_section_4() -> None:
+    """When prior_summary is set alongside wip_branch, it appears in section 4."""
+    prompt = build_prompt(
+        _task(),
+        wip_branch="labro-wip/prior-run-id",
+        prior_summary="Fixed the auth token parsing; PR draft opened.",
+    )
+    ctx_section = prompt.split(_DIVIDER)[3]
+    assert "Fixed the auth token parsing" in ctx_section
+
+
+def test_wip_branch_none_no_resume_text() -> None:
+    """When wip_branch is None, no 'Resuming' text appears in section 4."""
+    prompt = build_prompt(_task(), wip_branch=None)
+    ctx_section = prompt.split(_DIVIDER)[3]
+    assert "Resuming" not in ctx_section
+
+
+def test_wip_branch_does_not_create_fifth_section() -> None:
+    """Adding wip_branch must not create a fifth prompt section."""
+    prompt = build_prompt(_task(), wip_branch="labro-wip/run-abc")
+    assert len(prompt.split(_DIVIDER)) == 4
