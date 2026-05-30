@@ -12,9 +12,13 @@
 [![Claude Code](https://img.shields.io/badge/agent-Claude_Code-8A2BE2?logo=anthropic&logoColor=white)](https://claude.ai/code)
 [![GitHub](https://img.shields.io/badge/platform-GitHub-181717?logo=github&logoColor=white)](https://github.com)
 
-Labro is a self-hosted harness that runs AI coding agents on a schedule to do useful, unsupervised maintenance work on software projects — triaging issues, reviewing PRs, investigating alerts, and proposing improvements.
+AI coding agents like Claude Code deliver real productivity gains — but they still demand attention. You have to decide what to work on next, queue the task, watch the run, and review the output. That supervisory overhead is the bottleneck, not the agent.
 
-Named after cleaner wrasse fish stations on coral reefs (_Labroides dimidiatus_), which provide a designated, high-value, symbiotic service to reef inhabitants, Labro acts as an always-available autonomous worker that keeps projects healthy with minimal human supervision.
+Labro is designed to reduce it. It runs Claude Code on a schedule, picks the next task according to your configured priorities, and records the result — without you having to be present. Maintenance work that would otherwise pile up happens in the background: issues get triaged, PRs get reviewed, and alerts get investigated while you focus on something else.
+
+**A natural fit for Claude subscribers with headless credits to use.** From June 2026 Anthropic allocates a [monthly pool of Agent SDK credits](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) to Pro, Max, Team, and Enterprise plan holders for headless/programmatic use — separate from interactive chat usage. Unused credits don't roll over at the end of each billing cycle. Labro gives you a concrete, low-risk way to put them to work on your own repos rather than letting them expire.
+
+Named after cleaner wrasse fish stations on coral reefs (_Labroides dimidiatus_), which provide a designated, high-value, symbiotic service to reef inhabitants, Labro acts as an always-available autonomous worker that keeps your projects healthy with minimal human supervision.
 
 The operator configures which projects to monitor, what tasks to prioritise, which agent and model to use per task type, and what actions the agent is permitted to take. The harness is deterministic and auditable — it selects a task, constructs a prompt, invokes the agent, records the result, and gets out of the way.
 
