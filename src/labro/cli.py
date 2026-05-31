@@ -35,7 +35,7 @@ import labro.post_run as post_run_mod
 import labro.store as store_mod
 from labro.agents.claude_code import ClaudeCodeAgent
 from labro.config.loader import ConfigError, load_config
-from labro.config.schema import LabroConfig, ProjectConfig
+from labro.config.schema import LabroConfig, PermittedAction, ProjectConfig
 from labro.models import AgentResult, Task
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
@@ -352,7 +352,17 @@ def _cmd_run_live(
         # ── WIP preservation (non-success outcomes) ────────────────────────────
         wip_branch_url: str | None = None
         if outcome != "success":
-            wip_branch_url = preserve_wip(repo_path, task.repo, run_id)
+            # For session_limit_hit: only attempt WIP preservation if the agent
+            # produced output (it ran at least some turns) AND the task config
+            # permits pushing (so the harness has write access to the repo).
+            if failure_reason == "session_limit_hit" and (
+                agent_result is None
+                or agent_result.output_tokens == 0
+                or PermittedAction.PUSH_DEFAULT not in task.permitted_actions
+            ):
+                pass  # skip WIP preservation — issue will be re-queued as-is
+            else:
+                wip_branch_url = preserve_wip(repo_path, task.repo, run_id)
 
         # ── Post-run label transitions ─────────────────────────────────────────
         post_run_mod.post_run(

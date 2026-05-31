@@ -270,6 +270,53 @@ def test_failure_with_wip_url_appends_branch_link(
 
 @patch("labro.post_run._ensure_labels")
 @patch("labro.post_run.subprocess.run")
+def test_session_limit_no_output_skips_labels_posts_comment(
+    mock_run: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """session_limit_hit with no WIP: no ai-failed label, comment posted, issue stays pickable."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="failure", failure_reason="session_limit_hit")
+    post_run("run-sl1", task, result, outcome="failure")
+
+    # No label edit — issue must remain pickable
+    edits = _edit_cmds(mock_run)
+    assert not any("ai-failed" in " ".join(cmd) for cmd in edits)
+    assert not any("ai-contributed" in " ".join(cmd) for cmd in edits)
+
+    # A comment is posted explaining the situation
+    comments = _comment_cmds(mock_run)
+    assert len(comments) == 1
+    body = comments[0][comments[0].index("--body") + 1]
+    assert "session limit" in body.lower()
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
+def test_session_limit_with_wip_applies_handover_labels(
+    mock_run: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """session_limit_hit with a WIP branch: ai-handover label applied, handover comment posted."""
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task()
+    result = _make_result(outcome="failure", failure_reason="session_limit_hit")
+    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-sl2"
+    post_run("run-sl2", task, result, outcome="failure", wip_branch_url=wip_url)
+
+    edits = _edit_cmds(mock_run)
+    assert any("ai-handover" in " ".join(cmd) for cmd in edits)
+    assert not any("ai-failed" in " ".join(cmd) for cmd in edits)
+
+    comments = _comment_cmds(mock_run)
+    assert len(comments) == 1
+    body = comments[0][comments[0].index("--body") + 1]
+    assert wip_url in body
+    assert "session limit" in body.lower()
+    assert "ai-handover" in body
+
+
+@patch("labro.post_run._ensure_labels")
+@patch("labro.post_run.subprocess.run")
 def test_partial_fresh_run_uses_new_branch_wording(
     mock_run: MagicMock, _mock_ensure: MagicMock
 ) -> None:

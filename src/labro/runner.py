@@ -98,6 +98,11 @@ JSON_SCHEMA_STR: str = json.dumps(
 
 _VALID_OUTCOMES = {"success", "failure", "partial"}
 
+# Substring matched (case-insensitive) against the ``result`` field to detect
+# subscription session-limit exhaustion.  Claude returns is_error=True with
+# subtype="success" in this case, so we can't rely on subtype alone.
+_SESSION_LIMIT_MARKER = "session limit"
+
 
 class RunnerTimeoutError(Exception):
     """Raised when the ``claude`` subprocess exceeds its configured timeout."""
@@ -238,20 +243,28 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
         )
         if stderr:
             _log.warning("claude stderr: %s", stderr.decode(errors="replace"))
-        # Salvage cost/token data and the agent's last message. subtype==error_max_turns
-        # means the agent was cut short by the turn limit → partial; any other missing-SO
-        # case is a generic failure.
+        # Salvage cost/token data and the agent's last message.
         result_text: str = str(response.get("result") or "")
-        if subtype == "error_max_turns":
+        if _SESSION_LIMIT_MARKER in result_text.lower():
+            # Subscription session limit exhausted before the agent started (or mid-run).
+            # subtype is "success" here, which is misleading — use a clear slug instead.
+            _log.warning("session limit hit: %s", result_text)
+            so_outcome = "failure"
+            so_summary = result_text or "Session limit reached."
+            so_failure_reason: str | None = "session_limit_hit"
+        elif subtype == "error_max_turns":
+            # Turn limit hit → partial; agent may have done useful work.
             so_outcome = "partial"
             so_summary = result_text or "Agent reached the turn limit before completing the task."
+            so_failure_reason = subtype
         else:
             so_outcome = "failure"
             so_summary = result_text or "Agent terminated without a structured result."
+            so_failure_reason = subtype or None
         return AgentResult(
             outcome=so_outcome,
             summary=so_summary,
-            failure_reason=subtype or None,
+            failure_reason=so_failure_reason,
             is_error=is_error,
             num_turns=num_turns,
             total_cost_usd=total_cost_usd,

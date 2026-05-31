@@ -603,3 +603,139 @@ def test_wip_branch_not_found_clears_resume_context(tmp_path: Path) -> None:
     assert build_kwargs.get("prior_summary") is None
 
     conn.close()
+
+
+def _make_task_with_push(project_name: str = "labro") -> Task:
+    """Task with PUSH_DEFAULT permitted — required for WIP preservation on session limit."""
+    return Task(
+        task_id="test-task-id",
+        source="gh-label",
+        description="#1: Fix something\n\nBody text.",
+        permitted_actions=[PermittedAction.COMMENT_ON_ISSUE, PermittedAction.PUSH_DEFAULT],
+        repo="org/repo",
+        item_type="issue",
+        item_number=1,
+        item_url="https://github.com/org/repo/issues/1",
+        source_label="ai-dev",
+        done_label="ai-dev-done",
+        grafana_rule_uid=None,
+    )
+
+
+def test_session_limit_zero_tokens_skips_wip_preservation(tmp_path: Path) -> None:
+    """session_limit_hit with output_tokens=0: preserve_wip must NOT be called."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task_with_push()
+    agent_cfg = _make_agent_cfg()
+    # Simulate an immediate session-limit hit: no output tokens
+    agent_result = AgentResult(
+        outcome="failure",
+        summary="You've hit your session limit · resets 9:40am (UTC)",
+        failure_reason="session_limit_hit",
+        output_tokens=0,
+    )
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
+        patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.post_run"),
+    ):
+        MockAgent.return_value.invoke.return_value = agent_result
+        _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    mock_preserve.assert_not_called()
+    conn.close()
+
+
+def test_session_limit_with_output_tokens_and_push_perm_preserves_wip(tmp_path: Path) -> None:
+    """session_limit_hit with output_tokens>0 and PUSH_DEFAULT: preserve_wip IS called."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    repo_path = tmp_path / "repos" / "org" / "repo"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task_with_push()
+    agent_cfg = _make_agent_cfg()
+    agent_result = AgentResult(
+        outcome="failure",
+        summary="You've hit your session limit · resets 9:40am (UTC)",
+        failure_reason="session_limit_hit",
+        output_tokens=232,
+    )
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
+        patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.post_run"),
+    ):
+        MockAgent.return_value.invoke.return_value = agent_result
+        _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    mock_preserve.assert_called_once()
+    conn.close()
+
+
+def test_session_limit_no_push_perm_skips_wip_preservation(tmp_path: Path) -> None:
+    """session_limit_hit with output_tokens>0 but no PUSH_DEFAULT: preserve_wip is NOT called."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()  # no PUSH_DEFAULT
+    agent_cfg = _make_agent_cfg()
+    agent_result = AgentResult(
+        outcome="failure",
+        summary="You've hit your session limit · resets 9:40am (UTC)",
+        failure_reason="session_limit_hit",
+        output_tokens=100,
+    )
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
+        patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
+        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.post_run"),
+    ):
+        MockAgent.return_value.invoke.return_value = agent_result
+        _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    mock_preserve.assert_not_called()
+    conn.close()

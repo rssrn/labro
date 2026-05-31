@@ -245,6 +245,65 @@ def test_error_max_turns_returns_partial() -> None:
     assert result.cache_write_tokens == 10
 
 
+def test_session_limit_hit_returns_failure_with_slug() -> None:
+    """Session-limit response (is_error=True, subtype='success') maps to session_limit_hit slug."""
+    payload = json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "num_turns": 1,
+            "total_cost_usd": 0.0,
+            "duration_ms": 200,
+            "result": "You've hit your session limit · resets 9:40am (UTC)",
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+        }
+    ).encode()
+
+    with patch("subprocess.Popen") as mock_popen_cls:
+        mock_popen_cls.return_value = _mock_popen(payload)
+        result = run_claude("prompt", _BASE_CONFIG)
+
+    assert result.outcome == "failure"
+    assert result.failure_reason == "session_limit_hit"
+    assert "session limit" in result.summary.lower()
+
+
+def test_session_limit_mid_run_preserves_token_counts() -> None:
+    """Session limit hit after partial work: token counts are captured."""
+    payload = json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "num_turns": 3,
+            "total_cost_usd": 0.091,
+            "duration_ms": 5000,
+            "result": "You've hit your session limit · resets 9:40am (UTC)",
+            "usage": {
+                "input_tokens": 3,
+                "output_tokens": 232,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 22520,
+            },
+        }
+    ).encode()
+
+    with patch("subprocess.Popen") as mock_popen_cls:
+        mock_popen_cls.return_value = _mock_popen(payload)
+        result = run_claude("prompt", _BASE_CONFIG)
+
+    assert result.failure_reason == "session_limit_hit"
+    assert result.output_tokens == 232
+    assert result.cache_write_tokens == 22520
+    assert result.total_cost_usd == pytest.approx(0.091)
+
+
 def test_missing_so_non_max_turns_returns_failure() -> None:
     """Non-max-turns subtype with no structured_output returns outcome='failure'."""
     payload = json.dumps(

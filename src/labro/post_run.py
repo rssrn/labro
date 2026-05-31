@@ -127,6 +127,34 @@ def post_run(
                 parts.append(f"\n\nWork in progress preserved on new branch: {wip_branch_url}")
         parts.append("\n\nRemove the `ai-handover` label to re-queue this item.")
         _gh_comment(item_type, item_number, repo, "".join(parts))
+    elif agent_result is not None and agent_result.failure_reason == "session_limit_hit":
+        # Session limit was hit before (or part-way through) the run.  The issue was
+        # never fully worked on, so we must not block re-queuing with ai-failed.
+        if wip_branch_url:
+            # Agent did partial work before hitting the limit — treat like a partial run.
+            _gh_edit(
+                item_type, item_number, repo, add=[_AI_HANDOVER_LABEL, "ai-contributed"], remove=[]
+            )
+            parts = [
+                f"Labro's agent (`{agent_name}`) hit the session limit"
+                f" mid-run on this {item_type}."
+            ]
+            if agent_result.summary:
+                parts.append(f"\n\n**Progress so far:**\n{agent_result.summary}")
+            parts.append(f"\n\nWork in progress preserved on branch: {wip_branch_url}")
+            parts.append("\n\nRemove the `ai-handover` label to re-queue this item.")
+            _gh_comment(item_type, item_number, repo, "".join(parts))
+        else:
+            # Agent produced no output — issue is untouched, leave labels alone so it
+            # will be picked up automatically when budget resets.
+            _gh_comment(
+                item_type,
+                item_number,
+                repo,
+                f"Labro skipped this {item_type}: the Claude session limit was reached"
+                f" ({agent_result.summary}). "
+                f"It will be re-queued automatically once the session resets.",
+            )
     else:
         _gh_edit(item_type, item_number, repo, add=["ai-failed", "ai-contributed"], remove=[])
         if agent_result is not None:
