@@ -172,7 +172,7 @@ Harness
 | `labro check` | Pre-flight health check: validates config, checks all required env vars are set, verifies GitHub token has `repo` or `public_repo` scope (via `gh auth status`; may produce false negatives for fine-grained PATs), confirms required labels exist in each configured repo, and — if `claude_assignee` is set — verifies that user is a collaborator on each configured repo (via `gh api repos/{repo}/collaborators/{user}`). Reports pass/fail per check. Safe to run at any time — makes no writes. |
 | `labro list-locks` | Show all currently held project locks with `project`, `locked_at`, and age. |
 | `labro unlock <project>` | Manually release a stale lock for a project. |
-| `labro review` | Print a table of recent execution records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `task_source`, `outcome`, `turns_used`, `total_cost_usd`, `task_description` (truncated). Failures include `failure_reason`. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|skipped>`. Plain text to stdout. |
+| `labro review` | Print a table of recent execution records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `outcome`, `task_source`, `item_url` (truncated), `duration_s`, `total_cost_usd`, `turns_used`, `summary` (truncated). Footer shows total cost and token usage. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|partial\|skipped>`, `--db-path PATH`. Plain text to stdout. |
 
 ### Key Interfaces
 

@@ -69,5 +69,4 @@ if you skip it, requiring a second commit attempt.
 
 ## Current Milestone
 
-- **M1–M4 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment.
-- **M5 in progress** — operator CLI: `labro init`, `labro check`, `labro review`, `labro list-locks`, `labro unlock`.
+- **M1–M5 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment, operator CLI.
