@@ -361,6 +361,8 @@ Labro supports two production deployment modes:
 
 **VPS with crond (always-on)** — run Labro as a long-lived container on a server. The container generates a crontab at startup from `labro.toml` and runs `crond` as PID 1. Use this for sub-hourly schedules or when you want a persistent process.
 
+> **Entrypoint behaviour:** the two modes are driven by whether you pass arguments to the container. With no arguments, `entrypoint.sh` runs `labro gen-crontab`, writes `/etc/cron.d/labro`, and execs `crond -f` as PID 1 — no cron job is installed until this happens. With any arguments, the entrypoint skips cron entirely and execs the given command directly (e.g. `labro run my-project`). This is how the GitHub Actions pattern avoids touching cron at all.
+
 ### GHCR image
 
 Pre-built images are published to GHCR on every version tag:
