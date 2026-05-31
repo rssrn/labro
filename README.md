@@ -361,7 +361,22 @@ Labro supports two production deployment modes:
 
 **VPS with crond (always-on)** — run Labro as a long-lived container on a server. The container generates a crontab at startup from `labro.toml` and runs `crond` as PID 1. Use this for sub-hourly schedules or when you want a persistent process.
 
-> **Entrypoint behaviour:** the two modes are driven by whether you pass arguments to the container. With no arguments, `entrypoint.sh` runs `labro gen-crontab`, writes `/etc/cron.d/labro`, and execs `crond -f` as PID 1 — no cron job is installed until this happens. With any arguments, the entrypoint skips cron entirely and execs the given command directly (e.g. `labro run my-project`). This is how the GitHub Actions pattern avoids touching cron at all.
+> **Entrypoint behaviour:** the two modes are driven by whether you pass a command to `docker run`.
+> - **No command** (VPS crond mode): `docker run labro:latest` — `entrypoint.sh` runs `labro gen-crontab`, writes `/etc/cron.d/labro`, and execs `crond -f` as PID 1.
+> - **With a command** (one-shot / GitHub Actions): `docker run labro:latest labro run my-project` — the entrypoint skips cron entirely and execs the given command directly.
+>
+> No cron job is installed until the no-command path runs; the one-shot path never touches cron at all.
+>
+> **Local testing — persistent container, no cron:** pass `sleep infinity` as the command to keep the container alive without installing a crontab, then invoke runs manually with `docker exec`:
+> ```bash
+> docker run -d --name labro-test \
+>   -e GH_TOKEN=<token> \
+>   -e CLAUDE_CODE_OAUTH_TOKEN=<token> \
+>   -v "$PWD/labro.toml:/app/labro.toml:ro" \
+>   labro:latest sleep infinity
+>
+> docker exec labro-test labro run my-project --dry-run
+> ```
 
 ### GHCR image
 
