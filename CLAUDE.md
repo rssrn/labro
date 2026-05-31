@@ -7,11 +7,12 @@ Labro is a self-hosted harness that runs Claude Code as a subprocess to perform 
 ## Tech Stack
 
 - **Language**: Python 3.12+, managed with `uv`
-- **CLI**: Typer (`labro run <project> --dry-run`)
+- **CLI**: argparse (`labro run <project>`, `labro gen-crontab`)
 - **Config**: TOML (`labro.toml`), validated with Pydantic 2
 - **GitHub**: `gh` CLI subprocess (not a Python SDK)
 - **Agent**: Claude Code CLI subprocess
-- **Tests**: pytest (70% coverage floor), ruff, mypy strict, bandit
+- **Tests**: pytest (80% coverage floor), ruff, mypy strict, bandit
+- **Deployment**: Docker (`Dockerfile` + `entrypoint.sh`), image published to GHCR via `publish.yml`
 
 ## Key Domain Terms
 
@@ -27,13 +28,19 @@ See `CONTEXT.md` for the full glossary. The critical ones:
 
 ```
 src/labro/
-  cli.py              # entry point
-  models.py           # Task, AgentConfig
+  cli.py              # entry point (argparse)
+  models.py           # Task, AgentConfig, ExecutionRecord
   picker.py           # priority-stack evaluator
   prompt_builder.py   # 4-section prompt constructor
+  runner.py           # live run loop (lock → budget → pick → repo → agent → post-run)
+  store.py            # SQLite (WAL): runs, project_locks, items_touched
+  logger.py           # structured run logging
+  repo.py             # repo preparation (clone/reset/checkout)
+  post_run.py         # label transitions, items_touched writes
+  assignee.py         # assignee resolution helpers
   config/             # schema.py (Pydantic), loader.py
   task_sources/       # base.py, gh_label.py
-  agents/             # placeholder (M2+)
+  agents/             # base.py, claude_code.py
 tests/
 docs/                 # PRD, ARCHITECTURE, ROADMAP, ADRs
 ```
@@ -46,6 +53,9 @@ uv run ruff check .                    # lint
 uv run ruff format .                   # format (pre-commit hook enforces this — run before committing)
 uv run mypy src/                       # type-check
 labro run <project> --dry-run          # dry-run
+labro run <project>                    # live run
+labro gen-crontab                      # emit crontab entries for all projects
+docker build -t labro .                # build container image
 ```
 
 **Before every commit:** run `uv run ruff format .` — the pre-commit hook will reformat and abort
@@ -59,5 +69,5 @@ if you skip it, requiring a second commit attempt.
 
 ## Current Milestone
 
-**M1 complete** — dry-run, config loading, gh-label task source, prompt builder.
-**M2 in progress** — live agent invocation, lock management, SQLite logging, crond scheduling.
+- **M1–M4 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment.
+- **M5 in progress** — operator CLI: `labro init`, `labro check`, `labro review`, `labro list-locks`, `labro unlock`.
