@@ -22,6 +22,15 @@ Named after cleaner wrasse fish stations on coral reefs (_Labroides dimidiatus_)
 
 The operator configures which projects to monitor, what tasks to prioritise, which agent and model to use per task type, and what actions the agent is permitted to take. The harness is deterministic and auditable — it selects a task, constructs a prompt, invokes the agent, records the result, and gets out of the way.
 
+- **Scheduled, unattended runs** — cron-driven via GitHub Actions or a VPS; no one needs to be at the keyboard
+- **Priority-based task picking** — configurable label rules and actor rules determine what gets worked on first
+- **Flexible deployment** — run as a long-lived VPS container with crond, or as a one-shot container per scheduled GitHub Actions job; both patterns are documented with ready-to-use config
+- **Per-project daily spend cap** — set `daily_budget_usd` to hard-stop spending once the limit is reached; the skipped run is recorded so accounting stays accurate
+- **Turn-limit handover** — when the agent exhausts its turn budget mid-task, Labro commits any in-progress edits to a `labro-wip/<run-id>` branch, posts a handover comment on the issue with the WIP branch link, and parks the item under `ai-handover` until a human re-queues it — no code is lost and no credits are silently wasted on a retry
+- **Graceful failure labelling** — success, partial, and failure outcomes each get distinct GitHub labels so the state of every item is visible at a glance without reading run logs
+- **Full audit trail** — every run writes outcome, cost, token usage, and actions to a local SQLite database
+- **Emergency pause** — drop a `LABRO_DISABLED` flag file to stop new runs instantly without restarting containers; any run already in progress finishes normally
+
 ---
 
 There are two ways to run Labro: **Docker** (recommended for production and first-time use) and **local Python** (recommended for development and contributing).
