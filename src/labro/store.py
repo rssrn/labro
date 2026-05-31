@@ -276,6 +276,47 @@ def get_prior_wip_run(conn: sqlite3.Connection, item_url: str) -> tuple[str, str
     return row["wip_branch_url"], row["summary"] or ""
 
 
+def list_locks(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Return all rows from project_locks ordered by locked_at ASC.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    return conn.execute(
+        "SELECT project, locked_at FROM project_locks ORDER BY locked_at ASC"
+    ).fetchall()
+
+
+def query_runs(
+    conn: sqlite3.Connection,
+    *,
+    project: str | None = None,
+    outcome: str | None = None,
+    limit: int = 20,
+) -> list[sqlite3.Row]:
+    """Return up to *limit* rows from runs (newest first) with optional filters.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    clauses: list[str] = []
+    params: list[str | int] = []
+    if project is not None:
+        clauses.append("project = ?")
+        params.append(project)
+    if outcome is not None:
+        clauses.append("outcome = ?")
+        params.append(outcome)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(limit)
+    # clauses are hardcoded strings — no user input in the WHERE clause.
+    sql = (
+        f"SELECT started_at, project, outcome, task_source, item_url, duration_s, "  # noqa: S608
+        f"total_cost_usd, turns_used, summary, input_tokens, output_tokens, "
+        f"cache_read_tokens, cache_write_tokens "
+        f"FROM runs {where} ORDER BY started_at DESC LIMIT ?"  # nosec B608
+    )
+    return conn.execute(sql, params).fetchall()
+
+
 def get_daily_spend(conn: sqlite3.Connection, project: str) -> float:
     """Return the total cost in USD for *project* runs started today (UTC).
 

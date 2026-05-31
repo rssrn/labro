@@ -21,10 +21,14 @@ Live path (M2+):
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import logging.handlers
 import os
+import subprocess
 import sys
+import urllib.error
+import urllib.request
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,8 +38,8 @@ import labro.logger as logger_mod
 import labro.post_run as post_run_mod
 import labro.store as store_mod
 from labro.agents.claude_code import ClaudeCodeAgent
-from labro.config.loader import ConfigError, load_config
-from labro.config.schema import LabroConfig, PermittedAction, ProjectConfig
+from labro.config.loader import ConfigError, load_config, required_env_vars
+from labro.config.schema import GhLabelSource, LabroConfig, PermittedAction, ProjectConfig
 from labro.models import AgentResult, Task
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
@@ -410,6 +414,387 @@ def _cmd_run_live(
         conn.close()
 
 
+# ── Operator helpers ───────────────────────────────────────────────────────────
+
+_CLAUDE_AUTH_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def _run_gh(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a gh CLI command (list-form, shell=False) and return the result.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    return subprocess.run(cmd, capture_output=True, text=True, shell=False)
+
+
+def _collect_labels_for_project(project: ProjectConfig, _config: LabroConfig) -> list[str]:
+    """Return the deduplicated list of GitHub labels that must exist for *project*.
+
+    Always includes ai-failed and ai-contributed; also collects label/done_label
+    from each gh-label source's rules. shared_rules are already expanded by the
+    Pydantic validator, so rule.label / rule.done_label are always populated.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    seen: set[str] = set()
+    labels: list[str] = []
+
+    def _add(label: str | None) -> None:
+        if label and label not in seen:
+            seen.add(label)
+            labels.append(label)
+
+    _add("ai-failed")
+    _add("ai-contributed")
+
+    for source in project.task_sources:
+        if isinstance(source, GhLabelSource):
+            for lr in source.label_rules:
+                _add(lr.label)
+                _add(lr.done_label)
+            for ar in source.actor_rules:
+                _add(ar.done_label)
+
+    return labels
+
+
+def _trunc(s: str | None, n: int) -> str:
+    """Truncate *s* to *n* characters, appending … if needed."""
+    if not s:
+        return ""
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+# ── labro init ─────────────────────────────────────────────────────────────────
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    """Create (or update) GitHub labels for all configured projects.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    projects = [p for p in config.projects if p.enabled]
+    if args.project:
+        projects = [p for p in projects if p.name == args.project]
+        if not projects:
+            names = ", ".join(p.name for p in config.projects) or "(none)"
+            print(
+                f"error: no project named {args.project!r}. Available: {names}",
+                file=sys.stderr,
+            )
+            return 1
+
+    had_error = False
+    total_labels = 0
+    for project in projects:
+        for label in _collect_labels_for_project(project, config):
+            result = _run_gh(["gh", "label", "create", label, "--repo", project.repo, "--force"])
+            if result.returncode != 0:
+                print(f"WARN  [{project.name}] {label}: {result.stderr.strip()}")
+                had_error = True
+            else:
+                print(f"OK    [{project.name}] {label}")
+            total_labels += 1
+
+    print(f"\nCreated/verified {total_labels} label(s) across {len(projects)} project(s).")
+    return 1 if had_error else 0
+
+
+# ── labro check ────────────────────────────────────────────────────────────────
+
+
+def _check_anthropic_api_key(api_key: str) -> tuple[str, str]:
+    """Validate ANTHROPIC_API_KEY by calling GET /v1/models (no tokens spent).
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/models",
+        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10):  # noqa: S310
+            return ("OK  ", "ANTHROPIC_API_KEY: valid (GET /v1/models succeeded)")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            return ("FAIL", "ANTHROPIC_API_KEY: invalid or expired (401 Unauthorized)")
+        return ("WARN", f"ANTHROPIC_API_KEY: unexpected HTTP {exc.code} from /v1/models")
+    except Exception as exc:
+        return ("WARN", f"ANTHROPIC_API_KEY: could not reach api.anthropic.com: {exc}")
+
+
+def _cmd_check(args: argparse.Namespace) -> int:
+    """Pre-flight health check: config, env vars, labels, collaborator.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"FAIL config: {exc}")
+        return 1
+
+    results: list[tuple[str, str]] = []
+
+    # Env vars (excluding Claude auth — checked separately below)
+    for var in required_env_vars(config):
+        if not os.environ.get(var):
+            results.append(("FAIL", f"env var {var} not set"))
+        else:
+            results.append(("OK  ", f"env var {var}"))
+
+    # Claude auth
+    if not any(os.environ.get(v) for v in _CLAUDE_AUTH_VARS):
+        results.append(
+            (
+                "FAIL",
+                f"no Claude auth — set {_CLAUDE_AUTH_VARS[0]} or {_CLAUDE_AUTH_VARS[1]}",
+            )
+        )
+    elif os.environ.get("ANTHROPIC_API_KEY"):
+        results.append(_check_anthropic_api_key(os.environ["ANTHROPIC_API_KEY"]))
+    else:
+        # No zero-cost validation path exists for OAuth tokens: `claude auth status`
+        # reports the auth method but does not verify the token value against the API.
+        results.append(
+            ("WARN", "Claude auth (CLAUDE_CODE_OAUTH_TOKEN) — env var present but not validated")
+        )
+
+    # GitHub token connectivity
+    gh_auth = _run_gh(["gh", "auth", "status"])
+    if gh_auth.returncode == 0:
+        results.append(("OK  ", "gh auth status: authenticated"))
+    else:
+        msg = gh_auth.stderr.strip() or "not authenticated"
+        results.append(("FAIL", f"gh auth status: {msg}"))
+
+    # Per-project checks
+    projects = [p for p in config.projects if p.enabled]
+    if args.project:
+        projects = [p for p in projects if p.name == args.project]
+
+    for project in projects:
+        expected = set(_collect_labels_for_project(project, config))
+
+        gh_result = _run_gh(
+            ["gh", "label", "list", "--repo", project.repo, "--json", "name", "--limit", "200"]
+        )
+        if gh_result.returncode != 0:
+            results.append(
+                ("FAIL", f"[{project.name}] gh label list failed: {gh_result.stderr.strip()}")
+            )
+        else:
+            existing = {obj["name"] for obj in json.loads(gh_result.stdout)}
+            for label in sorted(expected - existing):
+                results.append(("FAIL", f"[{project.name}] label missing: {label!r}"))
+            if not (expected - existing):
+                results.append(("OK  ", f"[{project.name}] all {len(expected)} labels present"))
+
+        if config.claude_assignee:
+            collab_result = _run_gh(
+                [
+                    "gh",
+                    "api",
+                    f"repos/{project.repo}/collaborators/{config.claude_assignee}",
+                ]
+            )
+            if collab_result.returncode == 0:
+                results.append(
+                    (
+                        "OK  ",
+                        f"[{project.name}] claude_assignee {config.claude_assignee!r}"
+                        " is a collaborator",
+                    )
+                )
+            else:
+                results.append(
+                    (
+                        "FAIL",
+                        f"[{project.name}] claude_assignee {config.claude_assignee!r}"
+                        " not a collaborator (or gh api failed)",
+                    )
+                )
+
+    for status, message in results:
+        print(f"{status} {message}")
+
+    return 1 if any(s.strip() == "FAIL" for s, _ in results) else 0
+
+
+# ── labro review ───────────────────────────────────────────────────────────────
+
+
+def _cmd_review(args: argparse.Namespace) -> int:
+    """Print tabular run history from SQLite.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    db_path: Path = args.db_path
+    if not db_path.exists():
+        print(f"No database at {db_path}. Run 'labro run' to create it.")
+        return 0
+
+    conn = store_mod.open_db(db_path)
+    rows = store_mod.query_runs(
+        conn,
+        project=args.project,
+        outcome=args.outcome,
+        limit=args.limit,
+    )
+    conn.close()
+
+    if not rows:
+        print("No runs found.")
+        return 0
+
+    # Column widths
+    W = (16, 18, 9, 14, 40, 8, 9, 6, 55)
+    headers = (
+        "started_at",
+        "project",
+        "outcome",
+        "source",
+        "item_url",
+        "dur_s",
+        "cost_usd",
+        "turns",
+        "summary",
+    )
+
+    def _row_line(vals: tuple[str, ...]) -> str:
+        parts = []
+        for i, v in enumerate(vals):
+            parts.append(v.ljust(W[i]) if i < len(W) - 1 else v)
+        return "  ".join(parts)
+
+    sep = "  ".join("-" * w for w in W)
+    print(_row_line(headers))
+    print(sep)
+
+    total_cost = 0.0
+    total_tokens = 0
+    for row in rows:
+        started = (row["started_at"] or "")[:16]
+        cost = row["total_cost_usd"] or 0.0
+        tokens = (
+            (row["input_tokens"] or 0)
+            + (row["output_tokens"] or 0)
+            + (row["cache_read_tokens"] or 0)
+            + (row["cache_write_tokens"] or 0)
+        )
+        total_cost += cost
+        total_tokens += tokens
+
+        dur = f"{row['duration_s']:.1f}" if row["duration_s"] is not None else "-"
+        cost_str = f"${cost:.4f}"
+        turns = str(row["turns_used"] or "-")
+
+        vals = (
+            started,
+            _trunc(row["project"], W[1]),
+            _trunc(row["outcome"], W[2]),
+            _trunc(row["task_source"], W[3]),
+            _trunc(row["item_url"], W[4]),
+            dur.rjust(W[5]),
+            cost_str.rjust(W[6]),
+            turns.rjust(W[7]),
+            _trunc(row["summary"], W[8]),
+        )
+        print(_row_line(vals))
+
+    print(
+        f"\n{len(rows)} run(s) shown  |  total cost: ${total_cost:.4f}"
+        f"  |  total tokens: {total_tokens:,}"
+    )
+    return 0
+
+
+# ── labro list-locks ───────────────────────────────────────────────────────────
+
+
+def _cmd_list_locks(args: argparse.Namespace) -> int:
+    """Show currently held project locks with age.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    db_path: Path = args.db_path
+    if not db_path.exists():
+        print(f"No database at {db_path}.")
+        return 0
+
+    config: LabroConfig | None = None
+    try:
+        config = load_config(args.config)
+    except ConfigError:
+        pass  # best-effort; stale detection falls back to defaults
+
+    default_timeout_s = config.defaults.timeout_s if config else 600
+
+    conn = store_mod.open_db(db_path)
+    rows = store_mod.list_locks(conn)
+    conn.close()
+
+    if not rows:
+        print("No locks held.")
+        return 0
+
+    now = datetime.now(UTC)
+    for row in rows:
+        locked_at_str: str = row["locked_at"]
+        locked_at = datetime.fromisoformat(locked_at_str.replace("Z", "+00:00"))
+        if locked_at.tzinfo is None:
+            locked_at = locked_at.replace(tzinfo=UTC)
+        age_s = (now - locked_at).total_seconds()
+
+        timeout_s = default_timeout_s
+        if config:
+            proj = _find_project(config, row["project"])
+            if proj and proj.timeout_s is not None:
+                timeout_s = proj.timeout_s
+
+        stale = age_s > timeout_s + 60
+        stale_marker = "  [STALE]" if stale else ""
+        print(f"  {row['project']:<24} locked_at={locked_at_str}  age={age_s:.0f}s{stale_marker}")
+
+    return 0
+
+
+# ── labro unlock ───────────────────────────────────────────────────────────────
+
+
+def _cmd_unlock(args: argparse.Namespace) -> int:
+    """Manually release a stale project lock.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    db_path: Path = args.db_path
+    if not db_path.exists():
+        print(f"No database at {db_path}.")
+        return 0
+
+    conn = store_mod.open_db(db_path)
+
+    row = conn.execute(
+        "SELECT locked_at FROM project_locks WHERE project = ?", (args.project,)
+    ).fetchone()
+
+    store_mod.release_lock(conn, args.project)
+    conn.close()
+
+    if row is not None:
+        print(f"Released lock for {args.project!r} (held since {row['locked_at']}).")
+    else:
+        print(f"No lock held for {args.project!r}.")
+
+    return 0
+
+
 # ── gen-crontab ────────────────────────────────────────────────────────────────
 
 _CRONTAB_HEADER = """\
@@ -525,6 +910,92 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print a /etc/cron.d/labro crontab to stdout (used by entrypoint.sh)",
     )
     gen_crontab_parser.set_defaults(func=_cmd_gen_crontab)
+
+    # ── labro init ────────────────────────────────────────────────────────────
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Create required GitHub labels for all configured projects",
+    )
+    init_parser.add_argument(
+        "--project",
+        metavar="NAME",
+        default=None,
+        help="Init only this project",
+    )
+    init_parser.set_defaults(func=_cmd_init)
+
+    # ── labro check ───────────────────────────────────────────────────────────
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Pre-flight health check: config, env vars, labels, collaborator",
+    )
+    check_parser.add_argument(
+        "--project",
+        metavar="NAME",
+        default=None,
+        help="Check only this project",
+    )
+    check_parser.set_defaults(func=_cmd_check)
+
+    # ── labro review ──────────────────────────────────────────────────────────
+    review_parser = subparsers.add_parser(
+        "review",
+        help="Print tabular run history from SQLite",
+    )
+    review_parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=_default_db_path(),
+        metavar="PATH",
+    )
+    review_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Maximum number of runs to show (default: 20)",
+    )
+    review_parser.add_argument(
+        "--project",
+        metavar="NAME",
+        default=None,
+    )
+    review_parser.add_argument(
+        "--outcome",
+        choices=["success", "failure", "partial", "skipped"],
+        default=None,
+    )
+    review_parser.set_defaults(func=_cmd_review)
+
+    # ── labro list-locks ──────────────────────────────────────────────────────
+    list_locks_parser = subparsers.add_parser(
+        "list-locks",
+        help="Show currently held project locks with age",
+    )
+    list_locks_parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=_default_db_path(),
+        metavar="PATH",
+    )
+    list_locks_parser.set_defaults(func=_cmd_list_locks)
+
+    # ── labro unlock ──────────────────────────────────────────────────────────
+    unlock_parser = subparsers.add_parser(
+        "unlock",
+        help="Manually release a stale project lock",
+    )
+    unlock_parser.add_argument(
+        "project",
+        help="Name of the project whose lock to release",
+    )
+    unlock_parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=_default_db_path(),
+        metavar="PATH",
+    )
+    unlock_parser.set_defaults(func=_cmd_unlock)
 
     return parser
 

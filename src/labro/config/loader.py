@@ -22,7 +22,7 @@ class ConfigError(Exception):
 _CLAUDE_AUTH_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
 
 
-def _required_env_vars(config: LabroConfig) -> list[str]:
+def required_env_vars(config: LabroConfig) -> list[str]:
     """Return the list of env var names that must each be present for this config.
 
     Rules (from ARCHITECTURE §8):
@@ -70,7 +70,7 @@ def load_config(path: Path) -> LabroConfig:
     except Exception as exc:
         raise ConfigError(f"Config validation error: {exc}") from exc
 
-    missing = [var for var in _required_env_vars(config) if not os.environ.get(var)]
+    missing = [var for var in required_env_vars(config) if not os.environ.get(var)]
     if missing:
         raise ConfigError(f"Missing required environment variable(s): {', '.join(missing)}")
 
