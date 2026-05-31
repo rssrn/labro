@@ -119,7 +119,32 @@ docker run --rm \
   labro:latest run my-project --dry-run
 ```
 
-### 4. Validate the `claude` CLI (before live runs)
+### 4. Pre-flight check and label setup
+
+Run `labro check` to validate your config, environment variables, GitHub token connectivity, and that all required labels exist:
+
+```bash
+docker run --rm \
+  -e GH_TOKEN=<your-github-token> \
+  -e CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
+  -v "$PWD/labro.toml:/app/labro.toml:ro" \
+  labro:latest check
+```
+
+Each line of output is prefixed with `OK  `, `WARN`, or `FAIL`. Fix any `FAIL` items before proceeding. `WARN` items (such as the OAuth token check) are informational — Labro will still run.
+
+If labels are missing, create them with `labro init`:
+
+```bash
+docker run --rm \
+  -e GH_TOKEN=<your-github-token> \
+  -v "$PWD/labro.toml:/app/labro.toml:ro" \
+  labro:latest init
+```
+
+This creates every label referenced in `labro.toml` across all configured repos using `gh label create --force` (idempotent — safe to re-run).
+
+### 5. Validate the `claude` CLI (before live runs)
 
 Before running Labro with a live agent (M2+), confirm `claude -p` works inside the container. Use whichever auth route applies to you:
 
@@ -322,22 +347,37 @@ Omit the field (or set it to `0`) to disable the cap. When the budget is exceede
 
 ## Inspecting run records
 
-The SQLite database is at `/data/labro.db` inside the container, bind-mounted to wherever you point `--volume` on the host (e.g. `/tmp/labro-data/labro.db` in the quickstart examples).
+### `labro review` (recommended)
 
-**Everything for one run (host, from a local smoke-test mount):**
+`labro review` prints a formatted table of recent runs directly from the SQLite database:
 
 ```bash
-sqlite3 -column -header /tmp/labro-data/labro.db "
-  SELECT * FROM runs        WHERE run_id = 'a1cf583f-e1e1-4464-993c-b71efa1e279f';
-  SELECT * FROM items_touched WHERE run_id = 'a1cf583f-e1e1-4464-993c-b71efa1e279f';
-"
+docker exec labro labro review --limit 10
+docker exec labro labro review --project my-project --outcome failure
 ```
 
-**Recent runs across all projects:**
+Flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--limit N` | 20 | Maximum runs to show |
+| `--project NAME` | _(all)_ | Filter to one project |
+| `--outcome` | _(all)_ | One of `success`, `failure`, `partial`, `skipped` |
+| `--db-path PATH` | `/data/labro.db` | Override DB path |
+
+The footer shows total runs, total cost, and total token usage across the displayed rows.
+
+### Raw SQLite (advanced)
+
+The database is at `/data/labro.db` inside the container, bind-mounted to wherever you point `--volume` on the host.
+
+**Everything for one run:**
 
 ```bash
-sqlite3 -column -header /data/labro.db \
-  "SELECT run_id, project, outcome, started_at, failure_reason FROM runs ORDER BY started_at DESC LIMIT 20;"
+sqlite3 -column -header /data/labro.db "
+  SELECT * FROM runs          WHERE run_id = '<run_id>';
+  SELECT * FROM items_touched WHERE run_id = '<run_id>';
+"
 ```
 
 **Items touched in a specific run:**
@@ -348,6 +388,64 @@ sqlite3 -column -header /data/labro.db \
 ```
 
 > **Tip:** `-column -header` formats output as aligned columns with a header row. Add `-json` instead for JSON output, or `-csv` for CSV.
+
+---
+
+## Operator CLI Reference
+
+All subcommands read `--config` (default: `$LABRO_CONFIG` or `./labro.toml`) from the global flag.
+
+### `labro init [--project NAME]`
+
+Creates all GitHub labels referenced in `labro.toml` across every enabled project. Uses `gh label create --force` — idempotent, safe to re-run. Exits 1 if any label creation fails (but continues to attempt the rest).
+
+```bash
+labro init                        # all enabled projects
+labro init --project my-project   # one project only
+```
+
+Run this once when onboarding a new project, or after adding new label rules to `labro.toml`.
+
+### `labro check [--project NAME]`
+
+Pre-flight health check — validates config, environment variables, GitHub connectivity, label presence, and (optionally) collaborator access. Read-only, no side effects.
+
+```bash
+labro check
+labro check --project my-project
+```
+
+Each line is prefixed with `OK  `, `WARN`, or `FAIL`. Exits 1 if any `FAIL` is present.
+
+- **`ANTHROPIC_API_KEY`** — validated by calling `GET /v1/models` (no tokens spent)
+- **`CLAUDE_CODE_OAUTH_TOKEN`** — presence only; value cannot be validated without a live API call
+- **`gh auth status`** — confirms the GitHub token is authenticated
+- **Labels** — checks that every label referenced in config exists on each repo
+- **`claude_assignee`** — if set in config, verifies the user is a collaborator on each repo
+
+### `labro review [--limit N] [--project NAME] [--outcome OUTCOME] [--db-path PATH]`
+
+Prints a formatted table of recent runs from SQLite. See [Inspecting run records](#inspecting-run-records) for full flag details.
+
+### `labro list-locks [--db-path PATH]`
+
+Shows currently held project locks with their age. Locks older than `timeout_s + 60` seconds are marked `[STALE]`.
+
+```bash
+labro list-locks
+```
+
+If a lock appears stale (the run that acquired it has clearly finished or crashed), use `labro unlock` to release it.
+
+### `labro unlock <project> [--db-path PATH]`
+
+Manually releases a stale project lock so the next scheduled run can proceed.
+
+```bash
+labro unlock my-project
+```
+
+This is a last-resort recovery tool. Under normal operation locks are released automatically in a `finally` block at the end of every run. A lock only gets stuck if the container was killed mid-run before the `finally` block executed.
 
 ---
 
