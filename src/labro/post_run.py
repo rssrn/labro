@@ -146,14 +146,14 @@ def post_run(
             _gh_comment(item_type, item_number, repo, "".join(parts))
         else:
             # Agent produced no output — issue is untouched, leave labels alone so it
-            # will be picked up automatically when budget resets.
+            # remains eligible for future runs.
             _gh_comment(
                 item_type,
                 item_number,
                 repo,
                 f"Labro skipped this {item_type}: the Claude session limit was reached"
                 f" ({agent_result.summary}). "
-                f"It will be re-queued automatically once the session resets.",
+                f"This {item_type} remains eligible to be picked in future runs.",
             )
     else:
         _gh_edit(item_type, item_number, repo, add=["ai-failed", "ai-contributed"], remove=[])
