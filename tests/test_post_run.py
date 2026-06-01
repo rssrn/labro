@@ -289,6 +289,8 @@ def test_session_limit_no_output_skips_labels_posts_comment(
     assert len(comments) == 1
     body = comments[0][comments[0].index("--body") + 1]
     assert "session limit" in body.lower()
+    assert "remains eligible to be picked in future runs" in body
+    assert "re-queued automatically" not in body
 
 
 @patch("labro.post_run._ensure_labels")
