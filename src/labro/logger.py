@@ -14,6 +14,22 @@ import sqlite3
 from labro.models import AgentConfig, AgentResult, Task
 
 
+def _parse_model_slug(slug: str) -> tuple[str, str | None, str | None]:
+    """Parse provider/model@effort slug into (provider, model_name, effort).
+
+    model_name and effort are None when absent from the slug.
+    """
+    effort: str | None = None
+    if "@" in slug:
+        rest, effort = slug.rsplit("@", 1)
+    else:
+        rest = slug
+    if "/" in rest:
+        provider, model_name = rest.split("/", 1)
+        return provider, model_name, effort
+    return rest, None, effort
+
+
 def write_run(
     conn: sqlite3.Connection,
     *,
@@ -61,13 +77,17 @@ def write_run(
 
     # Pre-extract optional fields to keep the INSERT dict within line-length limits.
     ar = agent_result
+    slug_parts = (
+        _parse_model_slug(agent_cfg.model) if agent_cfg is not None else (None, None, None)
+    )
+    provider, model_name, effort = slug_parts
     with conn:
         conn.execute(
             """
             INSERT INTO runs (
                 run_id, project,
                 task_source, task_description, item_url, trigger_label,
-                agent, model,
+                agent, provider, model, effort,
                 started_at, ended_at, duration_s,
                 outcome,
                 turns_used, total_cost_usd,
@@ -78,7 +98,7 @@ def write_run(
             ) VALUES (
                 :run_id, :project,
                 :task_source, :task_description, :item_url, :trigger_label,
-                :agent, :model,
+                :agent, :provider, :model, :effort,
                 :started_at, :ended_at, :duration_s,
                 :outcome,
                 :turns_used, :total_cost_usd,
@@ -96,7 +116,9 @@ def write_run(
                 "item_url": task.item_url if task is not None else None,
                 "trigger_label": task.source_label if task is not None else None,
                 "agent": agent_cfg.agent if agent_cfg is not None else None,
-                "model": agent_cfg.model if agent_cfg is not None else None,
+                "provider": provider,
+                "model": model_name,
+                "effort": effort,
                 "started_at": started_at,
                 "ended_at": ended_at,
                 "duration_s": duration_s,

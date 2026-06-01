@@ -107,7 +107,9 @@ def test_write_run_success() -> None:
     assert row["item_url"] == "https://github.com/owner/repo/issues/42"
     assert row["trigger_label"] == "ai-dev"
     assert row["agent"] == "claude-code"
-    assert row["model"] == "anthropic/claude-sonnet-4-6"
+    assert row["provider"] == "anthropic"
+    assert row["model"] == "claude-sonnet-4-6"
+    assert row["effort"] is None
     assert row["started_at"] == "2026-05-27T10:00:00Z"
     assert row["ended_at"] == "2026-05-27T10:00:04Z"
     assert row["outcome"] == "success"
@@ -120,6 +122,52 @@ def test_write_run_success() -> None:
     assert row["summary"] == "Closed the flaky test issue."
     assert row["failure_reason"] is None
     assert abs(row["duration_s"] - 4.5) < 1e-9
+
+
+def test_write_run_slug_with_effort() -> None:
+    """provider, model, and effort are each stored separately from the slug."""
+    conn = _memory_db()
+    write_run(
+        conn,
+        run_id="run-effort",
+        project="myproject",
+        task=_make_task(),
+        agent_cfg=_make_agent_cfg(model="anthropic/claude-opus-4-7@high"),
+        agent_result=_make_agent_result(),
+        outcome="success",
+        failure_reason=None,
+        started_at="2026-05-27T10:00:00Z",
+        ended_at="2026-05-27T10:00:04Z",
+    )
+    row = conn.execute(
+        "SELECT provider, model, effort FROM runs WHERE run_id = 'run-effort'"
+    ).fetchone()
+    assert row["provider"] == "anthropic"
+    assert row["model"] == "claude-opus-4-7"
+    assert row["effort"] == "high"
+
+
+def test_write_run_slug_provider_only() -> None:
+    """When slug has no model or effort, both columns are NULL."""
+    conn = _memory_db()
+    write_run(
+        conn,
+        run_id="run-provider-only",
+        project="myproject",
+        task=_make_task(),
+        agent_cfg=_make_agent_cfg(model="anthropic"),
+        agent_result=_make_agent_result(),
+        outcome="success",
+        failure_reason=None,
+        started_at="2026-05-27T10:00:00Z",
+        ended_at="2026-05-27T10:00:04Z",
+    )
+    row = conn.execute(
+        "SELECT provider, model, effort FROM runs WHERE run_id = 'run-provider-only'"
+    ).fetchone()
+    assert row["provider"] == "anthropic"
+    assert row["model"] is None
+    assert row["effort"] is None
 
 
 def test_write_run_trigger_label_null_for_actor_rule() -> None:
@@ -169,7 +217,9 @@ def test_write_run_skipped_no_task() -> None:
     assert row["item_url"] is None
     assert row["trigger_label"] is None
     assert row["agent"] is None
+    assert row["provider"] is None
     assert row["model"] is None
+    assert row["effort"] is None
     assert row["turns_used"] is None
     assert row["total_cost_usd"] is None
     assert row["summary"] is None
