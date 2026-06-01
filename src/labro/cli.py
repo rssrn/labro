@@ -324,6 +324,7 @@ def _cmd_run_live(
 
         # ── Assign Claude user (optional) ──────────────────────────────────────
         if config.claude_assignee and task.item_number is not None:
+            assignee_mod.comment_assignment(task, config.claude_assignee)
             assignee_mod.assign_claude(task, config.claude_assignee)
             _assigned_task = task
 

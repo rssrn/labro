@@ -441,9 +441,13 @@ def test_claude_assignee_assigned_and_restored_on_success(tmp_path: Path) -> Non
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.assignee_mod.comment_assignment") as mock_comment,
         patch("labro.cli.assignee_mod.assign_claude") as mock_assign,
         patch("labro.cli.assignee_mod.restore_assignees") as mock_restore,
     ):
+        calls: list[str] = []
+        mock_comment.side_effect = lambda *_args, **_kwargs: calls.append("comment")
+        mock_assign.side_effect = lambda *_args, **_kwargs: calls.append("assign")
         mock_instance = MockAgent.return_value
         mock_instance.invoke.return_value = agent_result
 
@@ -455,6 +459,8 @@ def test_claude_assignee_assigned_and_restored_on_success(tmp_path: Path) -> Non
         )
 
     assert result == 0
+    assert calls == ["comment", "assign"]
+    mock_comment.assert_called_once_with(task, "claude-code-bot")
     mock_assign.assert_called_once_with(task, "claude-code-bot")
     mock_restore.assert_called_once_with(task, "claude-code-bot")
 
@@ -482,6 +488,7 @@ def test_claude_assignee_restored_on_agent_failure(tmp_path: Path) -> None:
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.ClaudeCodeAgent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.assignee_mod.comment_assignment"),
         patch("labro.cli.assignee_mod.assign_claude"),
         patch("labro.cli.assignee_mod.restore_assignees") as mock_restore,
     ):

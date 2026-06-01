@@ -1,10 +1,10 @@
-"""Claude assignee signalling — assign a GitHub user during a run, restore after.
+"""Claude assignee signalling — comment, assign a GitHub user, restore after.
 
 Assigns a configured GitHub user (e.g. "claude-code-youruser") to the task item
 before the agent runs and restores the original assignees afterwards, regardless
 of whether the run succeeds or fails.
 
-Both functions are soft-fail: gh errors are logged as warnings and never re-raised
+All functions are soft-fail: gh errors are logged as warnings and never re-raised
 so that a missing collaborator or API hiccup cannot abort or corrupt a run.
 
 @author Claude Sonnet 4.6 Anthropic
@@ -41,6 +41,41 @@ def _gh_edit_assignees(
         logger.warning(
             "gh %s edit assignees failed (rc=%d): %s",
             item_type,
+            result.returncode,
+            result.stderr.strip(),
+        )
+
+
+def comment_assignment(task: Task, claude_user: str, *, dry_run: bool = False) -> None:
+    """Add a brief GitHub issue comment before assigning *claude_user*.
+
+    No-op if the task has no item_number. Soft-fail on gh errors.
+    """
+    if task.item_number is None:
+        return
+    body = f"Labro assigning issue to {claude_user} for action."
+    if dry_run:
+        logger.info(
+            "dry-run: would comment on issue #%d in %s: %s",
+            task.item_number,
+            task.repo,
+            body,
+        )
+        return
+    logger.info(
+        "commenting assignment notice on issue #%d in %s for %s",
+        task.item_number,
+        task.repo,
+        claude_user,
+    )
+    result = subprocess.run(
+        ["gh", "issue", "comment", str(task.item_number), "--repo", task.repo, "--body", body],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "gh issue comment failed (rc=%d): %s",
             result.returncode,
             result.stderr.strip(),
         )
