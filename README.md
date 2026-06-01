@@ -18,9 +18,13 @@ Labro is designed to reduce it. It runs Claude Code on a schedule, picks the nex
 
 **A natural fit for Claude subscribers with headless credits to use.** From June 2026 Anthropic allocates a [monthly pool of Agent SDK credits](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) to Pro, Max, Team, and Enterprise plan holders for headless/programmatic use — separate from interactive chat usage. Unused credits don't roll over at the end of each billing cycle. Labro gives you a concrete, low-risk way to put them to work on your own repos rather than letting them expire.
 
+**Going on holiday? Heads-down on a deadline?** Leave the backlog to Labro before you disconnect — issues get triaged, PRs get reviewed, and alerts get investigated while you're away. Your subscription keeps earning its keep, even when you're not at the keyboard.
+
 Named after cleaner wrasse fish stations on coral reefs (_Labroides dimidiatus_), which provide a designated, high-value, symbiotic service to reef inhabitants, Labro acts as an always-available autonomous worker that keeps your projects healthy with minimal human supervision.
 
 The operator configures which projects to monitor, what tasks to prioritise, which agent and model to use per task type, and what actions the agent is permitted to take. The harness is deterministic and auditable — it selects a task, constructs a prompt, invokes the agent, records the result, and gets out of the way.
+
+**Human-in-the-loop by default, autonomous when you're ready.** Out of the box Labro is conservative: the agent opens PRs and posts comments, but merges and deployments are left for a human to approve. The autonomy dial is yours to turn — widen the `permitted_actions` list and adjust the system prompt in `labro.toml`, and Labro can merge approved PRs, push to a staging environment, or deploy to production on a schedule. The configuration is the only gatekeeper; there is no separate mode to enable.
 
 - **Scheduled, unattended runs** — cron-driven via GitHub Actions or a VPS; no one needs to be at the keyboard
 - **Priority-based task picking** — configurable label rules and actor rules determine what gets worked on first
@@ -30,6 +34,7 @@ The operator configures which projects to monitor, what tasks to prioritise, whi
 - **Graceful failure labelling** — success, partial, and failure outcomes each get distinct GitHub labels so the state of every item is visible at a glance without reading run logs
 - **Full audit trail** — every run writes outcome, cost, token usage, and actions to a local SQLite database
 - **Emergency pause** — drop a `LABRO_DISABLED` flag file to stop new runs instantly without restarting containers; any run already in progress finishes normally
+- **Multi-provider support** _(planned)_ — spread scheduled work across free-tier quotas from multiple AI providers (Claude, Gemini, and others); top priority on the near-term roadmap
 
 ---
 
