@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from labro.assignee import assign_claude, restore_assignees
+from labro.assignee import assign_claude, comment_assignment, restore_assignees
 from labro.config.schema import PermittedAction
 from labro.models import Task
 
@@ -98,6 +98,52 @@ def test_assign_claude_soft_fail_on_gh_error(caplog: pytest.LogCaptureFixture) -
         mock_run.return_value = MagicMock(returncode=1, stderr="422 Unprocessable Entity")
         assign_claude(task, "claude-code-bot")  # must not raise
     assert any("failed" in r.message.lower() for r in caplog.records)
+
+
+# ── comment_assignment ────────────────────────────────────────────────────────
+
+
+def test_comment_assignment_posts_expected_body() -> None:
+    task = _make_task()
+    with patch("labro.assignee.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        comment_assignment(task, "claude-code-bot")
+    mock_run.assert_called_once_with(
+        [
+            "gh",
+            "issue",
+            "comment",
+            "42",
+            "--repo",
+            "org/repo",
+            "--body",
+            "Labro assigning issue to claude-code-bot for action.",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_comment_assignment_noop_when_no_item() -> None:
+    task = _no_item_task()
+    with patch("labro.assignee.subprocess.run") as mock_run:
+        comment_assignment(task, "claude-code-bot")
+    mock_run.assert_not_called()
+
+
+def test_comment_assignment_dry_run_does_not_call_gh() -> None:
+    task = _make_task()
+    with patch("labro.assignee.subprocess.run") as mock_run:
+        comment_assignment(task, "claude-code-bot", dry_run=True)
+    mock_run.assert_not_called()
+
+
+def test_comment_assignment_soft_fail_on_gh_error(caplog: pytest.LogCaptureFixture) -> None:
+    task = _make_task()
+    with patch("labro.assignee.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1, stderr="not found")
+        comment_assignment(task, "claude-code-bot")  # must not raise
+    assert any("gh issue comment failed" in r.message for r in caplog.records)
 
 
 # ── restore_assignees ──────────────────────────────────────────────────────────
