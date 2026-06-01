@@ -285,9 +285,8 @@ class GhLabelTaskSource(TaskSource):
             assignees=assignees,
             persona_prompt=persona_prompt,
         )
-        agent_cfg = AgentConfig(
-            agent="claude-code",
-            model=model,
+        agent_cfg = AgentConfig.from_slug(
+            model,
             max_turns=max_turns,
             timeout_s=timeout_s,
             permitted_actions=task.permitted_actions,

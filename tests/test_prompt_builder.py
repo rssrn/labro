@@ -296,6 +296,8 @@ def test_durable_progress_present_with_item_and_comment_permission() -> None:
     role_section = prompt.split(_DIVIDER)[0]
     assert "gh issue comment" in role_section
     assert "--edit-last" in role_section
+    assert "--body-file" in role_section
+    assert "\\n" in role_section
 
 
 def test_durable_progress_present_with_comment_on_pr() -> None:

@@ -14,22 +14,6 @@ import sqlite3
 from labro.models import AgentConfig, AgentResult, Task
 
 
-def _parse_model_slug(slug: str) -> tuple[str, str | None, str | None]:
-    """Parse provider/model@effort slug into (provider, model_name, effort).
-
-    model_name and effort are None when absent from the slug.
-    """
-    effort: str | None = None
-    if "@" in slug:
-        rest, effort = slug.rsplit("@", 1)
-    else:
-        rest = slug
-    if "/" in rest:
-        provider, model_name = rest.split("/", 1)
-        return provider, model_name, effort
-    return rest, None, effort
-
-
 def write_run(
     conn: sqlite3.Connection,
     *,
@@ -77,10 +61,9 @@ def write_run(
 
     # Pre-extract optional fields to keep the INSERT dict within line-length limits.
     ar = agent_result
-    slug_parts = (
-        _parse_model_slug(agent_cfg.model) if agent_cfg is not None else (None, None, None)
-    )
-    provider, model_name, effort = slug_parts
+    provider = agent_cfg.provider if agent_cfg is not None else None
+    model_name = agent_cfg.model if agent_cfg is not None else None
+    effort = agent_cfg.effort if agent_cfg is not None else None
     with conn:
         conn.execute(
             """

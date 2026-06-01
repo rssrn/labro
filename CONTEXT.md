@@ -44,7 +44,13 @@ A pre-agent step (`repo.py`) that ensures the working copy is on the project's d
 The set of GitHub write action categories (e.g. `comment`, `open-pr`, `merge`) an agent is allowed to perform in a given run. Governs side-effectful GitHub operations only — read operations, web searches, MCP tool calls, and local file operations are always unrestricted. Declared at project level; overridable per task source. Communicated to the agent via the prompt (v1); no runtime enforcement mechanism. See [[adr-003-prompt-only-enforcement]].
 
 **Agent**
-An AI coding CLI invoked as a subprocess by the harness. Claude Code CLI is the sole v1 agent. Treated as a black box; interacts with GitHub via `gh`.
+An AI coding CLI invoked as a subprocess by the harness. Identified by its CLI id (e.g. `claude-code`, `codex`) — the first segment of the model slug and the key in the agent registry. Each agent implementation owns its own argument building, auth validation, subprocess invocation, and response parsing. Treated as a black box; interacts with GitHub via `gh`. See `docs/providers/` for per-agent documentation.
+
+**Provider**
+The model vendor — the second segment of the model slug (e.g. `anthropic`, `openai`). Optional metadata: a slug like `claude-code` (no provider) is valid and uses the CLI's default model. Maps to the `provider` column in the runs table.
+
+**Model Slug**
+CLI-prefixed string identifying an agent and its model configuration. Format: `<cli>[:<provider>/<model>][@<effort>]`. Examples: `claude-code`, `claude-code:anthropic/claude-opus-4-7@high`, `codex:openai/gpt-5-codex`. Bare legacy slugs (`anthropic/...`) are rejected at config load time.
 
 **Run**
 A single execution cycle for one project: task selected → prompt constructed → agent invoked → post-run actions → result logged.

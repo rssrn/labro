@@ -34,9 +34,8 @@ from labro.runner import (
 
 CLAUDE_AVAILABLE = shutil.which("claude") is not None
 
-_BASE_CONFIG = AgentConfig(
-    agent="claude-code",
-    model="anthropic/claude-haiku-4-5-20251001",
+_BASE_CONFIG = AgentConfig.from_slug(
+    "claude-code:anthropic/claude-haiku-4-5-20251001",
     max_turns=3,
     timeout_s=120,
 )
@@ -115,9 +114,8 @@ def _mock_popen(stdout: bytes, *, returncode: int = 0) -> MagicMock:
 )
 def test_hello_world() -> None:
     """Invoke claude with a trivial prompt; assert top-level fields present."""
-    config = AgentConfig(
-        agent="claude-code",
-        model="anthropic/claude-haiku-4-5-20251001",
+    config = AgentConfig.from_slug(
+        "claude-code:anthropic/claude-haiku-4-5-20251001",
         max_turns=3,
         timeout_s=120,
     )
@@ -138,9 +136,8 @@ def test_hello_world() -> None:
 )
 def test_structured_output_shape() -> None:
     """Assert structured_output fields conform to the ARCHITECTURE §11 schema."""
-    config = AgentConfig(
-        agent="claude-code",
-        model="anthropic/claude-haiku-4-5-20251001",
+    config = AgentConfig.from_slug(
+        "claude-code:anthropic/claude-haiku-4-5-20251001",
         max_turns=3,
         timeout_s=120,
     )
@@ -548,9 +545,8 @@ def test_build_allowed_tools_all_actions_covered() -> None:
 
 def test_allowed_tools_passed_to_subprocess() -> None:
     """run_claude must forward --allowedTools to the claude subprocess."""
-    config = AgentConfig(
-        agent="claude-code",
-        model="anthropic/claude-haiku-4-5-20251001",
+    config = AgentConfig.from_slug(
+        "claude-code:anthropic/claude-haiku-4-5-20251001",
         max_turns=3,
         timeout_s=120,
         permitted_actions=[PermittedAction.COMMENT_ON_ISSUE],

@@ -9,26 +9,44 @@ import os
 import tomllib
 from pathlib import Path
 
-from labro.config.schema import GrafanaAlertsSource, LabroConfig
+from labro.config.schema import GhLabelSource, GrafanaAlertsSource, LabroConfig, parse_slug
 
 
 class ConfigError(Exception):
     """Raised for any hard configuration or environment error."""
 
 
-# Either of these satisfies the claude CLI auth requirement.
-# ANTHROPIC_API_KEY (API key) takes precedence if both are set; the claude CLI
-# handles the precedence — Labro just requires at least one to be present.
-_CLAUDE_AUTH_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+def referenced_agents(config: LabroConfig) -> set[str]:
+    """Return the set of agent CLI ids referenced by any model slug in the config."""
+    slugs: list[str] = [config.defaults.model]
+
+    for rule in config.shared_rules.values():
+        if rule.model is not None:
+            slugs.append(rule.model)
+
+    for project in config.projects:
+        if project.model is not None:
+            slugs.append(project.model)
+        for source in project.task_sources:
+            if source.model is not None:
+                slugs.append(source.model)
+            if isinstance(source, GhLabelSource):
+                for lr in source.label_rules:
+                    if lr.model is not None:
+                        slugs.append(lr.model)
+                for ar in source.actor_rules:
+                    if ar.model is not None:
+                        slugs.append(ar.model)
+
+    return {parse_slug(s).agent for s in slugs}
 
 
 def required_env_vars(config: LabroConfig) -> list[str]:
-    """Return the list of env var names that must each be present for this config.
+    """Return env var names that must each be present (excluding agent auth).
 
     Rules (from ARCHITECTURE §8):
     - GH_TOKEN: always required.
-    - claude CLI auth: ANTHROPIC_API_KEY *or* CLAUDE_CODE_OAUTH_TOKEN — checked
-      separately by load_config; not included in this list.
+    - Agent auth: checked separately by load_config via the agent registry.
     - GRAFANA_TOKEN: required if any project has a grafana-alerts source.
     - SLACK_WEBHOOK_URL: required if digest is enabled.
     """
@@ -52,8 +70,8 @@ def load_config(path: Path) -> LabroConfig:
     """Parse and validate labro.toml at *path*.
 
     Raises:
-        ConfigError: TOML syntax error, Pydantic validation failure, or missing
-            required environment variable.
+        ConfigError: on TOML syntax error, Pydantic validation failure,
+            missing env var, missing agent auth, or unknown agent id.
     """
     try:
         raw = path.read_bytes()
@@ -74,10 +92,19 @@ def load_config(path: Path) -> LabroConfig:
     if missing:
         raise ConfigError(f"Missing required environment variable(s): {', '.join(missing)}")
 
-    if not any(os.environ.get(var) for var in _CLAUDE_AUTH_VARS):
-        raise ConfigError(
-            f"Missing claude CLI authentication: set {_CLAUDE_AUTH_VARS[0]} (Anthropic API key)"
-            f" or {_CLAUDE_AUTH_VARS[1]} (Claude subscription OAuth token)"
-        )
+    # Per-agent auth check (fast env/file check, not full HTTP validation)
+    from labro.agents.registry import get_agent
+
+    for agent_id in sorted(referenced_agents(config)):
+        try:
+            agent = get_agent(agent_id)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+        if not agent.has_auth():
+            auth_vars = ", ".join(agent.auth_env_vars)
+            raise ConfigError(
+                f"Missing auth for agent '{agent_id}': set {auth_vars}"
+                + (" or provide ~/.codex/auth.json" if agent_id == "codex" else "")
+            )
 
     return config

@@ -33,6 +33,7 @@ ARG PYTHON_VERSION=3.12
 ARG DEBIAN_RELEASE=bookworm
 ARG GH_VERSION=2.72.0
 ARG CLAUDE_VERSION=2.1.152
+ARG CODEX_VERSION=0.135.0
 
 # ── Base ──────────────────────────────────────────────────────────────────────
 # python:3.12-slim-bookworm — Debian 12 slim variant.
@@ -48,6 +49,7 @@ FROM python:${PYTHON_VERSION}-slim-${DEBIAN_RELEASE} AS base
 ARG TARGETARCH
 ARG GH_VERSION
 ARG CLAUDE_VERSION
+ARG CODEX_VERSION
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -82,6 +84,11 @@ RUN apt-get update \
 # ── claude CLI ────────────────────────────────────────────────────────────────
 # Pinned via npm to avoid silent response-shape drift (ARCHITECTURE §8).
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+    && npm cache clean --force
+
+ARG CODEX_VERSION=0.135.0
+# ── codex CLI ────────────────────────────────────────────────────────────────
+RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
     && npm cache clean --force
 
 # ── uv ────────────────────────────────────────────────────────────────────────

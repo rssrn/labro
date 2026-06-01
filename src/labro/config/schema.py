@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Literal
 
@@ -28,29 +29,73 @@ class PermittedAction(StrEnum):
 # ── Model slug ─────────────────────────────────────────────────────────────────
 
 _MODEL_SLUG_RE = re.compile(
-    r"^[a-z][a-z0-9-]*"  # provider (e.g. "anthropic", "x-ai")
+    r"^[a-z][a-z0-9-]*"  # CLI id (e.g. "claude-code", "codex")
     r"(?:"
-    r"@[a-z][a-z0-9-]*"  # @effort directly on provider (no model)
+    r":[a-zA-Z0-9][a-zA-Z0-9._-]*"  # :model-or-provider-or-bare-model
+    r"(?:/[a-zA-Z0-9][a-zA-Z0-9._-]*)?"  # /model (optional; makes prev segment provider)
+    r"(?:@[a-z][a-z0-9-]*)?"  # @effort (optional)
     r"|"
-    r"/[a-zA-Z0-9][a-zA-Z0-9._:-]*"  # /model (optional)
-    r"(?:@[a-z][a-z0-9-]*)?"  # @effort on model (optional)
+    r"@[a-z][a-z0-9-]*"  # @effort directly on CLI id (no model spec)
     r")?$"
 )
 
 
 def _validate_model_slug(v: str) -> str:
+    # Detect bare legacy slugs (old format: "provider/model@effort") and give helpful error
+    if "/" in v and not v.startswith(tuple("0123456789")) and ":" not in v.split("/")[0]:
+        # Looks like "anthropic/claude-..." — suggest the new format
+        raise ValueError(
+            f"invalid model slug {v!r}: bare provider/model slugs are no longer valid. "
+            f"Use CLI-prefixed form, e.g. 'claude-code:{v}'"
+        )
     if not _MODEL_SLUG_RE.match(v):
         raise ValueError(
-            f"invalid model slug {v!r}: expected 'provider', 'provider@effort', "
-            "'provider/model', or 'provider/model@effort'"
+            f"invalid model slug {v!r}: expected '<cli>[:<provider>/<model>][@<effort>]', "
+            f"e.g. 'claude-code', 'claude-code:anthropic/claude-opus-4-7@high'"
         )
     return v
 
 
-# Validated model-slug type.  Format: provider[@effort] | provider/model[@effort]
-# Examples: "anthropic", "anthropic@high", "anthropic/claude-opus-4-7",
-#           "anthropic/claude-opus-4-7@high"
+# Validated model-slug type. CLI-prefixed format: <cli>[:<provider>/<model>][@<effort>]
+# Examples: "claude-code", "claude-code@high", "claude-code:anthropic/claude-opus-4-7",
+#           "claude-code:anthropic/claude-opus-4-7@high", "codex:openai/gpt-5-codex"
 ModelSlug = Annotated[str, AfterValidator(_validate_model_slug)]
+
+
+@dataclass
+class ParsedSlug:
+    """Components of a parsed model slug."""
+
+    agent: str  # CLI id, e.g. "claude-code"
+    provider: str | None  # vendor, e.g. "anthropic"
+    model: str | None  # model name only, e.g. "claude-opus-4-7"
+    effort: str | None  # e.g. "high"
+
+
+def parse_slug(slug: str) -> ParsedSlug:
+    """Parse a CLI-prefixed model slug into its four components.
+
+    Assumes slug has already passed _validate_model_slug.
+    """
+    effort: str | None = None
+    if "@" in slug:
+        main, effort = slug.rsplit("@", 1)
+    else:
+        main = slug
+
+    if ":" in main:
+        agent_id, rest = main.split(":", 1)
+        if "/" in rest:
+            provider, model_name = rest.split("/", 1)
+        else:
+            provider = None
+            model_name = rest
+    else:
+        agent_id = main
+        provider = None
+        model_name = None
+
+    return ParsedSlug(agent=agent_id, provider=provider, model=model_name, effort=effort)
 
 
 # ── Persona and shared-rule models ─────────────────────────────────────────────
@@ -189,7 +234,7 @@ class DigestConfig(BaseModel):
 class DefaultsConfig(BaseModel):
     """Global defaults inherited by all projects."""
 
-    model: ModelSlug = "anthropic/claude-opus-4-7"
+    model: ModelSlug = "claude-code:anthropic/claude-opus-4-7"
     max_turns: int = 20
     timeout_s: int = 600
     max_comments: int = 10

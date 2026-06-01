@@ -74,7 +74,7 @@ class AgentResult:
     failure_reason: str | None = None
     is_error: bool = False
     num_turns: int = 0
-    total_cost_usd: float = 0.0
+    total_cost_usd: float | None = None
     duration_ms: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -86,9 +86,35 @@ class AgentResult:
 class AgentConfig:
     """Resolved agent invocation parameters produced by the picker alongside Task."""
 
-    agent: str  # "claude-code" (only supported value in v1)
-    model: str  # slug: provider[/model[@effort]], e.g. "anthropic/claude-sonnet-4-6@high"
-    max_turns: int  # passed to claude as --max-turns
-    timeout_s: int  # subprocess wall-clock timeout
-    cwd: Path | None = None  # working directory for the agent subprocess (ARCHITECTURE line 630)
-    permitted_actions: list[PermittedAction] = field(default_factory=list)  # drives --allowedTools
+    agent: str  # CLI id, e.g. "claude-code" or "codex"
+    slug: str  # full slug for display/logging
+    provider: str | None  # vendor, e.g. "anthropic"
+    model: str | None  # model name only, e.g. "claude-opus-4-7"
+    effort: str | None  # e.g. "high"
+    max_turns: int
+    timeout_s: int
+    cwd: Path | None = None
+    permitted_actions: list[PermittedAction] = field(default_factory=list)
+
+    @classmethod
+    def from_slug(
+        cls,
+        slug: str,
+        max_turns: int,
+        timeout_s: int,
+        permitted_actions: list[PermittedAction] | None = None,
+    ) -> AgentConfig:
+        """Construct AgentConfig by parsing a CLI-prefixed model slug."""
+        from labro.config.schema import parse_slug
+
+        parsed = parse_slug(slug)
+        return cls(
+            agent=parsed.agent,
+            slug=slug,
+            provider=parsed.provider,
+            model=parsed.model,
+            effort=parsed.effort,
+            max_turns=max_turns,
+            timeout_s=timeout_s,
+            permitted_actions=permitted_actions or [],
+        )

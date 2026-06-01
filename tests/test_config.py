@@ -71,7 +71,7 @@ def test_defaults_inherited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         enabled = false
 
         [defaults]
-        model     = "anthropic/claude-sonnet-4-6"
+        model     = "claude-code:anthropic/claude-sonnet-4-6"
         max_turns = 15
         timeout_s = 300
 
@@ -89,7 +89,7 @@ def test_defaults_inherited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         """,
     )
     config = load_config(p)
-    assert config.defaults.model == "anthropic/claude-sonnet-4-6"
+    assert config.defaults.model == "claude-code:anthropic/claude-sonnet-4-6"
     assert config.defaults.max_turns == 15
     assert config.defaults.timeout_s == 300
 
@@ -266,7 +266,7 @@ def test_missing_claude_auth_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
     p = write_toml(tmp_path, MINIMAL_VALID_TOML)
-    with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(ConfigError, match="claude-code"):
         load_config(p)
 
 

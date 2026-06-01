@@ -105,7 +105,9 @@ def _project(
 def _config(project: ProjectConfig | None = None) -> LabroConfig:
     return LabroConfig(
         digest=DigestConfig(enabled=False),
-        defaults=DefaultsConfig(model="anthropic/claude-opus-4-7", max_turns=20, timeout_s=600),
+        defaults=DefaultsConfig(
+            model="claude-code:anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
+        ),
         projects=[project or _project()],
     )
 
@@ -160,22 +162,22 @@ def test_resolve_permitted_actions_empty_when_none_set() -> None:
 
 
 def test_resolve_model_slug_source_wins() -> None:
-    src = _source_config(model="anthropic/claude-sonnet-4-6")
-    proj = _project(source_cfg=src, model="anthropic/claude-haiku-4-5")
+    src = _source_config(model="claude-code:anthropic/claude-sonnet-4-6")
+    proj = _project(source_cfg=src, model="claude-code:anthropic/claude-haiku-4-5")
     rule = _label_rule()
     assert (
-        _resolve_model_slug(rule, src, proj, "anthropic/claude-opus-4-7")
-        == "anthropic/claude-sonnet-4-6"
+        _resolve_model_slug(rule, src, proj, "claude-code:anthropic/claude-opus-4-7")
+        == "claude-code:anthropic/claude-sonnet-4-6"
     )
 
 
 def test_resolve_model_slug_project_fallback() -> None:
     src = _source_config(model=None)
-    proj = _project(source_cfg=src, model="anthropic/claude-haiku-4-5")
+    proj = _project(source_cfg=src, model="claude-code:anthropic/claude-haiku-4-5")
     rule = _label_rule()
     assert (
-        _resolve_model_slug(rule, src, proj, "anthropic/claude-opus-4-7")
-        == "anthropic/claude-haiku-4-5"
+        _resolve_model_slug(rule, src, proj, "claude-code:anthropic/claude-opus-4-7")
+        == "claude-code:anthropic/claude-haiku-4-5"
     )
 
 
@@ -184,8 +186,8 @@ def test_resolve_model_slug_defaults_fallback() -> None:
     proj = _project(source_cfg=src, model=None)
     rule = _label_rule()
     assert (
-        _resolve_model_slug(rule, src, proj, "anthropic/claude-opus-4-7")
-        == "anthropic/claude-opus-4-7"
+        _resolve_model_slug(rule, src, proj, "claude-code:anthropic/claude-opus-4-7")
+        == "claude-code:anthropic/claude-opus-4-7"
     )
 
 
@@ -246,7 +248,7 @@ def test_fetch_task_agent_config_defaults(
     with patch("labro.task_sources.gh_label._run_gh_api", side_effect=gh_api_mock(fixture)):
         result = source.fetch_task(
             project=proj,
-            defaults_model="anthropic/claude-opus-4-7",
+            defaults_model="claude-code:anthropic/claude-opus-4-7",
             defaults_max_turns=20,
             defaults_timeout_s=600,
             defaults_max_comments=10,
@@ -256,7 +258,8 @@ def test_fetch_task_agent_config_defaults(
     _, agent_cfg = result
     assert isinstance(agent_cfg, AgentConfig)
     assert agent_cfg.agent == "claude-code"
-    assert agent_cfg.model == "anthropic/claude-opus-4-7"
+    assert agent_cfg.slug == "claude-code:anthropic/claude-opus-4-7"
+    assert agent_cfg.model == "claude-opus-4-7"
     assert agent_cfg.max_turns == 20
     assert agent_cfg.timeout_s == 600
 
@@ -456,8 +459,8 @@ def _make_task_and_config() -> tuple[Task, AgentConfig]:
         done_label="ai-dev-done",
         grafana_rule_uid=None,
     )
-    agent_cfg = AgentConfig(
-        agent="claude-code", model="anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
+    agent_cfg = AgentConfig.from_slug(
+        "claude-code:anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
     )
     return task, agent_cfg
 

@@ -152,10 +152,14 @@ Harness
 ├── picker.py         Priority-stack evaluator → selects one task
 ├── repo.py           Repo preparation: clone or pull to default branch
 ├── prompt_builder.py Constructs agent prompt from task + permissions + project context
-├── agents/           Agent abstraction layer
-│   ├── base.py       Abstract agent interface
-│   └── claude_code.py
-├── runner.py         Invokes agent subprocess; captures output
+├── agents/           Agent registry and per-agent implementations
+│   ├── base.py       Agent ABC, AgentTimeoutError, AgentOutputError
+│   ├── _schema.py    Shared OUTCOME_SCHEMA + validate_structured_output
+│   ├── _subprocess.py Shared run_cli subprocess helper
+│   ├── claude_code.py ClaudeCodeAgent: builds claude -p cmd, parses single-JSON response
+│   ├── codex.py      CodexAgent: builds codex exec cmd, parses JSONL stream + output file
+│   └── registry.py   id → Agent instance; get_agent(); all_agents()
+├── runner.py         Backward-compat re-export shim (logic now in agents/claude_code.py)
 ├── post_run.py       Label transitions; failure comments
 ├── store.py          SQLite access layer (execution records, locks, outcome signals)
 ├── logger.py         Writes execution record to SQLite via store.py
@@ -186,9 +190,19 @@ class TaskSource:
 **Agent (agents/base.py)**
 
 ```python
-class Agent:
+class Agent(ABC):
+    id: ClassVar[str]                        # registry key, e.g. "claude-code"
+    auth_env_vars: ClassVar[tuple[str, ...]] # env vars that satisfy auth
+    supports_max_turns: ClassVar[bool] = True
+
     def invoke(self, prompt: str, config: AgentConfig) -> AgentResult: ...
+    def has_auth(self) -> bool: ...          # fast env/file check (used by load_config)
+    def validate_auth(self) -> tuple[str, str]: ...  # ("OK  "|"WARN"|"FAIL", msg) for labro check
 ```
+
+The **agent registry** (`agents/registry.py`) maps CLI id to Agent instance. `get_agent(id)` raises `ValueError` for unknown ids. `load_config` calls `referenced_agents()` to collect all agent ids from the config, then validates auth for each one. See ADR 0006 and `docs/providers/` for per-agent details.
+
+Each agent owns its structured-output delivery method: `ClaudeCodeAgent` uses `--json-schema` (inline string, result in `structured_output` field); `CodexAgent` uses `--output-schema` + `-o` (temp files). The shared `OUTCOME_SCHEMA` and `validate_structured_output` in `agents/_schema.py` are used by both.
 
 ### Data models
 
@@ -220,13 +234,16 @@ For all tasks, `repo` is always set to the project's configured repo — every t
 
 #### `AgentConfig`
 
-Carries the resolved agent invocation parameters. Produced by the picker alongside `Task`; passed to `Agent.invoke()`.
+Carries the resolved agent invocation parameters. Produced by the picker alongside `Task`; passed to `Agent.invoke()`. Constructed via `AgentConfig.from_slug(slug, max_turns, timeout_s, permitted_actions)` which parses the slug into its components.
 
 ```python
 @dataclass
 class AgentConfig:
-    agent: str      # "claude-code" (only supported value in v1)
-    model: str      # slug: provider[/model[@effort]], e.g. "anthropic/claude-sonnet-4-6@high"
+    agent: str           # CLI id, e.g. "claude-code" or "codex"
+    slug: str            # full slug for display/logging
+    provider: str | None # vendor, e.g. "anthropic"
+    model: str | None    # model name only, e.g. "claude-opus-4-7"
+    effort: str | None   # e.g. "high"
     max_turns: int  # passed to claude as --max-turns
     timeout_s: int  # subprocess wall-clock timeout
 ```
@@ -934,7 +951,7 @@ cron    = "0 8 * * *"   # 5-field cron; runs inside the container (UTC)
 # ── Global: defaults ───────────────────────────────────────────────────────────
 # All fields optional; per-project and per-source blocks override these values.
 [defaults]
-model     = "anthropic/claude-opus-4-7"   # provider/model[@effort]; parsed by runner into --model and --effort
+model     = "claude-code:anthropic/claude-opus-4-7"   # cli:provider/model[@effort]; parsed into agent/provider/model/effort
 max_turns = 20                            # --max-turns ceiling for Claude Code CLI
 timeout_s = 600                           # subprocess wall-clock timeout in seconds
 
@@ -1046,7 +1063,7 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 **Schema decisions:**
 
 - `permitted_actions` — string allow-list validated against an enum. `permitted_actions = ["comment_on_issue", "open_pr"]`. Pydantic validates each entry against the `PermittedAction` enum; unknown strings are a hard config error.
-- `model` — a slug in one of four forms: `provider`, `provider@effort`, `provider/model`, or `provider/model@effort` (e.g. `anthropic/claude-opus-4-7@high`). The slug format is validated at config load time; the runner parses it into `--model` and `--effort` CLI flags, omitting flags whose parts are absent. `provider@effort` uses the provider's default model with the given effort level. Effort tokens are provider-specific and passed through without further validation.
+- `model` — a CLI-prefixed slug in the form `<cli>[:<provider>/<model>][@<effort>]` (e.g. `claude-code:anthropic/claude-opus-4-7@high`). The CLI id is the agent registry key. The slug format is validated at config load time via `parse_slug()`; the agent implementation uses the parsed `model` and `effort` fields directly. Bare legacy slugs (`anthropic/...`) are rejected at config load time with a helpful message. See `docs/providers/` for per-agent slug examples.
 - `timeout_s` — subprocess wall-clock timeout in seconds. The stale-lock age threshold in `store.py` is `timeout_s + 60` (fixed 60-second grace period; not configurable). No separate config key — operators set `timeout_s`; the grace period is an implementation detail of `store.py`.
 - `daily_budget_usd` — optional float; omit or set `0.0` to disable. Checked after lock acquisition by querying `SUM(total_cost_usd)` from `runs` for the current UTC date. Skips with a structured reason string so it aggregates cleanly in the digest alongside other skip reasons.
 - `gh-label` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.

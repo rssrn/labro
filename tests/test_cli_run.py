@@ -54,7 +54,9 @@ def _make_config(
     )
     return LabroConfig(
         digest=DigestConfig(enabled=False),
-        defaults=DefaultsConfig(model="anthropic/claude-opus-4-7", max_turns=20, timeout_s=600),
+        defaults=DefaultsConfig(
+            model="claude-code:anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
+        ),
         projects=[project],
         claude_assignee=claude_assignee,
     )
@@ -77,9 +79,8 @@ def _make_task(project_name: str = "labro") -> Task:
 
 
 def _make_agent_cfg() -> AgentConfig:
-    return AgentConfig(
-        agent="claude-code",
-        model="anthropic/claude-opus-4-7",
+    return AgentConfig.from_slug(
+        "claude-code:anthropic/claude-opus-4-7",
         max_turns=20,
         timeout_s=600,
     )
@@ -245,7 +246,7 @@ def test_successful_agent_run_writes_success_record(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
     ):
         mock_instance = MagicMock()
@@ -287,7 +288,7 @@ def test_partial_outcome_stored_as_partial(tmp_path: Path) -> None:
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None),
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
     ):
         mock_instance = MagicMock()
@@ -328,7 +329,7 @@ def test_partial_outcome_wip_preservation_attempted(tmp_path: Path) -> None:
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
         patch("labro.cli.preserve_wip", return_value=wip_url) as mock_preserve,
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.post_run_mod.post_run") as mock_post_run,
     ):
@@ -368,7 +369,7 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None),
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
     ):
         mock_instance = MagicMock()
@@ -439,7 +440,7 @@ def test_claude_assignee_assigned_and_restored_on_success(tmp_path: Path) -> Non
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.assignee_mod.comment_assignment") as mock_comment,
         patch("labro.cli.assignee_mod.assign_claude") as mock_assign,
@@ -486,7 +487,7 @@ def test_claude_assignee_restored_on_agent_failure(tmp_path: Path) -> None:
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None),
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.assignee_mod.comment_assignment"),
         patch("labro.cli.assignee_mod.assign_claude"),
@@ -534,7 +535,7 @@ def test_wip_resume_passes_branch_to_prepare_and_prompt(tmp_path: Path) -> None:
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(repo_path, wip_branch)) as mock_prep,
         patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.post_run_mod.post_run") as mock_post_run,
     ):
@@ -590,7 +591,7 @@ def test_wip_branch_not_found_clears_resume_context(tmp_path: Path) -> None:
         # prepare_repo returns None for checked_out_wip — branch not found
         patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
         patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):
@@ -653,7 +654,7 @@ def test_session_limit_zero_tokens_skips_wip_preservation(tmp_path: Path) -> Non
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):
@@ -693,7 +694,7 @@ def test_session_limit_with_output_tokens_and_push_perm_preserves_wip(tmp_path: 
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):
@@ -732,7 +733,7 @@ def test_session_limit_no_push_perm_skips_wip_preservation(tmp_path: Path) -> No
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
-        patch("labro.cli.ClaudeCodeAgent") as MockAgent,
+        patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):

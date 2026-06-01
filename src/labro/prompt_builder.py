@@ -51,8 +51,11 @@ def _section_role(persona_prompt: str | None = None, durable_progress: bool = Fa
         base += (
             "\n\nIf this task may take a while, post an early comment on the in-scope item"
             " summarising your plan, and update that same comment as you make progress"
-            " (e.g. `gh issue comment <n> --edit-last`). This ensures your analysis"
-            " survives if the session ends before you finish."
+            " (e.g. `gh issue comment <n> --edit-last --body-file progress.md`, or"
+            " `--body-file -` with the body on stdin). This ensures your analysis"
+            " survives if the session ends before you finish. For multiline comments,"
+            " use real newlines via `--body-file`; do not put escaped newline sequences"
+            " like `\\n` inside a `--body` argument."
         )
     if persona_prompt:
         return base + "\n\n" + persona_prompt.strip()

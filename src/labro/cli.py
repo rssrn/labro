@@ -27,8 +27,6 @@ import logging.handlers
 import os
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,14 +35,14 @@ import labro.assignee as assignee_mod
 import labro.logger as logger_mod
 import labro.post_run as post_run_mod
 import labro.store as store_mod
-from labro.agents.claude_code import ClaudeCodeAgent
-from labro.config.loader import ConfigError, load_config, required_env_vars
+from labro.agents.base import AgentOutputError, AgentTimeoutError
+from labro.agents.registry import get_agent
+from labro.config.loader import ConfigError, load_config, referenced_agents, required_env_vars
 from labro.config.schema import GhLabelSource, LabroConfig, PermittedAction, ProjectConfig
 from labro.models import AgentResult, Task
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
 from labro.repo import prepare_repo, preserve_wip
-from labro.runner import RunnerOutputError, RunnerTimeoutError
 
 _log = logging.getLogger(__name__)
 
@@ -163,7 +161,10 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
     print("AGENT CONFIG")
     print("=" * 72)
     print(f"  agent     : {agent_cfg.agent}")
+    print(f"  slug      : {agent_cfg.slug}")
+    print(f"  provider  : {agent_cfg.provider}")
     print(f"  model     : {agent_cfg.model}")
+    print(f"  effort    : {agent_cfg.effort}")
     print(f"  max_turns : {agent_cfg.max_turns}")
     print(f"  timeout_s : {agent_cfg.timeout_s}")
 
@@ -339,19 +340,19 @@ def _cmd_run_live(
             else "(no item)"
         )
         _log.info(
-            "invoking agent %s (model=%s) on %s %s",
+            "invoking agent %s (slug=%s) on %s %s",
             agent_cfg.agent,
-            agent_cfg.model,
+            agent_cfg.slug,
             task.repo,
             item_ref,
         )
         try:
-            agent_result = ClaudeCodeAgent().invoke(prompt, agent_cfg)
+            agent_result = get_agent(agent_cfg.agent).invoke(prompt, agent_cfg)
             outcome = agent_result.outcome
             failure_reason = agent_result.failure_reason
-        except RunnerTimeoutError:
+        except AgentTimeoutError:
             failure_reason = "timeout"
-        except RunnerOutputError as exc:
+        except AgentOutputError as exc:
             failure_reason = str(exc)
 
         # ── WIP preservation (non-success outcomes) ────────────────────────────
@@ -416,8 +417,6 @@ def _cmd_run_live(
 
 
 # ── Operator helpers ───────────────────────────────────────────────────────────
-
-_CLAUDE_AUTH_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
 
 
 def _run_gh(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -510,26 +509,6 @@ def _cmd_init(args: argparse.Namespace) -> int:
 # ── labro check ────────────────────────────────────────────────────────────────
 
 
-def _check_anthropic_api_key(api_key: str) -> tuple[str, str]:
-    """Validate ANTHROPIC_API_KEY by calling GET /v1/models (no tokens spent).
-
-    @author Claude Sonnet 4.6 Anthropic
-    """
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/models",
-        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10):  # noqa: S310
-            return ("OK  ", "ANTHROPIC_API_KEY: valid (GET /v1/models succeeded)")
-    except urllib.error.HTTPError as exc:
-        if exc.code == 401:
-            return ("FAIL", "ANTHROPIC_API_KEY: invalid or expired (401 Unauthorized)")
-        return ("WARN", f"ANTHROPIC_API_KEY: unexpected HTTP {exc.code} from /v1/models")
-    except Exception as exc:
-        return ("WARN", f"ANTHROPIC_API_KEY: could not reach api.anthropic.com: {exc}")
-
-
 def _cmd_check(args: argparse.Namespace) -> int:
     """Pre-flight health check: config, env vars, labels, collaborator.
 
@@ -550,22 +529,18 @@ def _cmd_check(args: argparse.Namespace) -> int:
         else:
             results.append(("OK  ", f"env var {var}"))
 
-    # Claude auth
-    if not any(os.environ.get(v) for v in _CLAUDE_AUTH_VARS):
-        results.append(
-            (
-                "FAIL",
-                f"no Claude auth — set {_CLAUDE_AUTH_VARS[0]} or {_CLAUDE_AUTH_VARS[1]}",
-            )
-        )
-    elif os.environ.get("ANTHROPIC_API_KEY"):
-        results.append(_check_anthropic_api_key(os.environ["ANTHROPIC_API_KEY"]))
-    else:
-        # No zero-cost validation path exists for OAuth tokens: `claude auth status`
-        # reports the auth method but does not verify the token value against the API.
-        results.append(
-            ("WARN", "Claude auth (CLAUDE_CODE_OAUTH_TOKEN) — env var present but not validated")
-        )
+    # Per-agent auth validation
+    try:
+        _ref_agents = referenced_agents(config)
+    except Exception:
+        _ref_agents = set()
+    for _agent_id in sorted(_ref_agents):
+        try:
+            _agent = get_agent(_agent_id)
+        except ValueError as exc:
+            results.append(("FAIL", str(exc)))
+            continue
+        results.append(_agent.validate_auth())
 
     # GitHub token connectivity
     gh_auth = _run_gh(["gh", "auth", "status"])

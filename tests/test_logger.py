@@ -42,15 +42,16 @@ def _make_task(**kwargs: Any) -> Task:
     return Task(**defaults)
 
 
-def _make_agent_cfg(**kwargs: Any) -> AgentConfig:
-    defaults: dict[str, Any] = dict(
-        agent="claude-code",
-        model="anthropic/claude-sonnet-4-6",
-        max_turns=10,
-        timeout_s=300,
-    )
-    defaults.update(kwargs)
-    return AgentConfig(**defaults)
+def _make_agent_cfg(
+    slug: str = "claude-code:anthropic/claude-sonnet-4-6", **kwargs: Any
+) -> AgentConfig:
+    max_turns = kwargs.pop("max_turns", 10)
+    timeout_s = kwargs.pop("timeout_s", 300)
+    cfg = AgentConfig.from_slug(slug, max_turns=max_turns, timeout_s=timeout_s)
+    # Apply any remaining overrides directly
+    for k, v in kwargs.items():
+        object.__setattr__(cfg, k, v)
+    return cfg
 
 
 def _make_agent_result(**kwargs: Any) -> AgentResult:
@@ -132,7 +133,7 @@ def test_write_run_slug_with_effort() -> None:
         run_id="run-effort",
         project="myproject",
         task=_make_task(),
-        agent_cfg=_make_agent_cfg(model="anthropic/claude-opus-4-7@high"),
+        agent_cfg=_make_agent_cfg(slug="claude-code:anthropic/claude-opus-4-7@high"),
         agent_result=_make_agent_result(),
         outcome="success",
         failure_reason=None,
@@ -147,15 +148,15 @@ def test_write_run_slug_with_effort() -> None:
     assert row["effort"] == "high"
 
 
-def test_write_run_slug_provider_only() -> None:
-    """When slug has no model or effort, both columns are NULL."""
+def test_write_run_slug_cli_only() -> None:
+    """When slug has no provider/model/effort, all three columns are NULL."""
     conn = _memory_db()
     write_run(
         conn,
-        run_id="run-provider-only",
+        run_id="run-cli-only",
         project="myproject",
         task=_make_task(),
-        agent_cfg=_make_agent_cfg(model="anthropic"),
+        agent_cfg=AgentConfig.from_slug("claude-code", max_turns=10, timeout_s=300),
         agent_result=_make_agent_result(),
         outcome="success",
         failure_reason=None,
@@ -163,9 +164,9 @@ def test_write_run_slug_provider_only() -> None:
         ended_at="2026-05-27T10:00:04Z",
     )
     row = conn.execute(
-        "SELECT provider, model, effort FROM runs WHERE run_id = 'run-provider-only'"
+        "SELECT provider, model, effort FROM runs WHERE run_id = 'run-cli-only'"
     ).fetchone()
-    assert row["provider"] == "anthropic"
+    assert row["provider"] is None
     assert row["model"] is None
     assert row["effort"] is None
 
