@@ -45,12 +45,19 @@ def required_env_vars(config: LabroConfig) -> list[str]:
     """Return env var names that must each be present (excluding agent auth).
 
     Rules (from ARCHITECTURE §8):
-    - GH_TOKEN: always required.
+    - GH_TOKEN: required unless GitHub App auth is configured.
+    - GITHUB_APP_PRIVATE_KEY: required when GitHub App auth is configured (replaces GH_TOKEN).
     - Agent auth: checked separately by load_config via the agent registry.
     - GRAFANA_TOKEN: required if any project has a grafana-alerts source.
     - SLACK_WEBHOOK_URL: required if digest is enabled.
     """
-    required: list[str] = ["GH_TOKEN"]
+    required: list[str] = []
+
+    if config.github_app_id is not None:
+        # GitHub App auth: private key supplied via env var; no GH_TOKEN needed.
+        required.append("GITHUB_APP_PRIVATE_KEY")
+    else:
+        required.append("GH_TOKEN")
 
     if config.digest.enabled:
         required.append("SLACK_WEBHOOK_URL")

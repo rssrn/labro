@@ -49,14 +49,80 @@ The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and 
 ### Prerequisites
 
 - **[Docker](https://docs.docker.com/get-docker/)** (or a compatible runtime such as Podman)
-- A **GitHub token** for the repos you want to monitor (`GH_TOKEN`) — see [GitHub token setup](#github-token-setup) below
+- **GitHub access** for the repos you want to monitor — either a **GitHub App** (recommended; bot identity, no `GH_TOKEN` needed) or a **PAT** (`GH_TOKEN`) — see [GitHub token setup](#github-token-setup) below
 - A **claude CLI auth credential** — needed for live agent runs (M2+), not for `--dry-run`. Two options:
   - **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended) — OAuth token tied to your Claude subscription (Pro/Max). Generate once with `claude setup-token` on your dev machine.
   - **`ANTHROPIC_API_KEY`** (untested) — standard Anthropic API key; bills your API account. If both vars are set, this takes precedence over the OAuth token.
 
 ### GitHub token setup
 
-`GH_TOKEN` must belong to an account that has **collaborator access** (or ownership) of every repo in your `labro.toml`. The token needs the following permissions on those repos:
+There are two ways to give Labro access to your GitHub repos. **GitHub App** (recommended) uses a proper bot identity; a **PAT** is simpler to set up but attaches activity to your personal account.
+
+#### Option A — GitHub App (recommended)
+
+A GitHub App gives Labro a proper bot identity (`your-app[bot]`) with scoped permissions and no user account needed. Labro generates a short-lived installation token automatically at the start of each run — no `GH_TOKEN` env var required.
+
+**1. Create the app:**
+
+- Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub App**
+- **App name**: something unique like `labro-yourusername` (GitHub names are global)
+- **Homepage URL**: your repo URL (required by GitHub, not used by Labro)
+- **Webhook**: uncheck *Active* — Labro doesn't receive webhooks
+- **Permissions** — set these under *Repository permissions*:
+
+| Permission | Level | Why |
+|---|---|---|
+| Contents | Read & write | Push WIP branches |
+| Issues | Read & write | Comment, add/remove labels |
+| Metadata | Read-only | Repo lookup (required by GitHub) |
+| Pull requests | Read & write | Open PRs |
+
+- **Identifying and authorizing users**: leave everything blank/unchecked — Labro uses installation tokens, not user OAuth
+- **Where can this be installed**: *Only on this account*
+- Click **Create GitHub App**
+
+**2. Get your credentials:**
+
+- Note the **App ID** shown on the app's settings page
+- Scroll to the bottom and click **Generate a private key** — save the downloaded `.pem` file securely
+
+**3. Install the app on your repos:**
+
+- On the app settings page, click **Install App** → select your account → choose the repos Labro monitors
+
+**4. Configure `labro.toml`:**
+
+```toml
+github_app_id   = 12345                    # your App ID
+github_app_name = "labro-yourusername"     # your app slug (without [bot])
+
+# Set claude_assignee to the bot's GitHub username
+claude_assignee = "labro-yourusername[bot]"
+```
+
+**5. Pass the private key as an environment variable:**
+
+The private key PEM goes in `GITHUB_APP_PRIVATE_KEY` — not in `labro.toml`, which keeps secrets out of your config file.
+
+```bash
+export GITHUB_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)"
+```
+
+For Docker:
+
+```bash
+docker run --rm \
+  -e GITHUB_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)" \
+  -e CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
+  -v "$PWD/labro.toml:/app/labro.toml:ro" \
+  labro:latest run my-project
+```
+
+> **Multi-line keys in env files:** GitHub App private keys are multi-line PEM. If you use a `.env` file or `--env-file`, you'll need to quote the key or use a secrets manager that handles multi-line values (GitHub Actions secrets, Docker secrets, and Vault all work natively).
+
+#### Option B — Personal access token (PAT)
+
+`GH_TOKEN` must belong to an account that has **collaborator access** (or ownership) of every repo in your `labro.toml`. The token needs the following permissions:
 
 | Permission | Level | Why |
 |---|---|---|
@@ -65,11 +131,9 @@ The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and 
 | Metadata | Read-only | List issues, repo lookup (required by GitHub) |
 | Pull requests | Read & write | Open PRs |
 
-**Fine-grained PAT (recommended):** create the token under the account that owns the repos (e.g. your personal account), not under a bot account. Fine-grained PATs issued for account A cannot access private repos owned by account B even when account A is a collaborator — GitHub only grants fine-grained PAT access to repos owned by the token's issuing account. Select "Only select repositories" and add each repo explicitly.
+**Fine-grained PAT:** create it under the account that owns the repos. Fine-grained PATs can only access repos owned by the issuing account — select "Only select repositories" and add each repo explicitly.
 
 **Classic PAT:** use `repo` scope. Simpler, but broader than necessary.
-
-> **Bot accounts:** if you run Labro as a dedicated bot user (e.g. `my-bot`), create the token on your main account (the repo owner), not on the bot account. The token controls what the `gh` CLI can read/write; the `claude_assignee` field in `labro.toml` controls which GitHub user the agent acts as on issues and PRs.
 
 ### 1. Clone and build
 
@@ -256,7 +320,8 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 
 | Variable | Required | Notes |
 |---|---|---|
-| `GH_TOKEN` | Yes | GitHub token with Issues/PRs/Contents read & write on monitored repos — see [GitHub token setup](#github-token-setup) |
+| `GH_TOKEN` | Unless using GitHub App | GitHub PAT — see [GitHub token setup](#github-token-setup) |
+| `GITHUB_APP_PRIVATE_KEY` | If using GitHub App | PEM private key for the GitHub App; replaces `GH_TOKEN` |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Recommended | OAuth token from `claude setup-token` on your dev machine; tied to your Pro/Max subscription |
 | `ANTHROPIC_API_KEY` | Alternative | Standard Anthropic API key; bills your API account. If **both** are set, this takes precedence |
 

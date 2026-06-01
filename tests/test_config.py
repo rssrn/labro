@@ -550,3 +550,89 @@ def test_grafana_undefined_persona_raises(tmp_path: Path, monkeypatch: pytest.Mo
     )
     with pytest.raises(ConfigError, match="ghost"):
         load_config(p)
+
+
+# ── GitHub App config ──────────────────────────────────────────────────────────
+
+
+_APP_PROJECT_TOML = """\
+[[projects]]
+name = "p"
+repo = "o/r"
+cron = "0 * * * *"
+
+[[projects.task_sources]]
+type = "gh-label"
+
+[[projects.task_sources.label_rules]]
+label = "ai-dev"
+done_label = "ai-dev-done"
+permitted_actions = ["comment_on_issue"]
+"""
+
+
+_APP_TOML = textwrap.dedent(f"""\
+    github_app_id = 12345
+    github_app_name = "labro-rssrn"
+
+    [digest]
+    enabled = false
+
+    {_APP_PROJECT_TOML}
+    """)
+
+
+class TestGitHubAppConfig:
+    def test_app_fields_load_successfully(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "fake-pem")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        p = write_toml(tmp_path, _APP_TOML)
+        config = load_config(p)
+
+        assert config.github_app_id == 12345
+        assert config.github_app_name == "labro-rssrn"
+
+    def test_no_gh_token_required_with_app_auth(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GH_TOKEN must not be required when GitHub App auth is configured."""
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "fake-pem")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        p = write_toml(tmp_path, _APP_TOML)
+        config = load_config(p)  # must not raise
+        assert config.github_app_id == 12345
+
+    def test_missing_private_key_env_var_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GITHUB_APP_PRIVATE_KEY must be set when using GitHub App auth."""
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        p = write_toml(tmp_path, _APP_TOML)
+        with pytest.raises(ConfigError, match="GITHUB_APP_PRIVATE_KEY"):
+            load_config(p)
+
+    def test_partial_app_fields_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        content = textwrap.dedent(f"""\
+            github_app_id = 12345
+
+            [digest]
+            enabled = false
+
+            {_APP_PROJECT_TOML}
+            """)
+        p = write_toml(tmp_path, content)
+        with pytest.raises(ConfigError, match="must be set together"):
+            load_config(p)

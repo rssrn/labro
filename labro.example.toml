@@ -1,11 +1,25 @@
 # labro.example.toml — copy this to your private config repo and rename it labro.toml.
 #
-# Secrets are never stored here — pass them as environment variables:
-#   GH_TOKEN                  GitHub personal access token (repo + read:org scopes)
+# GitHub access (choose one):
+#
+#   OPTION A — GitHub App (recommended, bot identity):
+#     Set these fields in labro.toml:
+#       github_app_id   = 12345
+#       github_app_name = "labro-yourusername"
+#     Pass the private key PEM via env var (keep it out of this file):
+#       GITHUB_APP_PRIVATE_KEY    contents of the .pem file downloaded from GitHub
+#     No GH_TOKEN needed — labro generates a per-run installation token automatically.
+#
+#   OPTION B — Personal access token (simpler setup):
+#     GH_TOKEN                  GitHub PAT with repo + read:org scopes
+#
+# Agent auth (required for live runs, not dry-run):
 #   CLAUDE_CODE_OAUTH_TOKEN   Claude subscription OAuth token (Pro/Max) — recommended
 #                             Generate once with: claude setup-token
 #   ANTHROPIC_API_KEY         Anthropic API key (alternative to OAuth token; untested)
 #                             NOTE: if both are set, ANTHROPIC_API_KEY takes precedence
+#
+# Optional:
 #   SLACK_WEBHOOK_URL         Required only if [digest] enabled = true
 #   GRAFANA_TOKEN             Required only if any project uses a grafana-alerts source
 #
@@ -98,13 +112,24 @@ persona           = "architect"
 permitted_actions = ["comment_on_issue"]
 model             = "claude-code:anthropic/claude-sonnet-4-6@medium"  # design review; lower effort sufficient
 
+# ── GitHub App auth (recommended alternative to GH_TOKEN) ─────────────────────
+# Both fields must be set together, or neither.
+# Private key goes in GITHUB_APP_PRIVATE_KEY env var — not here.
+# When set, labro generates a per-run installation token; GH_TOKEN is not needed.
+
+# github_app_id   = 12345
+# github_app_name = "labro-yourusername"   # your app slug, no [bot] suffix
+
 # ── Claude assignee (optional) ─────────────────────────────────────────────────
 # GitHub login to assign to an issue/PR while Claude is working on it.
 # Labro assigns this user before invoking the agent and restores the original
 # assignee afterwards, regardless of outcome.  Useful as a "in progress" signal.
-# Run `labro check` (M5) to verify the user is a collaborator on every repo.
+# When using GitHub App auth, set this to the bot username (with [bot] suffix).
+# For PAT auth, set this to the user account you want shown as the assignee.
+# Run `labro check` to verify the account has access to every repo.
 
-# claude_assignee = "claude-code-youruser"
+# claude_assignee = "labro-yourusername[bot]"   # GitHub App (recommended)
+# claude_assignee = "claude-code-youruser"       # PAT / dedicated user
 
 # ── Digest ─────────────────────────────────────────────────────────────────────
 

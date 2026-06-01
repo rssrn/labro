@@ -115,6 +115,21 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
     if not project.enabled:
         print(f"warning: project {project_name!r} is disabled (enabled = false).")
 
+    # GitHub App: generate an installation token before any gh CLI calls
+    if config.github_app_id is not None:
+        import labro.github_app as gh_app_mod
+
+        try:
+            gh_token = gh_app_mod.get_installation_token(
+                config.github_app_id,
+                os.environ["GITHUB_APP_PRIVATE_KEY"],
+                project.repo,
+            )
+            os.environ["GH_TOKEN"] = gh_token
+        except Exception as exc:
+            print(f"error: GitHub App authentication failed: {exc}", file=sys.stderr)
+            return 1
+
     # Pick task
     task, agent_cfg = pick(project, config)
 
@@ -255,6 +270,44 @@ def _cmd_run_live(
                 print(reason)
                 return 0
 
+        # ── GitHub App: generate per-run installation token ────────────────────
+        # Must happen before pick() — the gh CLI needs GH_TOKEN to list issues.
+        # Uses project.repo (known at this point) rather than task.repo.
+        bot_identity: tuple[str, str] | None = None
+        if config.github_app_id is not None:
+            import labro.github_app as gh_app_mod
+
+            app_name = config.github_app_name
+            if app_name is None:
+                raise RuntimeError("github_app_id set without github_app_name")
+            try:
+                gh_token = gh_app_mod.get_installation_token(
+                    config.github_app_id,
+                    os.environ["GITHUB_APP_PRIVATE_KEY"],
+                    project.repo,
+                )
+                os.environ["GH_TOKEN"] = gh_token
+                bot_identity = (
+                    f"{app_name}[bot]",
+                    f"{config.github_app_id}+{app_name}[bot]@users.noreply.github.com",
+                )
+            except Exception as exc:
+                ended_at = _now_utc()
+                logger_mod.write_run(
+                    conn,
+                    run_id=run_id,
+                    project=project_name,
+                    task=None,
+                    agent_cfg=None,
+                    agent_result=None,
+                    outcome="failure",
+                    failure_reason=f"github_app_auth_failed: {exc}",
+                    started_at=started_at,
+                    ended_at=ended_at,
+                )
+                _log.error("GitHub App authentication failed for %s: %s", project.repo, exc)
+                return 1
+
         # ── Pick task ──────────────────────────────────────────────────────────
         task, agent_cfg = pick(project, config)
         if task is None or agent_cfg is None:
@@ -368,7 +421,9 @@ def _cmd_run_live(
             ):
                 pass  # skip WIP preservation — issue will be re-queued as-is
             else:
-                wip_branch_url = preserve_wip(repo_path, task.repo, run_id)
+                wip_branch_url = preserve_wip(
+                    repo_path, task.repo, run_id, bot_identity=bot_identity
+                )
 
         # ── Post-run label transitions ─────────────────────────────────────────
         post_run_mod.post_run(
@@ -542,13 +597,34 @@ def _cmd_check(args: argparse.Namespace) -> int:
             continue
         results.append(_agent.validate_auth())
 
-    # GitHub token connectivity
-    gh_auth = _run_gh(["gh", "auth", "status"])
-    if gh_auth.returncode == 0:
-        results.append(("OK  ", "gh auth status: authenticated"))
+    # GitHub auth check
+    if config.github_app_id is not None:
+        import labro.github_app as gh_app_mod
+
+        results.append(("OK  ", "env var GITHUB_APP_PRIVATE_KEY"))
+        # Try to get an installation token for the first enabled project's repo
+        enabled = [p for p in config.projects if p.enabled]
+        if args.project:
+            enabled = [p for p in enabled if p.name == args.project]
+        if enabled:
+            test_repo = enabled[0].repo
+            try:
+                gh_token = gh_app_mod.get_installation_token(
+                    config.github_app_id,
+                    os.environ["GITHUB_APP_PRIVATE_KEY"],
+                    test_repo,
+                )
+                os.environ["GH_TOKEN"] = gh_token
+                results.append(("OK  ", f"github_app installation token obtained for {test_repo}"))
+            except Exception as exc:
+                results.append(("FAIL", f"github_app token failed for {test_repo}: {exc}"))
     else:
-        msg = gh_auth.stderr.strip() or "not authenticated"
-        results.append(("FAIL", f"gh auth status: {msg}"))
+        gh_auth = _run_gh(["gh", "auth", "status"])
+        if gh_auth.returncode == 0:
+            results.append(("OK  ", "gh auth status: authenticated"))
+        else:
+            msg = gh_auth.stderr.strip() or "not authenticated"
+            results.append(("FAIL", f"gh auth status: {msg}"))
 
     # Per-project checks
     projects = [p for p in config.projects if p.enabled]
@@ -573,29 +649,40 @@ def _cmd_check(args: argparse.Namespace) -> int:
                 results.append(("OK  ", f"[{project.name}] all {len(expected)} labels present"))
 
         if config.claude_assignee:
-            collab_result = _run_gh(
-                [
-                    "gh",
-                    "api",
-                    f"repos/{project.repo}/collaborators/{config.claude_assignee}",
-                ]
-            )
-            if collab_result.returncode == 0:
+            if config.claude_assignee.endswith("[bot]"):
+                # GitHub App bot accounts are not listed as collaborators via
+                # the REST API — access is granted through the app installation.
                 results.append(
                     (
                         "OK  ",
                         f"[{project.name}] claude_assignee {config.claude_assignee!r}"
-                        " is a collaborator",
+                        " is a GitHub App bot (skipping collaborator check)",
                     )
                 )
             else:
-                results.append(
-                    (
-                        "FAIL",
-                        f"[{project.name}] claude_assignee {config.claude_assignee!r}"
-                        " not a collaborator (or gh api failed)",
-                    )
+                collab_result = _run_gh(
+                    [
+                        "gh",
+                        "api",
+                        f"repos/{project.repo}/collaborators/{config.claude_assignee}",
+                    ]
                 )
+                if collab_result.returncode == 0:
+                    results.append(
+                        (
+                            "OK  ",
+                            f"[{project.name}] claude_assignee {config.claude_assignee!r}"
+                            " is a collaborator",
+                        )
+                    )
+                else:
+                    results.append(
+                        (
+                            "FAIL",
+                            f"[{project.name}] claude_assignee {config.claude_assignee!r}"
+                            " not a collaborator (or gh api failed)",
+                        )
+                    )
 
     for status, message in results:
         print(f"{status} {message}")

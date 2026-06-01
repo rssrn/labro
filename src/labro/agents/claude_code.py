@@ -64,7 +64,7 @@ def _check_anthropic_api_key(api_key: str) -> tuple[str, str]:
         headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=10):  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10):
             return ("OK  ", "ANTHROPIC_API_KEY: valid (GET /v1/models succeeded)")
     except urllib.error.HTTPError as exc:
         if exc.code == 401:

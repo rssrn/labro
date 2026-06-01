@@ -341,6 +341,40 @@ class TestPreserveWip:
         for c in mock_run.call_args_list:
             assert c.kwargs.get("shell", False) is False, f"shell=True in: {c}"
 
+    def test_bot_identity_skips_gh_api_call(self, tmp_path: Path) -> None:
+        """When bot_identity is provided, no gh api user call is made."""
+        dirty_output = " M some_file.py"
+        side_effects = [
+            _make_completed(stdout=dirty_output),  # git status
+            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
+            # no gh api user call — identity supplied directly
+            _make_completed(),  # git checkout -b
+            _make_completed(),  # git add -A
+            _make_completed(),  # git commit
+            _make_completed(),  # git push
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
+            url = preserve_wip(
+                tmp_path,
+                "owner/repo",
+                "run-bot",
+                bot_identity=(
+                    "labro-rssrn[bot]",
+                    "12345+labro-rssrn[bot]@users.noreply.github.com",
+                ),
+            )
+
+        assert url == "https://github.com/owner/repo/tree/labro-wip/run-bot"
+        cmds = [c.args[0] for c in mock_run.call_args_list]
+        gh_calls = [cmd for cmd in cmds if cmd[0] == "gh"]
+        assert not gh_calls, f"no gh calls expected when bot_identity is provided, got: {gh_calls}"
+        # Verify bot identity appears in the commit command
+        commit_call = next(c for c in mock_run.call_args_list if "commit" in c.args[0])
+        commit_args_flat = " ".join(commit_call.args[0])
+        assert "labro-rssrn[bot]" in commit_args_flat
+        assert "12345+labro-rssrn[bot]@users.noreply.github.com" in commit_args_flat
+
     def test_already_on_wip_branch_reuses_it(self, tmp_path: Path) -> None:
         """If already on a labro-wip/* branch, no new branch is created — commits to existing."""
         dirty_output = " M some_file.py"

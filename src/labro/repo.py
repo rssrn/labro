@@ -203,12 +203,17 @@ def prepare_repo(
     return dest, None
 
 
-def _gh_user_identity() -> tuple[str, str]:
-    """Return (name, email) for the authenticated gh user.
+def _gh_user_identity(
+    bot_identity: tuple[str, str] | None = None,
+) -> tuple[str, str]:
+    """Return (name, email) for commit authorship.
 
-    Email uses GitHub's noreply address so private emails are never exposed.
-    Falls back to ("Labro", "labro@users.noreply.github.com") if the gh call fails.
+    If *bot_identity* is provided (GitHub App mode), it is returned directly.
+    Otherwise queries ``gh api user`` and falls back to a generic identity on
+    any error.
     """
+    if bot_identity is not None:
+        return bot_identity
     try:
         result = subprocess.run(
             ["gh", "api", "user", "--jq", '[.login, .id] | join(" ")'],
@@ -230,11 +235,20 @@ def _gh_user_identity() -> tuple[str, str]:
         return "Labro", "labro@users.noreply.github.com"
 
 
-def preserve_wip(repo_path: Path, repo: str, run_id: str) -> str | None:
+def preserve_wip(
+    repo_path: Path,
+    repo: str,
+    run_id: str,
+    *,
+    bot_identity: tuple[str, str] | None = None,
+) -> str | None:
     """Push any dirty working copy to a ``labro-wip/<run-id>`` branch.
 
     Best-effort — never raises. Returns the branch web URL on success, or
     ``None`` if the copy is clean or if any git/push step fails.
+
+    Pass *bot_identity* as ``(name, email)`` when using GitHub App auth to
+    override the default ``gh api user`` identity lookup.
 
     @author Claude Sonnet 4.6 Anthropic
     """
@@ -259,7 +273,7 @@ def preserve_wip(repo_path: Path, repo: str, run_id: str) -> str | None:
         )
         current_branch = current_result.stdout.strip()
 
-        git_name, git_email = _gh_user_identity()
+        git_name, git_email = _gh_user_identity(bot_identity)
 
         if current_branch.startswith("labro-wip/"):
             branch = current_branch

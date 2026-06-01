@@ -248,11 +248,30 @@ class LabroConfig(BaseModel):
     digest: DigestConfig = Field(default_factory=DigestConfig)
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     projects: list[ProjectConfig] = Field(default_factory=list)
-    # GitHub login to assign during runs (e.g. "claude-code-youruser").
+    # GitHub login to assign during runs (e.g. "claude-code-youruser" or "labro-bot[bot]").
     # If set, labro assigns this user before invoking the agent and restores
     # the original assignee afterwards — irrespective of success or failure.
-    # labro check (M5) verifies this user is a collaborator on each repo.
+    # labro check (M5) verifies this user is a collaborator on each repo
+    # (skipped for bot accounts ending in "[bot]").
     claude_assignee: str | None = None
+
+    # GitHub App credentials (alternative to GH_TOKEN PAT).
+    # Both must be set together, or neither.
+    # The private key is passed via the GITHUB_APP_PRIVATE_KEY env var (not in
+    # this file — keep secrets out of labro.toml).
+    # When set, GH_TOKEN is not required — labro generates a per-run
+    # installation access token automatically.
+    github_app_id: int | None = None
+    github_app_name: str | None = None  # app slug, e.g. "labro-rssrn"
+
+    @model_validator(mode="after")
+    def validate_github_app(self) -> LabroConfig:
+        """Require github_app_id and github_app_name to be set together or not at all."""
+        has_id = self.github_app_id is not None
+        has_name = self.github_app_name is not None
+        if has_id != has_name:
+            raise ValueError("github_app_id and github_app_name must be set together")
+        return self
 
     @model_validator(mode="after")
     def resolve_and_validate_rules(self) -> LabroConfig:

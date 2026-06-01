@@ -343,7 +343,9 @@ def test_partial_outcome_wip_preservation_attempted(tmp_path: Path) -> None:
             repos_dir=repos_dir,
         )
 
-    mock_preserve.assert_called_once_with(repo_path, "org/repo", mock_preserve.call_args[0][2])
+    mock_preserve.assert_called_once_with(
+        repo_path, "org/repo", mock_preserve.call_args[0][2], bot_identity=None
+    )
     call_kwargs = mock_post_run.call_args.kwargs
     assert call_kwargs["wip_branch_url"] == wip_url
 
