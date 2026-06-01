@@ -92,7 +92,7 @@ docker buildx build --target base --platform linux/arm64 -t labro:arm64 .
 enabled = false
 
 [defaults]
-model = "claude-sonnet-4-6"
+model = "anthropic/claude-sonnet-4-6"
 
 [[projects]]
 name       = "my-project"
