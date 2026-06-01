@@ -226,7 +226,7 @@ Carries the resolved agent invocation parameters. Produced by the picker alongsi
 @dataclass
 class AgentConfig:
     agent: str      # "claude-code" (only supported value in v1)
-    model: str      # e.g. "claude-sonnet-4-6" — passed through to CLI as --model
+    model: str      # slug: provider[/model[@effort]], e.g. "anthropic/claude-sonnet-4-6@high"
     max_turns: int  # passed to claude as --max-turns
     timeout_s: int  # subprocess wall-clock timeout
 ```
@@ -934,9 +934,9 @@ cron    = "0 8 * * *"   # 5-field cron; runs inside the container (UTC)
 # ── Global: defaults ───────────────────────────────────────────────────────────
 # All fields optional; per-project and per-source blocks override these values.
 [defaults]
-model     = "claude-opus-4-7"   # passed to claude via --model
-max_turns = 20                  # --max-turns ceiling for Claude Code CLI
-timeout_s = 600                 # subprocess wall-clock timeout in seconds
+model     = "anthropic/claude-opus-4-7"   # provider/model[@effort]; parsed by runner into --model and --effort
+max_turns = 20                            # --max-turns ceiling for Claude Code CLI
+timeout_s = 600                           # subprocess wall-clock timeout in seconds
 
 # ── Project ────────────────────────────────────────────────────────────────────
 # Repeat [[projects]] for each managed repo.
@@ -947,7 +947,7 @@ cron    = "0 * * * *"       # how often the scheduler fires a run for this proje
 enabled = true              # optional; default true — set false to pause without removing
 
 # Per-project agent overrides (optional — inherit from [defaults] if absent)
-model            = "claude-sonnet-4-6"
+model            = "anthropic/claude-sonnet-4-6"
 max_turns        = 30
 timeout_s        = 900
 daily_budget_usd = 5.00   # optional; if today's total spend for this project >= this value,
@@ -977,7 +977,7 @@ Do not modify files under db/migrations/ directly.
 type         = "grafana-alerts"
 min_severity = "critical"          # "info" | "warning" | "critical" — lower bound filter; alerts with no severity label are treated as "info"
                                    # when multiple alerts are eligible: highest severity first, then oldest startsAt as tiebreaker
-model        = "claude-sonnet-4-6" # optional per-source model override
+model        = "anthropic/claude-sonnet-4-6" # optional per-source model override
 # GRAFANA_TOKEN env var used for API auth
 
 # Source-level list overrides project-level permitted_actions for this source only.
@@ -1013,7 +1013,7 @@ permitted_actions = ["comment_on_issue", "comment_on_pr"]
 [[projects.task_sources.actor_rules]]
 actor             = "dependabot[bot]"   # exact GitHub login match
 done_label        = "ai-done"
-model             = "claude-haiku-4-5"  # route to cheaper model for routine Dependabot PRs
+model             = "anthropic/claude-haiku-4-5"  # route to cheaper model for routine Dependabot PRs
 permitted_actions = ["comment_on_pr", "open_pr"]
 
 # ── proactive-improvement ──────────────────────────────────────────────────────
@@ -1046,7 +1046,7 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 **Schema decisions:**
 
 - `permitted_actions` — string allow-list validated against an enum. `permitted_actions = ["comment_on_issue", "open_pr"]`. Pydantic validates each entry against the `PermittedAction` enum; unknown strings are a hard config error.
-- `model` — passed through opaquely to the CLI; not validated at config load time. Avoids needing schema updates when new model names are released; the CLI surfaces an error if the value is unrecognised.
+- `model` — a slug in one of four forms: `provider`, `provider@effort`, `provider/model`, or `provider/model@effort` (e.g. `anthropic/claude-opus-4-7@high`). The slug format is validated at config load time; the runner parses it into `--model` and `--effort` CLI flags, omitting flags whose parts are absent. `provider@effort` uses the provider's default model with the given effort level. Effort tokens are provider-specific and passed through without further validation.
 - `timeout_s` — subprocess wall-clock timeout in seconds. The stale-lock age threshold in `store.py` is `timeout_s + 60` (fixed 60-second grace period; not configurable). No separate config key — operators set `timeout_s`; the grace period is an implementation detail of `store.py`.
 - `daily_budget_usd` — optional float; omit or set `0.0` to disable. Checked after lock acquisition by querying `SUM(total_cost_usd)` from `runs` for the current UTC date. Skips with a structured reason string so it aggregates cleanly in the digest alongside other skip reasons.
 - `gh-label` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.

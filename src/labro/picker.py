@@ -63,7 +63,6 @@ def pick(
             result = source.fetch_task(
                 project=project,
                 defaults_model=defaults.model,
-                defaults_effort=defaults.effort,
                 defaults_max_turns=defaults.max_turns,
                 defaults_timeout_s=defaults.timeout_s,
                 defaults_max_comments=defaults.max_comments,

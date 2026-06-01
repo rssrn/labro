@@ -52,6 +52,22 @@ _ACTION_TOOLS: dict[PermittedAction, list[str]] = {
 }
 
 
+def _parse_model_slug(slug: str) -> tuple[str, str | None, str | None]:
+    """Parse a provider/model@effort slug into its three components.
+
+    Returns (provider, model_name, effort); model_name and effort are None when absent.
+    """
+    effort: str | None = None
+    if "@" in slug:
+        rest, effort = slug.rsplit("@", 1)
+    else:
+        rest = slug
+    if "/" in rest:
+        provider, model_name = rest.split("/", 1)
+        return provider, model_name, effort
+    return rest, None, effort
+
+
 def _build_allowed_tools(permitted_actions: list[PermittedAction]) -> list[str]:
     """Return the --allowedTools list for the given permitted actions."""
     tools = list(_BASE_TOOLS)
@@ -174,11 +190,11 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
             ``structured_output``.
     """
     allowed_tools = _build_allowed_tools(config.permitted_actions)
-    cmd = [
-        "claude",
-        "-p",
-        "--model",
-        config.model,
+    _, model_name, effort = _parse_model_slug(config.model)
+    cmd: list[str] = ["claude", "-p"]
+    if model_name is not None:
+        cmd += ["--model", model_name]
+    cmd += [
         "--max-turns",
         str(config.max_turns),
         "--output-format",
@@ -188,8 +204,8 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
         "--allowedTools",
         *allowed_tools,
     ]
-    if config.effort is not None:
-        cmd += ["--effort", config.effort]
+    if effort is not None:
+        cmd += ["--effort", effort]
 
     proc = subprocess.Popen(
         cmd,

@@ -71,7 +71,7 @@ def test_defaults_inherited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         enabled = false
 
         [defaults]
-        model     = "claude-sonnet-4-6"
+        model     = "anthropic/claude-sonnet-4-6"
         max_turns = 15
         timeout_s = 300
 
@@ -89,7 +89,7 @@ def test_defaults_inherited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         """,
     )
     config = load_config(p)
-    assert config.defaults.model == "claude-sonnet-4-6"
+    assert config.defaults.model == "anthropic/claude-sonnet-4-6"
     assert config.defaults.max_turns == 15
     assert config.defaults.timeout_s == 300
 

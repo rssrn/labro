@@ -125,7 +125,7 @@ def _project(
 def _config(project: ProjectConfig | None = None) -> LabroConfig:
     return LabroConfig(
         digest=DigestConfig(enabled=False),
-        defaults=DefaultsConfig(model="claude-opus-4-7", max_turns=20, timeout_s=600),
+        defaults=DefaultsConfig(model="anthropic/claude-opus-4-7", max_turns=20, timeout_s=600),
         projects=[project or _project()],
     )
 
@@ -138,7 +138,6 @@ def _fetch(
     return source.fetch_task(
         project=project,
         defaults_model=cfg.defaults.model,
-        defaults_effort=cfg.defaults.effort,
         defaults_max_turns=cfg.defaults.max_turns,
         defaults_timeout_s=cfg.defaults.timeout_s,
         defaults_max_comments=cfg.defaults.max_comments,
@@ -284,8 +283,8 @@ def test_label_and_actor_candidates_pooled() -> None:
 
 def test_actor_rule_model_override() -> None:
     """Actor rule with its own model overrides source/project/defaults model."""
-    rule = _actor_rule(model="claude-haiku-4-5")
-    src_cfg = _source_config(actor_rules=[rule], model="claude-sonnet-4-6")
+    rule = _actor_rule(model="anthropic/claude-haiku-4-5")
+    src_cfg = _source_config(actor_rules=[rule], model="anthropic/claude-sonnet-4-6")
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
     source = GhLabelTaskSource(src_cfg)
@@ -300,7 +299,7 @@ def test_actor_rule_model_override() -> None:
 
     assert result is not None
     _, agent_cfg = result
-    assert agent_cfg.model == "claude-haiku-4-5"
+    assert agent_cfg.model == "anthropic/claude-haiku-4-5"
 
 
 def test_actor_rule_skip_ai_handover() -> None:

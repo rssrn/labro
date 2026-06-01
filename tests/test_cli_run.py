@@ -54,7 +54,7 @@ def _make_config(
     )
     return LabroConfig(
         digest=DigestConfig(enabled=False),
-        defaults=DefaultsConfig(model="claude-opus-4-7", max_turns=20, timeout_s=600),
+        defaults=DefaultsConfig(model="anthropic/claude-opus-4-7", max_turns=20, timeout_s=600),
         projects=[project],
         claude_assignee=claude_assignee,
     )
@@ -79,7 +79,7 @@ def _make_task(project_name: str = "labro") -> Task:
 def _make_agent_cfg() -> AgentConfig:
     return AgentConfig(
         agent="claude-code",
-        model="claude-opus-4-7",
+        model="anthropic/claude-opus-4-7",
         max_turns=20,
         timeout_s=600,
     )

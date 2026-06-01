@@ -45,7 +45,7 @@ def _make_task(**kwargs: Any) -> Task:
 def _make_agent_cfg(**kwargs: Any) -> AgentConfig:
     defaults: dict[str, Any] = dict(
         agent="claude-code",
-        model="claude-sonnet-4-6",
+        model="anthropic/claude-sonnet-4-6",
         max_turns=10,
         timeout_s=300,
     )
@@ -107,7 +107,7 @@ def test_write_run_success() -> None:
     assert row["item_url"] == "https://github.com/owner/repo/issues/42"
     assert row["trigger_label"] == "ai-dev"
     assert row["agent"] == "claude-code"
-    assert row["model"] == "claude-sonnet-4-6"
+    assert row["model"] == "anthropic/claude-sonnet-4-6"
     assert row["started_at"] == "2026-05-27T10:00:00Z"
     assert row["ended_at"] == "2026-05-27T10:00:04Z"
     assert row["outcome"] == "success"

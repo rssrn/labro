@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from labro.config.schema import AgentEffort, ProjectConfig
+from labro.config.schema import ProjectConfig
 from labro.models import AgentConfig, Task
 
 
@@ -26,7 +26,6 @@ class TaskSource(ABC):
         self,
         project: ProjectConfig,
         defaults_model: str,
-        defaults_effort: AgentEffort | None,
         defaults_max_turns: int,
         defaults_timeout_s: int,
         defaults_max_comments: int,
@@ -35,7 +34,7 @@ class TaskSource(ABC):
 
         Args:
             project: The project configuration for this fetch.
-            defaults_model: Global ``[defaults].model`` fallback.
+            defaults_model: Global ``[defaults].model`` fallback (slug format).
             defaults_max_turns: Global ``[defaults].max_turns`` fallback.
             defaults_timeout_s: Global ``[defaults].timeout_s`` fallback.
             defaults_max_comments: Global ``[defaults].max_comments`` fallback.

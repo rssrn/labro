@@ -87,9 +87,8 @@ class AgentConfig:
     """Resolved agent invocation parameters produced by the picker alongside Task."""
 
     agent: str  # "claude-code" (only supported value in v1)
-    model: str  # e.g. "claude-sonnet-4-6" — passed through to CLI as --model
+    model: str  # slug: provider[/model[@effort]], e.g. "anthropic/claude-sonnet-4-6@high"
     max_turns: int  # passed to claude as --max-turns
     timeout_s: int  # subprocess wall-clock timeout
-    effort: str | None = None  # e.g. "high" — passed to CLI as --effort if set
     cwd: Path | None = None  # working directory for the agent subprocess (ARCHITECTURE line 630)
     permitted_actions: list[PermittedAction] = field(default_factory=list)  # drives --allowedTools

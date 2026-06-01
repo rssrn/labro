@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
+from pydantic.functional_validators import AfterValidator
 
 
 class PermittedAction(StrEnum):
@@ -23,14 +25,32 @@ class PermittedAction(StrEnum):
     CREATE_ISSUE = "create_issue"
 
 
-class AgentEffort(StrEnum):
-    """Effort level passed to the Claude Code CLI via --effort."""
+# ── Model slug ─────────────────────────────────────────────────────────────────
 
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    XHIGH = "xhigh"
-    MAX = "max"
+_MODEL_SLUG_RE = re.compile(
+    r"^[a-z][a-z0-9-]*"  # provider (e.g. "anthropic", "x-ai")
+    r"(?:"
+    r"@[a-z][a-z0-9-]*"  # @effort directly on provider (no model)
+    r"|"
+    r"/[a-zA-Z0-9][a-zA-Z0-9._:-]*"  # /model (optional)
+    r"(?:@[a-z][a-z0-9-]*)?"  # @effort on model (optional)
+    r")?$"
+)
+
+
+def _validate_model_slug(v: str) -> str:
+    if not _MODEL_SLUG_RE.match(v):
+        raise ValueError(
+            f"invalid model slug {v!r}: expected 'provider', 'provider@effort', "
+            "'provider/model', or 'provider/model@effort'"
+        )
+    return v
+
+
+# Validated model-slug type.  Format: provider[@effort] | provider/model[@effort]
+# Examples: "anthropic", "anthropic@high", "anthropic/claude-opus-4-7",
+#           "anthropic/claude-opus-4-7@high"
+ModelSlug = Annotated[str, AfterValidator(_validate_model_slug)]
 
 
 # ── Persona and shared-rule models ─────────────────────────────────────────────
@@ -49,8 +69,7 @@ class SharedRuleConfig(BaseModel):
     done_label: str
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: str | None = None
-    effort: AgentEffort | None = None
+    model: ModelSlug | None = None
 
 
 # ── Task source models ─────────────────────────────────────────────────────────
@@ -69,8 +88,7 @@ class LabelRule(BaseModel):
     done_label: str | None = None
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: str | None = None
-    effort: AgentEffort | None = None
+    model: ModelSlug | None = None
 
     @model_validator(mode="after")
     def require_label_source(self) -> LabelRule:
@@ -88,8 +106,7 @@ class ActorRule(BaseModel):
     actor: str
     done_label: str
     persona: str | None = None
-    model: str | None = None
-    effort: AgentEffort | None = None
+    model: ModelSlug | None = None
     permitted_actions: list[PermittedAction] | None = None
 
 
@@ -100,8 +117,7 @@ class GhLabelSource(BaseModel):
     label_rules: list[LabelRule] = Field(default_factory=list)
     actor_rules: list[ActorRule] = Field(default_factory=list)
     permitted_actions: list[PermittedAction] | None = None
-    model: str | None = None
-    effort: AgentEffort | None = None
+    model: ModelSlug | None = None
 
     @model_validator(mode="after")
     def require_at_least_one_rule(self) -> GhLabelSource:
@@ -118,8 +134,7 @@ class GrafanaAlertsSource(BaseModel):
     min_severity: Literal["info", "warning", "critical"] = "info"
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: str | None = None
-    effort: AgentEffort | None = None
+    model: ModelSlug | None = None
 
 
 class ProactiveImprovementSource(BaseModel):
@@ -131,8 +146,7 @@ class ProactiveImprovementSource(BaseModel):
     targets: list[str] = Field(default_factory=list)
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: str | None = None
-    effort: AgentEffort | None = None
+    model: ModelSlug | None = None
 
 
 # Union discriminated on `type`.
@@ -152,8 +166,7 @@ class ProjectConfig(BaseModel):
     repo: str
     cron: str
     enabled: bool = True
-    model: str | None = None
-    effort: AgentEffort | None = None
+    model: ModelSlug | None = None
     max_turns: int | None = None
     timeout_s: int | None = None
     max_comments: int | None = None
@@ -176,8 +189,7 @@ class DigestConfig(BaseModel):
 class DefaultsConfig(BaseModel):
     """Global defaults inherited by all projects."""
 
-    model: str = "claude-opus-4-7"
-    effort: AgentEffort | None = None
+    model: ModelSlug = "anthropic/claude-opus-4-7"
     max_turns: int = 20
     timeout_s: int = 600
     max_comments: int = 10
@@ -225,8 +237,6 @@ class LabroConfig(BaseModel):
                             rule.permitted_actions = template.permitted_actions
                         if rule.model is None and template.model is not None:
                             rule.model = template.model
-                        if rule.effort is None and template.effort is not None:
-                            rule.effort = template.effort
 
         # Validate all persona references across every source type.
         for project in self.projects:
