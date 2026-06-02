@@ -158,6 +158,7 @@ Harness
 │   ├── _subprocess.py Shared run_cli subprocess helper
 │   ├── claude_code.py ClaudeCodeAgent: builds claude -p cmd, parses single-JSON response
 │   ├── codex.py      CodexAgent: builds codex exec cmd, parses JSONL stream + output file
+│   ├── opencode.py   OpenCodeAgent: builds opencode run cmd, extracts JSON from event stream
 │   └── registry.py   id → Agent instance; get_agent(); all_agents()
 ├── runner.py         Backward-compat re-export shim (logic now in agents/claude_code.py)
 ├── post_run.py       Label transitions; failure comments
@@ -202,7 +203,7 @@ class Agent(ABC):
 
 The **agent registry** (`agents/registry.py`) maps CLI id to Agent instance. `get_agent(id)` raises `ValueError` for unknown ids. `load_config` calls `referenced_agents()` to collect all agent ids from the config, then validates auth for each one. See ADR 0006 and `docs/providers/` for per-agent details.
 
-Each agent owns its structured-output delivery method: `ClaudeCodeAgent` uses `--json-schema` (inline string, result in `structured_output` field); `CodexAgent` uses `--output-schema` + `-o` (temp files). The shared `OUTCOME_SCHEMA` and `validate_structured_output` in `agents/_schema.py` are used by both.
+Each agent owns its structured-output delivery method: `ClaudeCodeAgent` uses `--json-schema` (inline string, result in `structured_output` field); `CodexAgent` uses `--output-schema` + `-o` (temp files); `OpenCodeAgent` injects the schema into the prompt and extracts the JSON from the `--format json` event stream. The shared `OUTCOME_SCHEMA` and `validate_structured_output` in `agents/_schema.py` are used by all three.
 
 ### Data models
 

@@ -10,6 +10,7 @@
 [![mypy: strict](https://img.shields.io/badge/mypy-strict-blue)](https://mypy-lang.org/)
 [![bandit](https://img.shields.io/badge/security-bandit-yellow)](https://github.com/PyCQA/bandit)
 [![Claude Code](https://img.shields.io/badge/agent-Claude_Code-8A2BE2?logo=anthropic&logoColor=white)](https://claude.ai/code)
+[![OpenCode](https://img.shields.io/badge/agent-OpenCode-6366f1)](https://opencode.ai)
 [![GitHub](https://img.shields.io/badge/platform-GitHub-181717?logo=github&logoColor=white)](https://github.com)
 
 AI coding agents like Claude Code deliver real productivity gains — but they still demand attention. You have to decide what to work on next, queue the task, watch the run, and review the output. That supervisory overhead is the bottleneck, not the agent.
@@ -34,7 +35,7 @@ The operator configures which projects to monitor, what tasks to prioritise, whi
 - **Graceful failure labelling** — success, partial, and failure outcomes each get distinct GitHub labels so the state of every item is visible at a glance without reading run logs
 - **Full audit trail** — every run writes outcome, cost, token usage, and actions to a local SQLite database
 - **Emergency pause** — drop a `LABRO_DISABLED` flag file to stop new runs instantly without restarting containers; any run already in progress finishes normally
-- **Multi-provider support** _(planned)_ — spread scheduled work across free-tier quotas from multiple AI providers (Claude, Gemini, and others); top priority on the near-term roadmap
+- **Multi-provider support** — Claude Code, Codex, and OpenCode are all supported; spread scheduled work across providers or use OpenCode to access any model on [models.dev](https://models.dev) (OpenRouter, Anthropic, OpenAI, Mistral, and more)
 
 ---
 

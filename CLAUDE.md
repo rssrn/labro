@@ -10,7 +10,7 @@ Labro is a self-hosted harness that runs Claude Code as a subprocess to perform 
 - **CLI**: argparse (`labro run <project>`, `labro gen-crontab`)
 - **Config**: TOML (`labro.toml`), validated with Pydantic 2
 - **GitHub**: `gh` CLI subprocess (not a Python SDK)
-- **Agent**: Claude Code CLI subprocess (or Codex)
+- **Agent**: Claude Code, Codex, or OpenCode CLI subprocess (multi-provider registry)
 - **GitHub auth**: GH_TOKEN PAT *or* GitHub App (app_id + private key path)
 - **Agent slug format**: `agent:provider/model@effort` (e.g. `claude-code:anthropic/claude-sonnet-4-6@high`) — stored split as 3 columns in `runs`
 - **Tests**: pytest (80% coverage floor), ruff, mypy strict, bandit
@@ -42,7 +42,7 @@ src/labro/
   assignee.py         # assignee resolution helpers
   config/             # schema.py (Pydantic), loader.py
   task_sources/       # base.py, gh_label.py
-  agents/             # base.py, claude_code.py, codex.py, registry.py, _schema.py, _subprocess.py
+  agents/             # base.py, claude_code.py, codex.py, opencode.py, registry.py, _schema.py, _subprocess.py
 tests/
 docs/                 # PRD, ARCHITECTURE, ROADMAP, ADRs
 ```
@@ -73,5 +73,5 @@ if you skip it, requiring a second commit attempt.
 ## Current Milestone
 
 - **M1–M5 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment, operator CLI.
-- **Recently shipped** — multi-provider agent registry (CodexAgent), GitHub App auth, Docker image size reduction (tarball Node + GHCR binary).
+- **Recently shipped** — multi-provider agent registry (CodexAgent, OpenCodeAgent), GitHub App auth, Docker image size reduction (tarball Node + GHCR binary).
 - **Next** — M6: `grafana-alerts` task source (alert fetch, severity filter, dedup via `ai-alert:<rule-uid>`).

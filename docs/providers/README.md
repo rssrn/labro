@@ -8,6 +8,7 @@ Labro supports multiple agent CLIs via its agent registry. Each agent is identif
 |--------|-------------|------|
 | `claude-code` | Anthropic Claude Code CLI | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` |
 | `codex` | OpenAI Codex CLI | `CODEX_API_KEY` or `~/.codex/auth.json` |
+| `opencode` | OpenCode — provider-agnostic agent | Provider key e.g. `OPENROUTER_API_KEY` |
 
 ## Slug grammar
 
@@ -24,8 +25,11 @@ Examples:
 | `claude-code:anthropic/claude-opus-4-7` | claude-code | anthropic | claude-opus-4-7 | — |
 | `claude-code:anthropic/claude-opus-4-7@high` | claude-code | anthropic | claude-opus-4-7 | high |
 | `codex:openai/gpt-5-codex@high` | codex | openai | gpt-5-codex | high |
+| `opencode:openrouter/qwen3-coder` | opencode | openrouter | qwen3-coder | — |
+| `opencode:anthropic/claude-opus-4-7@high` | opencode | anthropic | claude-opus-4-7 | high |
 
 ## Per-agent documentation
 
 - [claude-code](claude-code.md) — Anthropic Claude Code CLI
 - [codex](codex.md) — OpenAI Codex CLI
+- [opencode](opencode.md) — OpenCode provider-agnostic agent

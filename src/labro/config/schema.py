@@ -31,8 +31,8 @@ class PermittedAction(StrEnum):
 _MODEL_SLUG_RE = re.compile(
     r"^[a-z][a-z0-9-]*"  # CLI id (e.g. "claude-code", "codex")
     r"(?:"
-    r":[a-zA-Z0-9][a-zA-Z0-9._-]*"  # :model-or-provider-or-bare-model
-    r"(?:/[a-zA-Z0-9][a-zA-Z0-9._-]*)?"  # /model (optional; makes prev segment provider)
+    r":[a-zA-Z0-9][a-zA-Z0-9._-]*"  # :provider-or-bare-model
+    r"(?:/[a-zA-Z0-9][a-zA-Z0-9._/:-]*)?"  # /model — may contain extra slashes and colons
     r"(?:@[a-z][a-z0-9-]*)?"  # @effort (optional)
     r"|"
     r"@[a-z][a-z0-9-]*"  # @effort directly on CLI id (no model spec)
@@ -51,14 +51,18 @@ def _validate_model_slug(v: str) -> str:
     if not _MODEL_SLUG_RE.match(v):
         raise ValueError(
             f"invalid model slug {v!r}: expected '<cli>[:<provider>/<model>][@<effort>]', "
-            f"e.g. 'claude-code', 'claude-code:anthropic/claude-opus-4-7@high'"
+            f"e.g. 'claude-code', 'claude-code:anthropic/claude-opus-4-7@high', "
+            f"'opencode:openrouter/openai/gpt-4o:free'"
         )
     return v
 
 
 # Validated model-slug type. CLI-prefixed format: <cli>[:<provider>/<model>][@<effort>]
+# The model component may contain extra slashes and colons for providers like OpenRouter
+# whose model IDs use the form "org/model:variant" (e.g. "openai/gpt-4o:free").
 # Examples: "claude-code", "claude-code@high", "claude-code:anthropic/claude-opus-4-7",
-#           "claude-code:anthropic/claude-opus-4-7@high", "codex:openai/gpt-5-codex"
+#           "claude-code:anthropic/claude-opus-4-7@high", "codex:openai/gpt-5-codex",
+#           "opencode:openrouter/openai/gpt-oss-120b:free"
 ModelSlug = Annotated[str, AfterValidator(_validate_model_slug)]
 
 

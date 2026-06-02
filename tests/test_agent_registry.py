@@ -59,6 +59,28 @@ def test_parse_slug_no_effort() -> None:
     assert p.model == "claude-opus-4-7"
 
 
+def test_parse_slug_openrouter_colon_variant() -> None:
+    p = parse_slug("opencode:openrouter/openai/gpt-oss-120b:free")
+    assert p.agent == "opencode"
+    assert p.provider == "openrouter"
+    assert p.model == "openai/gpt-oss-120b:free"
+    assert p.effort is None
+
+
+def test_parse_slug_openrouter_colon_variant_with_effort() -> None:
+    p = parse_slug("opencode:openrouter/openai/gpt-4o:free@high")
+    assert p.agent == "opencode"
+    assert p.provider == "openrouter"
+    assert p.model == "openai/gpt-4o:free"
+    assert p.effort == "high"
+
+
+def test_parse_slug_openrouter_multi_segment() -> None:
+    p = parse_slug("opencode:openrouter/meta-llama/llama-3.1-70b")
+    assert p.provider == "openrouter"
+    assert p.model == "meta-llama/llama-3.1-70b"
+
+
 # ── slug validation ───────────────────────────────────────────────────────────
 
 

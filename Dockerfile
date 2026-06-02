@@ -34,6 +34,7 @@ ARG DEBIAN_RELEASE=bookworm
 ARG GH_VERSION=2.72.0
 ARG CLAUDE_VERSION=2.1.152
 ARG CODEX_VERSION=0.135.0
+ARG OPENCODE_VERSION=1.15.13
 ARG NODE_VERSION=22.15.0
 
 # ── Base ──────────────────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ ARG TARGETARCH
 ARG GH_VERSION
 ARG CLAUDE_VERSION
 ARG CODEX_VERSION
+ARG OPENCODE_VERSION
 ARG NODE_VERSION
 
 ENV PYTHONUNBUFFERED=1 \
@@ -102,6 +104,22 @@ RUN CODEX_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "aarch64")
        "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${CODEX_ARCH}-unknown-linux-musl.tar.gz" \
        | tar -xzO > /usr/local/bin/codex \
     && chmod +x /usr/local/bin/codex
+
+# ── opencode CLI — standalone glibc binary from GitHub Releases ───────────────
+# Tarball contains a single binary named "opencode" at the root.
+# glibc variant used (matches Debian bookworm base; Alpine/musl not supported here).
+RUN OPENCODE_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "arm64") \
+    && curl -fsSL \
+       "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${OPENCODE_ARCH}.tar.gz" \
+       | tar -xzO > /usr/local/bin/opencode \
+    && chmod +x /usr/local/bin/opencode
+
+# ── Git credential helper ─────────────────────────────────────────────────────
+# Set gh as the global git credential provider so agent-invoked `git push` calls
+# authenticate via GH_TOKEN / GitHub App token without per-call -c flags.
+# This is image-wide config; the actual `gh auth git-credential` command only
+# runs at the moment git needs credentials (not at build time).
+RUN git config --global credential.helper '!gh auth git-credential'
 
 # ── uv ────────────────────────────────────────────────────────────────────────
 RUN pip install uv

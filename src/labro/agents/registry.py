@@ -8,10 +8,12 @@ from __future__ import annotations
 from labro.agents.base import Agent
 from labro.agents.claude_code import ClaudeCodeAgent
 from labro.agents.codex import CodexAgent
+from labro.agents.opencode import OpenCodeAgent
 
 _REGISTRY: dict[str, Agent] = {
     ClaudeCodeAgent.id: ClaudeCodeAgent(),
     CodexAgent.id: CodexAgent(),
+    OpenCodeAgent.id: OpenCodeAgent(),
 }
 
 
