@@ -45,6 +45,18 @@ There are two ways to run Labro: **Docker** (recommended for production and firs
 
 ## Quickstart — Docker
 
+### Running Tests Locally
+
+To run the test suite locally, use:
+
+```bash
+uv run pytest
+```
+
+This will execute all tests with the configured environment.
+
+## Quickstart — Docker
+
 The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and a pinned `claude` CLI. This is the recommended way to run Labro in production.
 
 ### Prerequisites
