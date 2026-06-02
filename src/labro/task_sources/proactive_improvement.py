@@ -108,7 +108,11 @@ def _create_issue(repo: str, title: str, body: str) -> tuple[int, str]:
     return int(m.group(1)), url
 
 
-def _build_issue_body(perspective_name: str | None, agent_slug: str) -> str:
+def _build_issue_body(
+    perspective_name: str | None,
+    agent_slug: str,
+    perspective_prompt: str | None = None,
+) -> str:
     """Return the standard issue body header for a proactive suggestion."""
     lines: list[str] = [
         "<!-- Labro proactive suggestion — do not edit this header -->",
@@ -117,6 +121,8 @@ def _build_issue_body(perspective_name: str | None, agent_slug: str) -> str:
     ]
     if perspective_name:
         lines.append(f"**Perspective:** {perspective_name}")
+    if perspective_prompt:
+        lines.append(f"> {perspective_prompt}")
     lines += [
         "",
         "---",
@@ -201,7 +207,7 @@ class ProactiveImprovementTaskSource(TaskSource):
             if chosen_name
             else "Labro proactive suggestion"
         )
-        body = _build_issue_body(chosen_name, agent_cfg.slug)
+        body = _build_issue_body(chosen_name, agent_cfg.slug, perspective_prompt)
 
         try:
             item_number, item_url = _create_issue(project.repo, title, body)
