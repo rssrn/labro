@@ -34,6 +34,7 @@ ARG DEBIAN_RELEASE=bookworm
 ARG GH_VERSION=2.72.0
 ARG CLAUDE_VERSION=2.1.152
 ARG CODEX_VERSION=0.135.0
+ARG NODE_VERSION=22.15.0
 
 # ── Base ──────────────────────────────────────────────────────────────────────
 # python:3.12-slim-bookworm — Debian 12 slim variant.
@@ -50,46 +51,57 @@ ARG TARGETARCH
 ARG GH_VERSION
 ARG CLAUDE_VERSION
 ARG CODEX_VERSION
+ARG NODE_VERSION
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# ── System dependencies + gh CLI ─────────────────────────────────────────────
+# ── System dependencies + gh CLI + Node.js ───────────────────────────────────
 # Combined into one layer so apt lists are only fetched and cleaned once.
 #
 # git       — required by gh (declared dependency in the .deb)
-# nodejs    — required to install claude CLI via npm
+# xz-utils  — required to extract the Node.js tarball (tar -xJ)
 # gh        — installed from GitHub release .deb (arch-aware via TARGETARCH)
 #             using `apt-get install` rather than `dpkg -i` so that any future
 #             dependency additions in the .deb are resolved automatically
+# Node.js   — downloaded from nodejs.org (official binary tarball, not NodeSource)
+#             to avoid NodeSource repo setup overhead and extra apt dependencies;
+#             amd64→x64 mapping required to match nodejs.org naming convention
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         cron \
         curl \
         git \
-        gnupg \
         sqlite3 \
-    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+        xz-utils \
     && GH_DEB="gh_${GH_VERSION}_linux_${TARGETARCH}.deb" \
     && curl -fsSL -o "/tmp/${GH_DEB}" \
        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_DEB}" \
     && apt-get install -y --no-install-recommends "/tmp/${GH_DEB}" \
     && rm "/tmp/${GH_DEB}" \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && NODE_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "$TARGETARCH") \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+       | tar -xJ -C /usr/local --strip-components=1
 
 # ── claude CLI ────────────────────────────────────────────────────────────────
 # Pinned via npm to avoid silent response-shape drift (ARCHITECTURE §8).
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
     && npm cache clean --force
 
-ARG CODEX_VERSION=0.135.0
-# ── codex CLI ────────────────────────────────────────────────────────────────
-RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
-    && npm cache clean --force
+# ── codex CLI — standalone Rust binary from GitHub Releases ──────────────────
+# The @openai/codex npm package is a JS shim that requires platform-specific
+# optional deps at runtime; the musl binary from GitHub Releases is self-contained.
+# Tag format is rust-v{VERSION}; archive contains a single binary named with the
+# platform triple, so tar -xzO pipes it directly to the destination path.
+RUN CODEX_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") \
+    && curl -fsSL \
+       "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${CODEX_ARCH}-unknown-linux-musl.tar.gz" \
+       | tar -xzO > /usr/local/bin/codex \
+    && chmod +x /usr/local/bin/codex
 
 # ── uv ────────────────────────────────────────────────────────────────────────
 RUN pip install uv
