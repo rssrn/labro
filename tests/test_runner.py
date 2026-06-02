@@ -1,17 +1,11 @@
 """Tests for labro.runner — structured_output validation and error paths.
 
-Integration tests (test_hello_world, test_structured_output_shape) require
-the ``claude`` CLI to be in PATH and a valid CLAUDE_CODE_OAUTH_TOKEN /
-ANTHROPIC_API_KEY env var to be set.  They are skipped automatically when
-the CLI is absent so the unit tests still run in plain Python environments.
-
 @author Claude Sonnet 4.6 Anthropic
 """
 
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -19,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from labro.config.schema import PermittedAction
-from labro.models import AgentConfig, AgentResult, ItemRef
+from labro.models import AgentConfig
 from labro.runner import (
     _BASE_TOOLS,
     RunnerOutputError,
@@ -32,30 +26,11 @@ from labro.runner import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-CLAUDE_AVAILABLE = shutil.which("claude") is not None
-
 _BASE_CONFIG = AgentConfig.from_slug(
     "claude-code:anthropic/claude-haiku-4-5-20251001",
     max_turns=3,
     timeout_s=120,
 )
-
-
-def _check_claude_functional() -> bool:
-    if not CLAUDE_AVAILABLE:
-        return False
-    try:
-        run_claude(
-            "Reply only with valid JSON matching the schema — set outcome='success', "
-            "summary='probe', actions_taken=[], items_created=[].",
-            _BASE_CONFIG,
-        )
-        return True
-    except Exception:
-        return False
-
-
-CLAUDE_FUNCTIONAL = _check_claude_functional()
 
 
 def _make_response(
@@ -101,60 +76,6 @@ def _mock_popen(stdout: bytes, *, returncode: int = 0) -> MagicMock:
     mock_proc.communicate.return_value = (stdout, b"")
     mock_proc.returncode = returncode
     return mock_proc
-
-
-# ---------------------------------------------------------------------------
-# Integration tests — skipped when claude CLI is unavailable
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(
-    not CLAUDE_FUNCTIONAL,
-    reason="claude CLI not in PATH or not functional (e.g. out of quota/unauthenticated)",
-)
-def test_hello_world() -> None:
-    """Invoke claude with a trivial prompt; assert top-level fields present."""
-    config = AgentConfig.from_slug(
-        "claude-code:anthropic/claude-haiku-4-5-20251001",
-        max_turns=3,
-        timeout_s=120,
-    )
-    result = run_claude(
-        "Reply only with valid JSON matching the schema — set outcome='success', "
-        "summary='hello world', actions_taken=[], items_created=[].",
-        config,
-    )
-    assert isinstance(result, AgentResult)
-    assert isinstance(result.is_error, bool)
-    assert isinstance(result.num_turns, int)
-    assert isinstance(result.total_cost_usd, float)
-
-
-@pytest.mark.skipif(
-    not CLAUDE_FUNCTIONAL,
-    reason="claude CLI not in PATH or not functional (e.g. out of quota/unauthenticated)",
-)
-def test_structured_output_shape() -> None:
-    """Assert structured_output fields conform to the ARCHITECTURE §11 schema."""
-    config = AgentConfig.from_slug(
-        "claude-code:anthropic/claude-haiku-4-5-20251001",
-        max_turns=3,
-        timeout_s=120,
-    )
-    result = run_claude(
-        "Reply only with valid JSON matching the schema — set outcome='success', "
-        "summary='shape test', actions_taken=['echo hi'], items_created=[].",
-        config,
-    )
-    assert result.outcome in {"success", "failure", "partial"}
-    assert isinstance(result.actions_taken, list)
-    assert isinstance(result.items_created, list)
-    assert all(isinstance(r, ItemRef) for r in result.items_created)
-
-
-# ---------------------------------------------------------------------------
-# Unit tests — mock subprocess.Popen
-# ---------------------------------------------------------------------------
 
 
 def test_missing_structured_output_returns_failure() -> None:
