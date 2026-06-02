@@ -1,3 +1,25 @@
+# `labro init` — Interactive Config Generator
+
+If the `[[projects.task_sources]]` repetition in `labro.toml` feels verbose, the fix is a
+guided generator rather than a format switch.
+
+`labro init` would walk the user through a short Q&A and write a valid `labro.toml`:
+
+1. GitHub repo(s) to monitor
+2. Auth method (GitHub App or PAT)
+3. Which task sources to enable per project (gh-label, grafana-alerts, proactive-improvement)
+4. Which label rules to include (dev / ba / architect / custom)
+5. Cron schedule per project
+
+The generated file would include only the sections actually needed, with inline comments
+explaining each field. Power users can still hand-edit; `labro init` is just a zero-to-working
+on-ramp.
+
+This sidesteps the TOML-vs-YAML debate: the verbosity of `[[projects.task_sources]]` is only
+painful when writing from scratch, not when reading or editing an existing file.
+
+---
+
 # Surprise-Me Feature With Random Perspective
 
 > **Status: Implemented in M7.** Perspectives live in `perspectives.toml` (32 samples shipped); configured per task source via `perspectives = [...]` in `labro.toml`. The design below reflects the original proposal; the shipped implementation differs slightly (no `perspective_groups` — flat list per source instead).
