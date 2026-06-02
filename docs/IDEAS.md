@@ -1,5 +1,9 @@
 # Surprise-Me Feature With Random Perspective
 
+> **Status: Implemented in M7.** Perspectives live in `perspectives.toml` (32 samples shipped); configured per task source via `perspectives = [...]` in `labro.toml`. The design below reflects the original proposal; the shipped implementation differs slightly (no `perspective_groups` — flat list per source instead).
+
+---
+
 As originally conceived, the surprise-me feature would give the agent
 completely free rein to make any suggestion to improve the project.
 

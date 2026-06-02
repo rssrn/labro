@@ -41,7 +41,7 @@ src/labro/
   post_run.py         # label transitions, items_touched writes
   assignee.py         # assignee resolution helpers
   config/             # schema.py (Pydantic), loader.py
-  task_sources/       # base.py, gh_label.py
+  task_sources/       # base.py, gh_label.py, proactive_improvement.py
   agents/             # base.py, claude_code.py, codex.py, opencode.py, registry.py, _schema.py, _subprocess.py
 tests/
 docs/                 # PRD, ARCHITECTURE, ROADMAP, ADRs
@@ -73,5 +73,6 @@ if you skip it, requiring a second commit attempt.
 ## Current Milestone
 
 - **M1–M5 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment, operator CLI.
-- **Recently shipped** — multi-provider agent registry (CodexAgent, OpenCodeAgent), GitHub App auth, Docker image size reduction (tarball Node + GHCR binary).
-- **Next** — M6: `grafana-alerts` task source (alert fetch, severity filter, dedup via `ai-alert:<rule-uid>`).
+- **M7 complete** — `proactive-improvement` task source: harness creates issue, randomly selected perspective from `perspectives.toml` injected as 5th prompt section, `chosen_perspective` column in `runs` table. M6 (`grafana-alerts`) skipped for now.
+- **Recently shipped** — multi-provider agent registry (CodexAgent, OpenCodeAgent), GitHub App auth, perspectives feature (32 perspectives across 7 groups).
+- **Next** — M6: `grafana-alerts` task source, or M8: daily digest.
