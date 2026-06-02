@@ -129,6 +129,7 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
+COPY perspectives.toml ./
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 

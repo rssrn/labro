@@ -366,3 +366,37 @@ def test_wip_branch_does_not_create_fifth_section() -> None:
     """Adding wip_branch must not create a fifth prompt section."""
     prompt = build_prompt(_task(), wip_branch="labro-wip/run-abc")
     assert len(prompt.split(_DIVIDER)) == 4
+
+
+# ── Perspective section ────────────────────────────────────────────────────────
+
+
+def _proactive_task(perspective_prompt: str | None = None) -> Task:
+    """Return a proactive-improvement task, optionally with a perspective."""
+    t = _task(item_type="issue", item_number=7, item_url="https://github.com/org/repo/issues/7")
+    t.source = "proactive-improvement"
+    t.perspective_prompt = perspective_prompt
+    t.chosen_perspective = "red-team" if perspective_prompt else None
+    return t
+
+
+def test_perspective_creates_fifth_section() -> None:
+    """When task.perspective_prompt is set, build_prompt returns 5 sections."""
+    task = _proactive_task("Look for failures in the design.")
+    prompt = build_prompt(task)
+    assert len(prompt.split(_DIVIDER)) == 5
+
+
+def test_perspective_section_contains_prompt_text() -> None:
+    task = _proactive_task("Look for failures in the design.")
+    prompt = build_prompt(task)
+    section = prompt.split(_DIVIDER)[4]
+    assert "Perspective" in section
+    assert "Look for failures in the design." in section
+
+
+def test_no_perspective_returns_four_sections() -> None:
+    """When task.perspective_prompt is None, build_prompt returns 4 sections."""
+    task = _proactive_task(perspective_prompt=None)
+    prompt = build_prompt(task)
+    assert len(prompt.split(_DIVIDER)) == 4

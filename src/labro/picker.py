@@ -17,23 +17,34 @@ from labro.config.schema import (
 from labro.config.schema import (
     LabroConfig,
     PersonaConfig,
+    PerspectiveConfig,
     ProjectConfig,
+)
+from labro.config.schema import (
+    ProactiveImprovementSource as ProactiveImprovementSourceConfig,
 )
 from labro.models import AgentConfig, Task
 from labro.task_sources.base import TaskSource
 from labro.task_sources.gh_label import GhLabelTaskSource
+from labro.task_sources.proactive_improvement import ProactiveImprovementTaskSource
 
 logger = logging.getLogger(__name__)
 
 
-def _build_source(source_config: object, personas: dict[str, PersonaConfig]) -> TaskSource | None:
+def _build_source(
+    source_config: object,
+    personas: dict[str, PersonaConfig],
+    perspectives: dict[str, PerspectiveConfig],
+) -> TaskSource | None:
     """Instantiate a TaskSource from a config object.
 
-    Returns ``None`` for source types that are not yet implemented (M2+).
+    Returns ``None`` for source types that are not yet implemented.
     """
     if isinstance(source_config, GhLabelSourceConfig):
         return GhLabelTaskSource(source_config, personas)
-    # GrafanaAlertsSource and ProactiveImprovementSource are M2+ — skip gracefully.
+    if isinstance(source_config, ProactiveImprovementSourceConfig):
+        return ProactiveImprovementTaskSource(source_config, personas, perspectives)
+    # GrafanaAlertsSource — skip gracefully until M6.
     return None
 
 
@@ -53,7 +64,7 @@ def pick(
     defaults = config.defaults
 
     for source_cfg in project.task_sources:
-        source = _build_source(source_cfg, config.personas)
+        source = _build_source(source_cfg, config.personas, config.perspectives)
         if source is None:
             # Source type not implemented yet — skip silently.
             continue

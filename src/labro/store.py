@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS runs (
     summary             TEXT,
     actions_taken       TEXT,
     failure_reason      TEXT,
-    wip_branch_url      TEXT
+    wip_branch_url      TEXT,
+    chosen_perspective  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project    ON runs (project);
@@ -92,7 +93,12 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_DDL)
-    conn.commit()
+    # Forward migration: add columns introduced after initial schema creation.
+    try:
+        conn.execute("ALTER TABLE runs ADD COLUMN chosen_perspective TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists on existing installs
     return conn
 
 

@@ -495,6 +495,7 @@ def _insert_run(conn: sqlite3.Connection, **overrides: Any) -> None:
         "actions_taken": "[]",
         "failure_reason": None,
         "wip_branch_url": None,
+        "chosen_perspective": None,
     }
     defaults.update(overrides)
     cols = ", ".join("?" * len(defaults))

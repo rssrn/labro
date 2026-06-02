@@ -636,3 +636,73 @@ class TestGitHubAppConfig:
         p = write_toml(tmp_path, content)
         with pytest.raises(ConfigError, match="must be set together"):
             load_config(p)
+
+
+# ── Perspectives tests ─────────────────────────────────────────────────────────
+
+_PROACTIVE_TOML = """\
+[digest]
+enabled = false
+
+[[projects]]
+name = "svc"
+repo = "org/svc"
+cron = "0 * * * *"
+
+[[projects.task_sources]]
+type = "proactive-improvement"
+"""
+
+_PERSPECTIVES_TOML = """\
+[perspectives.red-team]
+prompt = "Look for failures."
+
+[perspectives.pre-mortem]
+prompt = "Assume it fails."
+"""
+
+
+class TestPerspectives:
+    def test_perspectives_loaded_from_separate_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        p = write_toml(tmp_path, _PROACTIVE_TOML)
+        (tmp_path / "perspectives.toml").write_text(_PERSPECTIVES_TOML)
+        config = load_config(p)
+        assert "red-team" in config.perspectives
+        assert "pre-mortem" in config.perspectives
+        assert config.perspectives["red-team"].prompt == "Look for failures."
+
+    def test_missing_perspectives_file_does_not_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        p = write_toml(tmp_path, _PROACTIVE_TOML)
+        # No perspectives.toml written — should load cleanly.
+        config = load_config(p)
+        assert config.perspectives == {}
+
+    def test_unknown_perspective_name_in_source_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        toml_with_unknown = _PROACTIVE_TOML + 'perspectives = ["nonexistent"]\n'
+        p = write_toml(tmp_path, toml_with_unknown)
+        with pytest.raises(ConfigError, match="perspective"):
+            load_config(p)
+
+    def test_valid_source_perspectives_subset_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        toml_with_subset = _PROACTIVE_TOML + 'perspectives = ["red-team"]\n'
+        p = write_toml(tmp_path, toml_with_subset)
+        (tmp_path / "perspectives.toml").write_text(_PERSPECTIVES_TOML)
+        config = load_config(p)
+        source = config.projects[0].task_sources[0]
+        assert source.perspectives == ["red-team"]  # type: ignore[union-attr]

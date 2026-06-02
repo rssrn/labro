@@ -1,0 +1,261 @@
+# Labro perspectives — prompt lenses for proactive-improvement runs.
+#
+# Left to its own devices, an agent asked to "suggest an improvement" will drift
+# toward the same kinds of suggestions every time — usually low-hanging technical
+# debt or documentation gaps.  Perspectives counteract that by forcing a
+# different angle of attack on each run, producing a more varied and useful
+# stream of suggestions over time.
+#
+# Each [perspectives.<name>] block defines a named perspective.  When a
+# proactive-improvement task source fires, Labro picks one at random (or from
+# the subset listed in labro.toml) and injects it into the agent prompt as a
+# dedicated "Perspective" section.
+#
+# To use a subset per project, list the names in your labro.toml source block:
+#
+#   [[projects.task_sources]]
+#   type = "proactive-improvement"
+#   perspectives = ["pre-mortem", "red-team"]   # omit to use all
+#
+# Add, remove, or reword perspectives freely — this file is yours to customise.
+
+
+# ── Strategic / risk ───────────────────────────────────────────────────────────
+
+[perspectives.pre-mortem]
+prompt = """
+Assume this project fails in six months. Identify the most likely technical or
+product reasons and propose concrete mitigations for each.
+"""
+
+[perspectives.red-team]
+prompt = """
+Look for ways the current design, security model, release process, or
+assumptions could fail or be exploited. Focus on concrete risks and practical
+countermeasures rather than theoretical concerns.
+"""
+
+[perspectives.backcasting]
+prompt = """
+Imagine the project is a clear success in two years. Work backwards to identify
+the key decisions, investments, or changes that made it possible — then propose
+the first actionable step toward one of them.
+"""
+
+[perspectives.kill-the-product]
+prompt = """
+Identify the single most likely reason this project gets shut down or abandoned.
+Propose the one change that would most reduce that risk.
+"""
+
+[perspectives.assumption-analysis]
+prompt = """
+Surface the hidden assumptions baked into the current design, roadmap, or
+architecture. Which assumptions are most load-bearing and least validated?
+Propose a way to test or de-risk the most critical one.
+"""
+
+
+# ── Six Thinking Hats ─────────────────────────────────────────────────────────
+
+[perspectives.white-hat]
+prompt = """
+Focus purely on facts and data. What do the numbers, metrics, logs, test
+results, and open issues reveal about the health of this project? Propose an
+improvement grounded in what the evidence actually shows.
+"""
+
+[perspectives.black-hat]
+prompt = """
+Apply critical caution. What are the risks, gaps, error-prone areas, and things
+most likely to go wrong? Err on the side of identifying problems over
+celebrating strengths, and propose the most important fix.
+"""
+
+[perspectives.red-hat]
+prompt = """
+Set aside analysis and evidence. What does instinct say is wrong or risky about
+this project right now, even if it can't be fully justified? What are people
+privately worried about but not saying?
+"""
+
+[perspectives.yellow-hat]
+prompt = """
+Focus on what is genuinely going well. What strengths, advantages, or
+underexploited assets does this project have? How could they be leveraged more?
+"""
+
+[perspectives.green-hat]
+prompt = """
+Think creatively. Propose a novel improvement, unconventional approach, or
+experiment that the project hasn't tried yet. Prioritise ideas with a strong
+effort-to-impact ratio.
+"""
+
+# Blue hat (facilitator/process coordinator) intentionally omitted — it is a
+# meta-role for directing the thinking of others, which doesn't translate well
+# to a solo agent prompt.  The Belbin coordinator perspective covers similar ground.
+
+
+# ── Temporal / horizon shifts ──────────────────────────────────────────────────
+
+[perspectives.archaeology]
+prompt = """
+Treat the codebase as an artefact from the past. What decisions, constraints, or
+contexts does it reveal that are no longer true? Which of those fossils are now
+liabilities?
+"""
+
+[perspectives.10x-telescope]
+prompt = """
+Assume this project needs to handle ten times current scale, users, or
+complexity in 18 months. What breaks first?
+"""
+
+[perspectives.fresh-eyes]
+prompt = """
+You are a senior engineer seeing this project for the first time on day one.
+What is confusing, undocumented, or surprising?
+"""
+
+
+# ── Stakeholder / human lenses ─────────────────────────────────────────────────
+
+[perspectives.contributor-experience]
+prompt = """
+Evaluate the project from the perspective of a new open-source contributor. How
+hard is it to get started, find meaningful work, and ship something?
+"""
+
+[perspectives.operator]
+prompt = """
+You are the person who will run this in production at 3am when something breaks.
+What is missing, unclear, or frightening?
+"""
+
+[perspectives.end-user-shadow]
+prompt = """
+Describe how a real user encounters the consequences of the current technical
+decisions, without using any technical vocabulary.
+"""
+
+
+# ── Economic / prioritisation ──────────────────────────────────────────────────
+
+[perspectives.opportunity-cost]
+prompt = """
+What is not being built while working on current priorities? Is that a good
+trade?
+"""
+
+[perspectives.80-20-audit]
+prompt = """
+Which 20% of the current work is producing 80% of the value? What should be
+cut?
+"""
+
+[perspectives.technical-debt-banker]
+prompt = """
+Treat tech debt as a loan. Identify the outstanding principal, the interest
+being paid each sprint, and which debts to pay off first.
+"""
+
+
+# ── External comparison ────────────────────────────────────────────────────────
+
+[perspectives.competitor-scout]
+prompt = """
+How would a well-funded competitor approach the same problem? What would they do
+differently, and should this project adopt any of it?
+"""
+
+[perspectives.ecosystem-cartographer]
+prompt = """
+Map this project's dependencies and integrations. Where are the single points of
+external failure or abandonment risk?
+"""
+
+
+# ── Process / delivery ─────────────────────────────────────────────────────────
+
+[perspectives.deployment-archaeologist]
+prompt = """
+Trace what it actually takes to get a single change from idea to production.
+Where does time, confidence, or momentum get lost?
+"""
+
+[perspectives.on-call-engineer]
+prompt = """
+Review the observability, alerting, and runbooks. Would you feel safe being
+woken at 3am for an incident on this system?
+"""
+
+
+# ── Belbin team roles — action-oriented ───────────────────────────────────────
+
+[perspectives.shaper]
+prompt = """
+Apply relentless pressure for progress. Challenge current approaches, identify
+what is blocking momentum, and propose the one change that would most accelerate
+delivery. Do not accept 'good enough'.
+"""
+
+[perspectives.implementer]
+prompt = """
+Evaluate what is actually buildable with the available time, tools, and
+bandwidth. Identify the gap between the plan and practical reality, and propose
+a concrete, executable path forward.
+"""
+
+[perspectives.completer-finisher]
+prompt = """
+Scrutinise the project for loose ends, near-misses, and things that are 90%
+done but not shipped. What is at risk of slipping through? What needs to be
+closed out before it becomes a problem?
+"""
+
+
+# ── Belbin team roles — people-oriented ───────────────────────────────────────
+
+[perspectives.coordinator]
+prompt = """
+Assess how well roles, responsibilities, and communication are structured.
+Where are the gaps in ownership? What decisions are being deferred, made by the
+wrong person, or not being made at all?
+"""
+
+[perspectives.teamworker]
+prompt = """
+Identify friction points in how work progresses: unclear handoffs, unresolved
+tensions, knowledge silos, or contributors who are underused or unsupported.
+"""
+
+[perspectives.resource-investigator]
+prompt = """
+Look outside the project. What tools, libraries, external expertise,
+open-source projects, or partnerships could accelerate this work and are not
+currently being exploited?
+"""
+
+
+# ── Belbin team roles — thought-oriented ──────────────────────────────────────
+
+[perspectives.plant]
+prompt = """
+Set aside incrementalism. Propose a lateral or unconventional idea that reframes
+a core problem the project is currently solving the hard way.
+"""
+
+[perspectives.monitor-evaluator]
+prompt = """
+Assess all options and directions currently in play with dispassionate
+objectivity. Which paths have the best evidence behind them? Where is
+enthusiasm winning over evidence?
+"""
+
+[perspectives.specialist]
+prompt = """
+Identify the areas where deep technical expertise is most critical to success
+and most absent from the current approach. What specific knowledge gaps pose the
+greatest risk?
+"""

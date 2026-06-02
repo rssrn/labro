@@ -77,6 +77,7 @@ def test_runs_table_has_expected_columns() -> None:
         "actions_taken",
         "failure_reason",
         "wip_branch_url",
+        "chosen_perspective",
     }
     assert expected == cols
 

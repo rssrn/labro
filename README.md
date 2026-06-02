@@ -391,6 +391,78 @@ gh issue edit <number> --remove-label "ai-failed" --repo <owner/repo>
 
 If the task was label-triggered, also ensure the source label (e.g. `ai-dev`) is still present.
 
+#### `proactive-improvement` path
+
+Labro creates the GitHub issue before the agent runs, applying `ai-proactive-suggestion` at creation time. The agent's task is to investigate and post findings as a comment.
+
+| Outcome | Labels added to created issue | Notes |
+|---|---|---|
+| success | `ai-contributed` | `ai-proactive-suggestion` already applied at creation |
+| failure | `ai-failed`, `ai-contributed` | Failure reason posted as a comment |
+
+The `ai-proactive-suggestion` label counts toward the open-suggestion cap (`max_open_suggestions`, default 3). Close or relabel an issue to make room for a new proactive run.
+
+---
+
+## Proactive improvement
+
+The `proactive-improvement` task source triggers when the picker reaches it in the configured priority list. Labro creates a tracking issue, then asks the agent to investigate and post findings as a comment.
+
+### Minimal config
+
+```toml
+[[projects.task_sources]]
+type = "proactive-improvement"
+permitted_actions = ["comment_on_issue", "open_pr"]
+```
+
+### All options
+
+```toml
+[[projects.task_sources]]
+type                 = "proactive-improvement"
+max_open_suggestions = 3              # skip if this many open ai-proactive-suggestion issues exist
+perspectives         = []             # names from perspectives.toml; empty = use all
+persona              = "senior-dev"   # optional persona (defined in [personas])
+permitted_actions    = ["comment_on_issue", "open_pr"]
+model                = "claude-code:anthropic/claude-sonnet-4-6@high"
+```
+
+### Perspectives
+
+A **perspective** is a prompt lens that shapes the agent's approach for a single proactive run. Labro picks one at random from `perspectives.toml` (adjacent to `labro.toml`) each time the source fires.
+
+**Setup:**
+1. Copy `perspectives.toml` from the repo root into the same directory as your `labro.toml`.
+2. Edit the perspective prompts to suit your project.
+3. Restart Labro (or let it pick up the file on the next cron tick — it reads it fresh each run).
+
+If `perspectives.toml` is absent, Labro logs a notice and runs without a perspective (agent has free rein).
+
+**Restricting perspectives per project:** list the names you want:
+
+```toml
+[[projects.task_sources]]
+type         = "proactive-improvement"
+perspectives = ["red-team", "pre-mortem"]   # only these two, picked randomly
+```
+
+Omit `perspectives` (or set it to `[]`) to pick from all perspectives defined in the file.
+
+**Adding custom perspectives** — append to `perspectives.toml`:
+
+```toml
+[perspectives.dependency-audit]
+prompt = """
+Review all third-party dependencies. Identify any that are outdated, unmaintained,
+or have known vulnerabilities. Propose a concrete upgrade or replacement plan.
+"""
+```
+
+**The chosen perspective** is written to the `runs` table (`chosen_perspective` column) and appears in the issue header, so every suggestion is auditable.
+
+---
+
 #### `items_touched` table
 
 Labro writes a row to the `items_touched` SQLite table **before** the agent runs, as soon as the task is selected. This means the row exists even if the agent times out or crashes — it records which item was attempted, not whether the attempt succeeded.

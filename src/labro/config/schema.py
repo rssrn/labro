@@ -111,6 +111,12 @@ class PersonaConfig(BaseModel):
     prompt: str
 
 
+class PerspectiveConfig(BaseModel):
+    """A named perspective: a prompt lens injected into proactive-improvement runs."""
+
+    prompt: str
+
+
 class SharedRuleConfig(BaseModel):
     """A reusable label rule template, referenced by name from label_rules entries."""
 
@@ -190,9 +196,8 @@ class ProactiveImprovementSource(BaseModel):
     """Task source: proactive-improvement."""
 
     type: Literal["proactive-improvement"]
-    selection_strategy: Literal["agent-chooses", "harness-random"] = "agent-chooses"
     max_open_suggestions: int = 3
-    targets: list[str] = Field(default_factory=list)
+    perspectives: list[str] = Field(default_factory=list)  # empty = use all defined
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: ModelSlug | None = None
@@ -248,6 +253,7 @@ class LabroConfig(BaseModel):
     """Root config object parsed from labro.toml."""
 
     personas: dict[str, PersonaConfig] = Field(default_factory=dict)
+    perspectives: dict[str, PerspectiveConfig] = Field(default_factory=dict)
     shared_rules: dict[str, SharedRuleConfig] = Field(default_factory=dict)
     digest: DigestConfig = Field(default_factory=DigestConfig)
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
@@ -318,5 +324,11 @@ class LabroConfig(BaseModel):
                         raise ValueError(
                             f"persona {source.persona!r} is not defined in [personas]"
                         )
+                    if isinstance(source, ProactiveImprovementSource):
+                        for pname in source.perspectives:
+                            if pname not in self.perspectives:
+                                raise ValueError(
+                                    f"perspective {pname!r} is not defined in [perspectives]"
+                                )
 
         return self

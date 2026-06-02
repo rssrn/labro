@@ -180,12 +180,22 @@ type = "gh-label"
 [[projects.task_sources.label_rules]]
 rule = "ba"
 
-# (4) architect label — lowest priority; background design review
+# (4) architect label — lowest priority label task
 [[projects.task_sources]]
 type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 rule = "architect"
+
+# (5) proactive improvement — fires when nothing else is queued.
+#     Labro creates a GitHub issue and asks the agent to investigate from a
+#     randomly selected perspective (defined in perspectives.toml).
+#     Omit `perspectives` to draw from all defined perspectives.
+[[projects.task_sources]]
+type                 = "proactive-improvement"
+max_open_suggestions = 3                          # skip if this many open ai-proactive-suggestion issues exist
+perspectives         = ["red-team", "pre-mortem", "fresh-eyes", "10x-telescope"]
+permitted_actions    = ["comment_on_issue", "open_pr"]
 
 [[projects]]
 name    = "another-service"
@@ -230,3 +240,9 @@ permitted_actions = ["create_issue", "comment_on_issue"]
 # label      = "ai-architect"
 # done_label = "ai-architect-done"
 # permitted_actions = ["comment_on_issue"]
+#
+# [[projects.task_sources]]
+# type                 = "proactive-improvement"
+# max_open_suggestions = 3
+# perspectives         = []   # empty = use all perspectives from perspectives.toml
+# permitted_actions    = ["comment_on_issue", "open_pr"]

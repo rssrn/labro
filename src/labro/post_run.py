@@ -1,4 +1,6 @@
-"""Post-run label transitions and failure comments for gh-label tasks.
+"""Post-run label transitions and failure comments.
+
+Handles gh-label and proactive-improvement task sources.
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -79,7 +81,7 @@ def pre_run(task: Task, agent_cfg: AgentConfig) -> None:
 
     @author Claude Sonnet 4.6 Anthropic
     """
-    if task.item_number is None:
+    if task.item_number is None or task.source == "proactive-improvement":
         return
     item_type = task.item_type or "issue"
     parts = ["Labro picking up"]
@@ -111,6 +113,10 @@ def post_run(
         resuming_wip: True if this run resumed from a prior WIP branch (changes
             the branch-reference wording in the handover comment).
     """
+    if task.source == "proactive-improvement":
+        _post_run_proactive(task, agent_result, outcome=outcome, agent_name=agent_name)
+        return
+
     if task.source != "gh-label" or task.item_number is None:
         return
 
@@ -187,3 +193,33 @@ def post_run(
         if wip_branch_url:
             body += f"\n\nWork in progress preserved on branch: {wip_branch_url}"
         _gh_comment(item_type, item_number, repo, body)
+
+
+def _post_run_proactive(
+    task: Task,
+    agent_result: AgentResult | None,
+    *,
+    outcome: str,
+    agent_name: str,
+) -> None:
+    """Apply labels and post comments on the harness-created proactive suggestion issue."""
+    if task.item_number is None:
+        return
+
+    repo = task.repo
+    item_number = task.item_number
+
+    if outcome == "success":
+        _gh_edit("issue", item_number, repo, add=["ai-contributed"], remove=[])
+    else:
+        detail: str | None = None
+        if agent_result is not None:
+            detail = agent_result.failure_reason or agent_result.summary
+        body = (
+            f"Labro's agent (`{agent_name}`) investigated this suggestion"
+            f" but reported failure.\n\n**Reason:** {detail}"
+            if detail
+            else _GENERIC_FAILURE_MSG
+        )
+        _gh_comment("issue", item_number, repo, body)
+        _gh_edit("issue", item_number, repo, add=["ai-failed", "ai-contributed"], remove=[])

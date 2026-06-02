@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tomllib
 from pathlib import Path
 
 from labro.config.schema import GhLabelSource, GrafanaAlertsSource, LabroConfig, parse_slug
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -73,8 +76,12 @@ def required_env_vars(config: LabroConfig) -> list[str]:
     return required
 
 
-def load_config(path: Path) -> LabroConfig:
+def load_config(path: Path, perspectives_path: Path | None = None) -> LabroConfig:
     """Parse and validate labro.toml at *path*.
+
+    If *perspectives_path* is None, ``perspectives.toml`` is auto-discovered
+    in the same directory as *path*.  If absent, perspective injection is
+    disabled and a warning is logged.
 
     Raises:
         ConfigError: on TOML syntax error, Pydantic validation failure,
@@ -89,6 +96,21 @@ def load_config(path: Path) -> LabroConfig:
         data = tomllib.loads(raw.decode())
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"TOML parse error in {path}: {exc}") from exc
+
+    # Merge perspectives.toml if present.
+    persp_path = (
+        perspectives_path if perspectives_path is not None else path.parent / "perspectives.toml"
+    )
+    if persp_path.exists():
+        try:
+            persp_data = tomllib.loads(persp_path.read_bytes().decode())
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(f"TOML parse error in {persp_path}: {exc}") from exc
+        data.setdefault("perspectives", {}).update(persp_data.get("perspectives", {}))
+    else:
+        logger.info(
+            "perspectives.toml not found at %s — perspective injection disabled", persp_path
+        )
 
     try:
         config = LabroConfig.model_validate(data)

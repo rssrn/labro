@@ -59,9 +59,10 @@ explicit_package_bases = true
 
 # ── bandit ─────────────────────────────────────────────────────────────────────
 [tool.bandit]
-skips = ["B404", "B603", "B607", "B310"]
+skips = ["B404", "B603", "B607", "B310", "B311"]
 # B602 (shell=True) is intentionally NOT skipped — hard architectural rule.
 # B310 (urllib urlopen): used only for ANTHROPIC_API_KEY validation against api.anthropic.com.
+# B311 (random): perspective selection is non-security; crypto randomness not needed.
 
 # ── pytest ─────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

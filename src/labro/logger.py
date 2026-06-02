@@ -77,7 +77,7 @@ def write_run(
                 input_tokens, output_tokens,
                 cache_read_tokens, cache_write_tokens,
                 summary, actions_taken, failure_reason,
-                wip_branch_url
+                wip_branch_url, chosen_perspective
             ) VALUES (
                 :run_id, :project,
                 :task_source, :task_description, :item_url, :trigger_label,
@@ -88,7 +88,7 @@ def write_run(
                 :input_tokens, :output_tokens,
                 :cache_read_tokens, :cache_write_tokens,
                 :summary, :actions_taken, :failure_reason,
-                :wip_branch_url
+                :wip_branch_url, :chosen_perspective
             )
             """,
             {
@@ -116,5 +116,6 @@ def write_run(
                 "actions_taken": actions_taken_json,
                 "failure_reason": failure_reason,
                 "wip_branch_url": wip_branch_url,
+                "chosen_perspective": task.chosen_perspective if task is not None else None,
             },
         )

@@ -43,6 +43,10 @@ class Task:
     # Optional persona prompt prepended to the role section of the agent prompt.
     persona_prompt: str | None = None
 
+    # Perspective selected for proactive-improvement runs.
+    perspective_prompt: str | None = None  # resolved prompt text for section 5
+    chosen_perspective: str | None = None  # perspective name, written to runs table
+
 
 def make_task_id() -> str:
     """Generate a fresh UUID v4 task identifier."""

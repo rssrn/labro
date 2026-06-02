@@ -40,7 +40,7 @@ _DIVIDER = "\n---\n"
 
 def _section_role(persona_prompt: str | None = None, durable_progress: bool = False) -> str:
     base = (
-        "You are an autonomous coding agent running unattended on a schedule."
+        "You are Labro, an autonomous coding agent running unattended on a schedule."
         " No human is present during this session.\n\n"
         "Act decisively within your permitted actions (listed below under **Action permissions**)."
         " If you cannot make meaningful progress within those boundaries, write a"
@@ -133,6 +133,17 @@ def _section_project_context(
     return "\n".join(lines)
 
 
+def _section_perspective(perspective_prompt: str) -> str:
+    return "\n".join(
+        [
+            "## Perspective",
+            "Use the following perspective to shape your analysis:",
+            "",
+            perspective_prompt.strip(),
+        ]
+    )
+
+
 def build_prompt(
     task: Task,
     project_context: str | None = None,
@@ -140,7 +151,7 @@ def build_prompt(
     wip_branch: str | None = None,
     prior_summary: str | None = None,
 ) -> str:
-    """Construct the four-section agent prompt for *task*.
+    """Construct the agent prompt for *task* (4 sections, or 5 when a perspective is set).
 
     Args:
         task: Resolved task produced by the picker.
@@ -166,4 +177,6 @@ def build_prompt(
         _section_permitted_actions(task),
         _section_project_context(task, default_branch, project_context, wip_branch, prior_summary),
     ]
+    if task.perspective_prompt is not None:
+        sections.append(_section_perspective(task.perspective_prompt))
     return _DIVIDER.join(sections)
