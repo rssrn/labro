@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import subprocess
 
-from labro.models import AgentResult, Task
+from labro.models import AgentConfig, AgentResult, Task
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +72,30 @@ def _gh_comment(item_type: str, item_number: int, repo: str, body: str) -> None:
         )
 
 
+def pre_run(task: Task, agent_cfg: AgentConfig) -> None:
+    """Post a comment on the task item when Labro picks it up for a run.
+
+    No-op if the task has no item_number. Soft-fail on gh errors.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    if task.item_number is None:
+        return
+    item_type = task.item_type or "issue"
+    parts = ["Labro picking up"]
+    if task.source_label:
+        parts.append(f", selected based on `#{task.source_label}` label")
+    parts.append(f". Assigning to `{agent_cfg.slug}`.")
+    _gh_comment(item_type, task.item_number, task.repo, "".join(parts))
+
+
 def post_run(
     run_id: str,
     task: Task,
     agent_result: AgentResult | None,
     *,
     outcome: str,
-    agent_name: str = "claude-code",
+    agent_name: str = "labro-agent",
     wip_branch_url: str | None = None,
     resuming_wip: bool = False,
 ) -> None:
@@ -151,7 +168,7 @@ def post_run(
                 item_type,
                 item_number,
                 repo,
-                f"Labro skipped this {item_type}: the Claude session limit was reached"
+                f"Labro skipped this {item_type}: the agent session limit was reached"
                 f" ({agent_result.summary}). "
                 f"This {item_type} remains eligible to be picked in future runs.",
             )

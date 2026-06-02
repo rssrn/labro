@@ -38,7 +38,6 @@ def _make_config(
     project_name: str = "labro",
     daily_budget_usd: float | None = None,
     timeout_s: int | None = None,
-    claude_assignee: str | None = None,
 ) -> LabroConfig:
     """Build a minimal ``LabroConfig`` with a single project."""
     label_rule = LabelRule(label="ai-dev", done_label="ai-dev-done")
@@ -58,7 +57,6 @@ def _make_config(
             model="claude-code:anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
         ),
         projects=[project],
-        claude_assignee=claude_assignee,
     )
 
 
@@ -248,6 +246,7 @@ def test_successful_agent_run_writes_success_record(tmp_path: Path) -> None:
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
+        patch("labro.cli.post_run_mod.pre_run"),
     ):
         mock_instance = MagicMock()
         mock_instance.invoke.return_value = agent_result
@@ -290,6 +289,7 @@ def test_partial_outcome_stored_as_partial(tmp_path: Path) -> None:
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
+        patch("labro.cli.post_run_mod.pre_run"),
     ):
         mock_instance = MagicMock()
         mock_instance.invoke.return_value = agent_result
@@ -331,6 +331,7 @@ def test_partial_outcome_wip_preservation_attempted(tmp_path: Path) -> None:
         patch("labro.cli.preserve_wip", return_value=wip_url) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.pre_run"),
         patch("labro.cli.post_run_mod.post_run") as mock_post_run,
     ):
         mock_instance = MockAgent.return_value
@@ -373,6 +374,7 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
+        patch("labro.cli.post_run_mod.pre_run"),
     ):
         mock_instance = MagicMock()
         mock_instance.invoke.side_effect = RunnerTimeoutError("timed out")
@@ -425,93 +427,6 @@ def test_lock_released_on_exception(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_claude_assignee_assigned_and_restored_on_success(tmp_path: Path) -> None:
-    """When claude_assignee is set, assign before agent and restore after (success path)."""
-    db_path = tmp_path / "labro.db"
-    repos_dir = tmp_path / "repos"
-    conn = _open_mem_db()
-    config = _make_config(claude_assignee="claude-code-bot")
-    task = _make_task()
-    agent_cfg = _make_agent_cfg()
-    agent_result = _make_agent_result(outcome="success")
-
-    with (
-        patch("labro.cli.load_config", return_value=config),
-        patch("labro.cli.store_mod.open_db", return_value=conn),
-        patch("labro.cli.store_mod.acquire_lock", return_value=True),
-        patch("labro.cli.store_mod.release_lock"),
-        patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.get_agent") as MockAgent,
-        patch("labro.cli.logger_mod.write_run"),
-        patch("labro.cli.assignee_mod.comment_assignment") as mock_comment,
-        patch("labro.cli.assignee_mod.assign_claude") as mock_assign,
-        patch("labro.cli.assignee_mod.restore_assignees") as mock_restore,
-    ):
-        calls: list[str] = []
-        mock_comment.side_effect = lambda *_args, **_kwargs: calls.append("comment")
-        mock_assign.side_effect = lambda *_args, **_kwargs: calls.append("assign")
-        mock_instance = MockAgent.return_value
-        mock_instance.invoke.return_value = agent_result
-
-        result = _cmd_run_live(
-            config_path=Path("labro.toml"),
-            project_name="labro",
-            db_path=db_path,
-            repos_dir=repos_dir,
-        )
-
-    assert result == 0
-    assert calls == ["comment", "assign"]
-    mock_comment.assert_called_once_with(task, "claude-code-bot")
-    mock_assign.assert_called_once_with(task, "claude-code-bot")
-    mock_restore.assert_called_once_with(task, "claude-code-bot")
-
-    conn.close()
-
-
-def test_claude_assignee_restored_on_agent_failure(tmp_path: Path) -> None:
-    """restore_assignees is called in finally even when the agent raises."""
-    from labro.runner import RunnerTimeoutError
-
-    db_path = tmp_path / "labro.db"
-    repos_dir = tmp_path / "repos"
-    conn = _open_mem_db()
-    config = _make_config(claude_assignee="claude-code-bot")
-    task = _make_task()
-    agent_cfg = _make_agent_cfg()
-
-    with (
-        patch("labro.cli.load_config", return_value=config),
-        patch("labro.cli.store_mod.open_db", return_value=conn),
-        patch("labro.cli.store_mod.acquire_lock", return_value=True),
-        patch("labro.cli.store_mod.release_lock"),
-        patch("labro.cli.pick", return_value=(task, agent_cfg)),
-        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.preserve_wip", return_value=None),
-        patch("labro.cli.get_agent") as MockAgent,
-        patch("labro.cli.logger_mod.write_run"),
-        patch("labro.cli.assignee_mod.comment_assignment"),
-        patch("labro.cli.assignee_mod.assign_claude"),
-        patch("labro.cli.assignee_mod.restore_assignees") as mock_restore,
-    ):
-        mock_instance = MockAgent.return_value
-        mock_instance.invoke.side_effect = RunnerTimeoutError("timed out")
-
-        result = _cmd_run_live(
-            config_path=Path("labro.toml"),
-            project_name="labro",
-            db_path=db_path,
-            repos_dir=repos_dir,
-        )
-
-    assert result == 1
-    # restore must be called even though the agent timed out
-    mock_restore.assert_called_once_with(task, "claude-code-bot")
-
-    conn.close()
-
-
 def test_wip_resume_passes_branch_to_prepare_and_prompt(tmp_path: Path) -> None:
     """When a prior partial run exists for the item, harness resumes from its WIP branch."""
     db_path = tmp_path / "labro.db"
@@ -539,6 +454,7 @@ def test_wip_resume_passes_branch_to_prepare_and_prompt(tmp_path: Path) -> None:
         patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.pre_run"),
         patch("labro.cli.post_run_mod.post_run") as mock_post_run,
     ):
         mock_instance = MockAgent.return_value
@@ -595,6 +511,7 @@ def test_wip_branch_not_found_clears_resume_context(tmp_path: Path) -> None:
         patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.pre_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):
         mock_instance = MockAgent.return_value
@@ -658,6 +575,7 @@ def test_session_limit_zero_tokens_skips_wip_preservation(tmp_path: Path) -> Non
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.pre_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):
         MockAgent.return_value.invoke.return_value = agent_result
@@ -698,6 +616,7 @@ def test_session_limit_with_output_tokens_and_push_perm_preserves_wip(tmp_path: 
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.pre_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):
         MockAgent.return_value.invoke.return_value = agent_result
@@ -737,6 +656,7 @@ def test_session_limit_no_push_perm_skips_wip_preservation(tmp_path: Path) -> No
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run"),
+        patch("labro.cli.post_run_mod.pre_run"),
         patch("labro.cli.post_run_mod.post_run"),
     ):
         MockAgent.return_value.invoke.return_value = agent_result

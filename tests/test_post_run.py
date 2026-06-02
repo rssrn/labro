@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from labro.models import AgentResult, Task
-from labro.post_run import post_run
+from labro.models import AgentConfig, AgentResult, Task
+from labro.post_run import post_run, pre_run
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,6 +65,45 @@ def _edit_cmds(mock_run: MagicMock) -> list[list[str]]:
 def _comment_cmds(mock_run: MagicMock) -> list[list[str]]:
     """Return all subprocess calls that contain 'comment'."""
     return [c[0][0] for c in mock_run.call_args_list if "comment" in c[0][0]]
+
+
+# ---------------------------------------------------------------------------
+# pre_run
+# ---------------------------------------------------------------------------
+
+
+def _make_agent_cfg(slug: str = "claude-code:anthropic/claude-sonnet-4-6") -> AgentConfig:
+    return AgentConfig.from_slug(slug, max_turns=10, timeout_s=300)
+
+
+@patch("labro.post_run.subprocess.run")
+def test_pre_run_comment_includes_label_and_slug(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task(source_label="ai-dev")
+    pre_run(task, _make_agent_cfg())
+    cmds = _comment_cmds(mock_run)
+    assert len(cmds) == 1
+    body = cmds[0][cmds[0].index("--body") + 1]
+    assert "ai-dev" in body
+    assert "claude-code:anthropic/claude-sonnet-4-6" in body
+
+
+@patch("labro.post_run.subprocess.run")
+def test_pre_run_comment_no_source_label(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    task = _make_task(source_label=None)
+    pre_run(task, _make_agent_cfg())
+    cmds = _comment_cmds(mock_run)
+    assert len(cmds) == 1
+    body = cmds[0][cmds[0].index("--body") + 1]
+    assert "claude-code:anthropic/claude-sonnet-4-6" in body
+
+
+@patch("labro.post_run.subprocess.run")
+def test_pre_run_noop_when_no_item_number(mock_run: MagicMock) -> None:
+    task = _make_task(item_number=None)
+    pre_run(task, _make_agent_cfg())
+    mock_run.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

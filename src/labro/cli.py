@@ -31,7 +31,6 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-import labro.assignee as assignee_mod
 import labro.logger as logger_mod
 import labro.post_run as post_run_mod
 import labro.store as store_mod
@@ -39,7 +38,7 @@ from labro.agents.base import AgentOutputError, AgentTimeoutError
 from labro.agents.registry import get_agent
 from labro.config.loader import ConfigError, load_config, referenced_agents, required_env_vars
 from labro.config.schema import GhLabelSource, LabroConfig, PermittedAction, ProjectConfig
-from labro.models import AgentResult, Task
+from labro.models import AgentResult
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
 from labro.repo import prepare_repo, preserve_wip
@@ -164,8 +163,6 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
     print(f"  permitted_actions: {actions_str}")
     if task.assignees:
         print(f"  assignees        : {', '.join(task.assignees)}")
-    if config.claude_assignee and task.item_number is not None:
-        print(f"  [dry-run] would assign {config.claude_assignee!r} during run")
     print()
     print("  description:")
     for line in task.description.splitlines():
@@ -242,8 +239,6 @@ def _cmd_run_live(
 
     run_id = str(uuid.uuid4())
     started_at = _now_utc()
-    # Set to the task after assign_claude so the finally block knows to restore.
-    _assigned_task: Task | None = None
 
     try:
         # ── Budget check ───────────────────────────────────────────────────────
@@ -376,11 +371,8 @@ def _cmd_run_live(
             prior_summary=prior_summary,
         )
 
-        # ── Assign Claude user (optional) ──────────────────────────────────────
-        if config.claude_assignee and task.item_number is not None:
-            assignee_mod.comment_assignment(task, config.claude_assignee)
-            assignee_mod.assign_claude(task, config.claude_assignee)
-            _assigned_task = task
+        # ── Pre-run comment ────────────────────────────────────────────────────
+        post_run_mod.pre_run(task, agent_cfg)
 
         # ── Invoke agent ───────────────────────────────────────────────────────
         agent_result: AgentResult | None = None
@@ -465,8 +457,6 @@ def _cmd_run_live(
         return 0 if outcome == "success" else 1
 
     finally:
-        if _assigned_task is not None and config.claude_assignee:
-            assignee_mod.restore_assignees(_assigned_task, config.claude_assignee)
         store_mod.release_lock(conn, project_name)
         conn.close()
 
@@ -647,42 +637,6 @@ def _cmd_check(args: argparse.Namespace) -> int:
                 results.append(("FAIL", f"[{project.name}] label missing: {label!r}"))
             if not (expected - existing):
                 results.append(("OK  ", f"[{project.name}] all {len(expected)} labels present"))
-
-        if config.claude_assignee:
-            if config.claude_assignee.endswith("[bot]"):
-                # GitHub App bot accounts are not listed as collaborators via
-                # the REST API — access is granted through the app installation.
-                results.append(
-                    (
-                        "OK  ",
-                        f"[{project.name}] claude_assignee {config.claude_assignee!r}"
-                        " is a GitHub App bot (skipping collaborator check)",
-                    )
-                )
-            else:
-                collab_result = _run_gh(
-                    [
-                        "gh",
-                        "api",
-                        f"repos/{project.repo}/collaborators/{config.claude_assignee}",
-                    ]
-                )
-                if collab_result.returncode == 0:
-                    results.append(
-                        (
-                            "OK  ",
-                            f"[{project.name}] claude_assignee {config.claude_assignee!r}"
-                            " is a collaborator",
-                        )
-                    )
-                else:
-                    results.append(
-                        (
-                            "FAIL",
-                            f"[{project.name}] claude_assignee {config.claude_assignee!r}"
-                            " not a collaborator (or gh api failed)",
-                        )
-                    )
 
     for status, message in results:
         print(f"{status} {message}")

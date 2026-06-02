@@ -71,11 +71,9 @@ def _make_project(
 
 def _make_config(
     projects: list[ProjectConfig] | None = None,
-    claude_assignee: str | None = None,
 ) -> LabroConfig:
     return LabroConfig(
         projects=projects or [_make_project()],
-        claude_assignee=claude_assignee,
     )
 
 
@@ -284,15 +282,12 @@ def _check_gh_router(
     *,
     auth_ok: bool = True,
     label_list_ok: bool = True,
-    collaborator_ok: bool = True,
 ) -> Any:
     """Return a _run_gh side-effect that routes by command for _cmd_check tests."""
 
     def _route(cmd: list[str]) -> MagicMock:
         if "auth" in cmd:
             return _make_gh_result() if auth_ok else _make_gh_result(1, stderr="not authenticated")
-        if "collaborators" in cmd[-1]:
-            return _make_gh_result() if collaborator_ok else _make_gh_result(1, stderr="Not Found")
         # label list
         if label_list_ok:
             return _make_gh_result(stdout=label_json)
@@ -429,45 +424,6 @@ def test_check_all_ok_exits_0(
     assert result == 0
     out = capsys.readouterr().out
     assert "FAIL" not in out
-
-
-def test_check_claude_assignee_present_ok(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config = _make_config(claude_assignee="claude-bot")
-    all_labels = _collect_labels_for_project(config.projects[0], config)
-    label_json = json.dumps([{"name": lbl} for lbl in all_labels])
-    with (
-        patch("labro.cli.load_config", return_value=config),
-        patch("labro.cli.required_env_vars", return_value=[]),
-        patch("labro.cli.referenced_agents", return_value={"claude-code"}),
-        patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_OK)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router(label_json)),
-    ):
-        result = _cmd_check(_make_args())
-    assert result == 0
-
-
-def test_check_claude_assignee_absent_fails(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config = _make_config(claude_assignee="claude-bot")
-    all_labels = _collect_labels_for_project(config.projects[0], config)
-    label_json = json.dumps([{"name": lbl} for lbl in all_labels])
-    with (
-        patch("labro.cli.load_config", return_value=config),
-        patch("labro.cli.required_env_vars", return_value=[]),
-        patch("labro.cli.referenced_agents", return_value={"claude-code"}),
-        patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_OK)),
-        patch(
-            "labro.cli._run_gh", side_effect=_check_gh_router(label_json, collaborator_ok=False)
-        ),
-    ):
-        result = _cmd_check(_make_args())
-    assert result == 1
-    out = capsys.readouterr().out
-    assert "FAIL" in out
-    assert "collaborator" in out
 
 
 def test_check_gh_label_list_failure_is_fail(
