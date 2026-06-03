@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.3.1 — 2026-06-03
+
+### Features
+- Log Labro version on container startup; add `--version` CLI flag
+- Dispatch `labro-release` webhook event to config repo after image publish
+
+### Fixed
+- Docker image: add OCI labels, guard `:latest` tag from pre-release builds, default `VERSION` to `SNAPSHOT`
+
 ## v0.3.0 — 2026-06-03
 
 ### Features
