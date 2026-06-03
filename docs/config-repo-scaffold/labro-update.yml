@@ -1,0 +1,56 @@
+# .github/workflows/labro-update.yml (in the config repo)
+# Pulls the latest labro image and replaces the running container.
+# Run manually via Actions → Run workflow after pushing a new labro release tag.
+#
+# Required repo secrets:
+#   TAILSCALE_AUTHKEY — ephemeral auth key from Tailscale admin (Actions → Keys)
+#   DEPLOY_HOST       — user@hostname (Tailscale hostname), e.g. ubuntu@my-server
+#
+# The container is recreated (stop → rm → run) so the new image is picked up.
+# Labro secrets are read from /opt/labro/.env on the host.
+# Config is read from /opt/labro/config/labro.toml (bind-mounted as /config).
+# Data (SQLite + cloned repos) persists in /opt/labro/data (bind-mounted as /data).
+on:
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --advertise-tags=tag:github-runner
+
+      - name: Pull latest image and replace container
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
+            set -euo pipefail
+            IMAGE="ghcr.io/<your-org>/labro:latest"
+
+            echo "Pulling $IMAGE..."
+            docker pull "$IMAGE"
+
+            echo "Draining in-flight runs..."
+            docker exec labro touch /data/LABRO_DISABLED 2>/dev/null || true
+            while [ "$(docker exec labro sqlite3 /data/labro.db \
+                'SELECT COUNT(*) FROM project_locks' 2>/dev/null)" != "0" ]; do
+              echo "waiting..."; sleep 5
+            done
+
+            echo "Replacing container..."
+            docker stop labro
+            docker rm labro
+
+            docker run -d \
+              --name labro \
+              --restart unless-stopped \
+              --env-file /opt/labro/.env \
+              -v /opt/labro/config:/config:ro \
+              -v /opt/labro/data:/data \
+              "$IMAGE"
+
+            echo "Done. labro is running $IMAGE"
+          ENDSSH

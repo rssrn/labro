@@ -57,8 +57,12 @@ def required_env_vars(config: LabroConfig) -> list[str]:
     required: list[str] = []
 
     if config.github_app_id is not None:
-        # GitHub App auth: private key supplied via env var; no GH_TOKEN needed.
-        required.append("GITHUB_APP_PRIVATE_KEY")
+        # GitHub App auth: private key via env var (base64 or plain); no GH_TOKEN needed.
+        # Accept either form; resolve_private_key_pem() picks the right one at runtime.
+        if not os.environ.get("GITHUB_APP_PRIVATE_KEY_BASE64") and not os.environ.get(
+            "GITHUB_APP_PRIVATE_KEY"
+        ):
+            required.append("GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_BASE64")
     else:
         required.append("GH_TOKEN")
 

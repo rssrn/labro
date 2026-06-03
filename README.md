@@ -117,7 +117,7 @@ For Docker:
 docker run --rm \
   -e GITHUB_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)" \
   -e CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
-  -v "$PWD/labro.toml:/app/labro.toml:ro" \
+  -v "$PWD/labro.toml:/data/labro.toml:ro" \
   labro:latest run my-project
 ```
 
@@ -187,7 +187,7 @@ Verify Labro resolves a task, agent config, and full prompt against your real re
 ```bash
 docker run --rm \
   -e GH_TOKEN=<your-github-token> \
-  -v "$PWD/labro.toml:/app/labro.toml:ro" \
+  -v "$PWD/labro.toml:/data/labro.toml:ro" \
   labro:latest run my-project --dry-run
 ```
 
@@ -199,7 +199,7 @@ Run `labro check` to validate your config, environment variables, GitHub token c
 docker run --rm \
   -e GH_TOKEN=<your-github-token> \
   -e CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
-  -v "$PWD/labro.toml:/app/labro.toml:ro" \
+  -v "$PWD/labro.toml:/data/labro.toml:ro" \
   labro:latest check
 ```
 
@@ -210,7 +210,7 @@ If labels are missing, create them with `labro init`:
 ```bash
 docker run --rm \
   -e GH_TOKEN=<your-github-token> \
-  -v "$PWD/labro.toml:/app/labro.toml:ro" \
+  -v "$PWD/labro.toml:/data/labro.toml:ro" \
   labro:latest init
 ```
 
@@ -324,9 +324,16 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 | Variable | Required | Notes |
 |---|---|---|
 | `GH_TOKEN` | Unless using GitHub App | GitHub PAT — see [GitHub token setup](#github-token-setup) |
-| `GITHUB_APP_PRIVATE_KEY` | If using GitHub App | PEM private key for the GitHub App; replaces `GH_TOKEN` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Recommended | OAuth token from `claude setup-token` on your dev machine; tied to your Pro/Max subscription |
-| `ANTHROPIC_API_KEY` | Alternative | Standard Anthropic API key; bills your API account. If **both** are set, this takes precedence |
+| `GITHUB_APP_PRIVATE_KEY` | If using GitHub App (local/plain) | Raw PEM private key for the GitHub App; replaces `GH_TOKEN` |
+| `GITHUB_APP_PRIVATE_KEY_BASE64` | If using GitHub App (container/CI) | `base64 -w 0 your-app.pem`; takes precedence over `GITHUB_APP_PRIVATE_KEY` if both are set |
+| `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent | OAuth token from `claude setup-token`; tied to your Pro/Max subscription |
+| `ANTHROPIC_API_KEY` | Alternative to OAuth token | Bills your API account. If **both** are set, this takes precedence over the OAuth token |
+| `OPENROUTER_API_KEY` | If using opencode with OpenRouter | |
+| `CODEX_API_KEY` | If using codex via OpenAI API | Pay-per-token billing |
+| `LABRO_CONFIG` | Optional | Path to `labro.toml` inside the container (default: `./labro.toml`) |
+| `LABRO_REPOS_DIR` | Optional | Where repos are cloned (default: `/repos`; set to `/data/repos` with single-mount layout) |
+| `LABRO_DB_PATH` | Optional | SQLite path (default: `/data/labro.db`) |
+| `LABRO_LOG_PATH` | Optional | Log file path (default: `/data/labro.log`) |
 
 ### Emergency pause — `LABRO_DISABLED`
 
@@ -615,7 +622,7 @@ Labro supports two production deployment modes:
 > docker run -d --name labro-test \
 >   -e GH_TOKEN=<token> \
 >   -e CLAUDE_CODE_OAUTH_TOKEN=<token> \
->   -v "$PWD/labro.toml:/app/labro.toml:ro" \
+>   -v "$PWD/labro.toml:/data/labro.toml:ro" \
 >   labro:latest sleep infinity
 >
 > docker exec labro-test labro run my-project --dry-run
@@ -623,32 +630,47 @@ Labro supports two production deployment modes:
 
 ### GHCR image
 
-Pre-built images are published to GHCR on every version tag:
+Pre-built images are published to GHCR on every version tag. Both the versioned tag and `:latest` are pushed:
 
 ```
 ghcr.io/rssrn/labro:<tag>
+ghcr.io/rssrn/labro:latest
 ```
 
-Always pin to a specific tag — `:latest` is not published (pin discipline prevents silent response-shape drift):
-
 ```bash
+docker pull ghcr.io/rssrn/labro:latest
+# or pin to a specific version:
 docker pull ghcr.io/rssrn/labro:v0.4.0
 ```
 
 ### Bind-mount layout
 
+The recommended layout uses a **single volume mount** — all persistent state lives under one host directory:
+
 | Host path | Container path | Purpose |
 |---|---|---|
-| `./labro.toml` | `/app/labro.toml` | Config (read-only) |
-| `/opt/labro/data/` | `/data/` | SQLite DB, lock files, `LABRO_DISABLED` flag |
-| `/opt/labro/repos/` | `/repos/` | Cloned repos (cache) |
+| `/your/data/dir/` | `/data/` | Config, SQLite DB, logs, repos, `LABRO_DISABLED` flag |
 
-The `/data/` volume must be persistent across container restarts. `/repos/` can be ephemeral but caching it avoids repeated full clones.
+Inside the mounted directory:
 
-Use `LABRO_CONFIG` to point at a non-default config path inside the container:
+```
+/your/data/dir/
+  labro.toml        ← LABRO_CONFIG=/data/labro.toml
+  labro.db          ← SQLite run records
+  labro.log         ← structured run log
+  repos/            ← LABRO_REPOS_DIR=/data/repos (cloned repos)
+  codex/
+    auth.json       ← codex CLI auth (symlinked to ~/.codex/auth.json by entrypoint)
+```
+
+Set `LABRO_CONFIG` and `LABRO_REPOS_DIR` to point inside `/data`:
 
 ```bash
-docker run -e LABRO_CONFIG=/config/labro.toml ...
+docker run \
+  -e LABRO_CONFIG=/data/labro.toml \
+  -e LABRO_REPOS_DIR=/data/repos \
+  -v /your/data/dir:/data \
+  ...
 ```
 
 ### GitHub Actions one-shot (recommended)
@@ -672,7 +694,7 @@ jobs:
           docker run --rm \
             -e GH_TOKEN=${{ secrets.GH_TOKEN }} \
             -e CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} \
-            -v $PWD/labro.toml:/app/labro.toml:ro \
+            -v $PWD/labro.toml:/data/labro.toml:ro \
             ghcr.io/rssrn/labro:v0.4.0 labro run my-project
 ```
 
@@ -683,12 +705,18 @@ Start the container once; it generates `/etc/cron.d/labro` from `labro.toml` and
 ```bash
 docker run -d --name labro \
   --restart unless-stopped \
-  -e GH_TOKEN=<token> \
-  -e CLAUDE_CODE_OAUTH_TOKEN=<token> \
-  -v /opt/labro/config/labro.toml:/app/labro.toml:ro \
-  -v /opt/labro/data:/data \
-  -v /opt/labro/repos:/repos \
-  ghcr.io/rssrn/labro:v0.4.0
+  --env-file /your/secrets/.env \
+  -v /your/data/dir:/data \
+  ghcr.io/rssrn/labro:latest
+```
+
+Where `/your/secrets/.env` contains (at minimum):
+
+```
+LABRO_CONFIG=/data/labro.toml
+LABRO_REPOS_DIR=/data/repos
+GITHUB_APP_PRIVATE_KEY_BASE64=<base64 -w 0 your-app.pem>
+CLAUDE_CODE_OAUTH_TOKEN=<token>
 ```
 
 Verify the crontab was generated correctly:
@@ -717,19 +745,74 @@ docker restart labro
 docker exec labro rm -f /data/LABRO_DISABLED
 ```
 
-### Config repo scaffold
+### Config repo
 
-For VPS deployments, Labro ships two ready-to-use workflow files you can copy into your config repo's `.github/workflows/`:
+The recommended production setup separates the harness (this repo) from your operator configuration. Keep your `labro.toml`, API keys, and deployment workflows in a **private config repo** — nothing sensitive ever touches the harness codebase.
 
-```bash
-cp docs/config-repo-scaffold/labro-deploy.yml  <config-repo>/.github/workflows/
-cp docs/config-repo-scaffold/labro-restart.yml <config-repo>/.github/workflows/
+**[rssrn/labro-rssrn](https://github.com/rssrn/labro-rssrn)** is a working example of this pattern. Fork it or use it as a reference when setting up your own.
+
+#### What goes in the config repo
+
+```
+my-labro-config/
+  labro.toml                        ← your operator config (checked in)
+  .gitignore                        ← excludes *.pem, *.key, .env
+  .github/workflows/
+    labro-deploy.yml                ← auto-triggered on labro.toml changes
+    labro-update.yml                ← manual: pull latest image and redeploy
+    labro-restart.yml               ← manual: refresh secrets and restart
 ```
 
-Add `VPS_HOST`, `VPS_USER`, and `VPS_SSH_KEY` as GitHub Secrets in the config repo.
+Scaffold copies of all three workflows are in [`docs/config-repo-scaffold/`](docs/config-repo-scaffold/). Copy them into your config repo and adjust the host paths and image name to match your setup:
 
-- **`labro-deploy.yml`** — fires automatically when `labro.toml` is pushed to the config repo; copies the updated config to the VPS and performs a graceful restart.
-- **`labro-restart.yml`** — manual trigger only (`Actions → Run workflow`); performs a graceful restart without copying files. Use after rotating a secret.
+```bash
+cp docs/config-repo-scaffold/*.yml <your-config-repo>/.github/workflows/
+```
+
+#### How the workflows connect
+
+The workflows SSH to your server (the scaffolds use [Tailscale](https://tailscale.com) for private networking, but any SSH-reachable host works) and manage the container lifecycle:
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `labro-deploy.yml` | Push to `labro.toml` | Writes fresh secrets → copies config → recreates container |
+| `labro-update.yml` | Manual | Writes fresh secrets → pulls `:latest` → recreates container |
+| `labro-restart.yml` | Manual | Writes fresh secrets → recreates container (same image) |
+
+All three workflows write `/your/secrets/.env` on the server from GitHub repo secrets before recreating the container, so rotating any API key is just: update the secret in GitHub → run `labro-restart.yml`.
+
+#### GitHub repo secrets
+
+| Secret | Notes |
+|---|---|
+| `DEPLOY_HOST` | `user@hostname` — your server's SSH address |
+| `GITHUB_APP_PRIVATE_KEY_BASE64` | `base64 -w 0 your-app.pem` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent |
+| `OPENROUTER_API_KEY` | If using opencode with OpenRouter |
+| `CODEX_API_KEY` | If using codex via OpenAI API billing |
+| `CODEX_AUTH_JSON_BASE64` | If using codex via CLI subscription billing — `base64 -w 0 ~/.codex/auth.json`; bind-mounted so headless token refresh persists across container recreations |
+
+#### Codex CLI auth in containers
+
+The codex CLI supports two auth modes:
+
+- **`CODEX_API_KEY`** — OpenAI API key; pay-per-token. Pass it in the `.env` file.
+- **`~/.codex/auth.json`** — CLI subscription billing (includes free credits tier); supports headless auto-refresh. Store the file contents as `CODEX_AUTH_JSON_BASE64` in GitHub secrets. The scaffold workflows decode it and write it to your data directory; `entrypoint.sh` symlinks it to `~/.codex/auth.json` so the codex CLI finds it and can refresh it in place.
+
+  > If the auth.json tokens go stale (the container hasn't run in several weeks), run `codex auth login` locally, re-encode the refreshed file, update the GitHub secret, and trigger `labro-restart.yml`.
+
+#### Server host layout
+
+```
+/your/secrets/.env          ← written by workflow; read by docker at run time (not mounted)
+/your/data/dir/             ← single volume mount (-v /your/data/dir:/data)
+  labro.toml                ← LABRO_CONFIG=/data/labro.toml
+  labro.db                  ← SQLite run records
+  labro.log
+  repos/                    ← LABRO_REPOS_DIR=/data/repos
+  codex/
+    auth.json               ← symlinked to ~/.codex/auth.json by entrypoint
+```
 
 ---
 

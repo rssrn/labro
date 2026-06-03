@@ -121,7 +121,7 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
         try:
             gh_token = gh_app_mod.get_installation_token(
                 config.github_app_id,
-                os.environ["GITHUB_APP_PRIVATE_KEY"],
+                gh_app_mod.resolve_private_key_pem(),
                 project.repo,
             )
             os.environ["GH_TOKEN"] = gh_token
@@ -278,7 +278,7 @@ def _cmd_run_live(
             try:
                 gh_token = gh_app_mod.get_installation_token(
                     config.github_app_id,
-                    os.environ["GITHUB_APP_PRIVATE_KEY"],
+                    gh_app_mod.resolve_private_key_pem(),
                     project.repo,
                 )
                 os.environ["GH_TOKEN"] = gh_token
@@ -591,7 +591,12 @@ def _cmd_check(args: argparse.Namespace) -> int:
     if config.github_app_id is not None:
         import labro.github_app as gh_app_mod
 
-        results.append(("OK  ", "env var GITHUB_APP_PRIVATE_KEY"))
+        key_var = (
+            "GITHUB_APP_PRIVATE_KEY_BASE64"
+            if os.environ.get("GITHUB_APP_PRIVATE_KEY_BASE64")
+            else "GITHUB_APP_PRIVATE_KEY"
+        )
+        results.append(("OK  ", f"env var {key_var}"))
         # Try to get an installation token for the first enabled project's repo
         enabled = [p for p in config.projects if p.enabled]
         if args.project:
@@ -601,7 +606,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
             try:
                 gh_token = gh_app_mod.get_installation_token(
                     config.github_app_id,
-                    os.environ["GITHUB_APP_PRIVATE_KEY"],
+                    gh_app_mod.resolve_private_key_pem(),
                     test_repo,
                 )
                 os.environ["GH_TOKEN"] = gh_token

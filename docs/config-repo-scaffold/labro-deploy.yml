@@ -1,6 +1,12 @@
 # .github/workflows/labro-deploy.yml (in the config repo)
-# Triggers on labro.toml changes. Copies the new config to the VPS and performs
+# Triggers on labro.toml changes. Copies the new config to the host and performs
 # a graceful restart (drains in-flight runs before restarting the container).
+#
+# Required repo secrets:
+#   TAILSCALE_AUTHKEY — ephemeral auth key from Tailscale admin (Actions → Keys)
+#   DEPLOY_HOST       — user@hostname (Tailscale hostname), e.g. ubuntu@my-server
+#
+# SSH auth is handled by Tailscale SSH ACLs (tag:github-runner); no SSH key needed.
 on:
   push:
     paths:
@@ -12,24 +18,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --advertise-tags=tag:github-runner
 
       - name: Copy updated config
         run: |
-          scp labro.toml ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/labro/config/labro.toml
+          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            labro.toml ${{ secrets.DEPLOY_HOST }}:/opt/labro/config/labro.toml
 
       - name: Graceful restart
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ${{ secrets.DEPLOY_HOST }} '
             docker exec labro touch /data/LABRO_DISABLED
             while [ "$(docker exec labro sqlite3 /data/labro.db \
-                "SELECT COUNT(*) FROM project_locks")" != "0" ]; do
-              echo "waiting…"; sleep 5
+                "SELECT COUNT(*) FROM project_locks" 2>/dev/null)" != "0" ]; do
+              echo "waiting..."; sleep 5
             done
             docker restart labro
             docker exec labro rm -f /data/LABRO_DISABLED

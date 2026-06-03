@@ -1,6 +1,6 @@
 # .github/workflows/publish.yml
 # Builds the production image (--target base) and pushes to GHCR on version tag push.
-# Pin to a specific tag in deployments — :latest is not published (pin discipline).
+# Publishes both the versioned tag and :latest.
 # @author Claude Sonnet 4.6 Anthropic
 on:
   push:
@@ -34,4 +34,6 @@ jobs:
           target: base
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/rssrn/labro:${{ github.ref_name }}
+          tags: |
+            ghcr.io/rssrn/labro:${{ github.ref_name }}
+            ghcr.io/rssrn/labro:latest
