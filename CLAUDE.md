@@ -58,7 +58,7 @@ uv run bandit -r src/                  # security lint
 labro run <project> --dry-run          # dry-run
 labro run <project>                    # live run
 labro gen-crontab                      # emit crontab entries for all projects
-docker build -t labro .                # build container image
+docker build -t labro .                # build container image (VERSION defaults to SNAPSHOT)
 ```
 
 **Before every commit:** run `uv run ruff format .` — the pre-commit hook will reformat and abort

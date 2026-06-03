@@ -9,6 +9,9 @@
 #   Dev image (includes tests/ + dev extras; default target):
 #     docker build -t labro:dev .
 #
+# Pass --build-arg VERSION=x.y.z to bake an accurate version label (CI does this
+# automatically from the git tag). Omitting it defaults to VERSION=SNAPSHOT.
+#
 # Cross-build for arm64 (e.g. Oracle Cloud Ampere A1) from an amd64 host:
 #   docker buildx build --platform linux/arm64 -t labro:arm64 .
 #
@@ -60,6 +63,14 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     LABRO_CONFIG=/data/labro.toml \
     LABRO_PERSPECTIVES=/app/perspectives.toml
+
+ARG VERSION=SNAPSHOT
+
+LABEL org.opencontainers.image.title="labro" \
+      org.opencontainers.image.description="Self-hosted harness for autonomous agent maintenance of GitHub repos" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/rssrn/labro" \
+      org.opencontainers.image.licenses="MIT"
 
 # ── System dependencies + gh CLI + Node.js ───────────────────────────────────
 # Combined into one layer so apt lists are only fetched and cleaned once.

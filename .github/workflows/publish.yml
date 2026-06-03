@@ -27,6 +27,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/rssrn/labro
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -34,9 +43,10 @@ jobs:
           target: base
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/rssrn/labro:${{ github.ref_name }}
-            ghcr.io/rssrn/labro:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
 
       - name: Dispatch update to config repo
         env:
