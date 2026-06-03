@@ -255,7 +255,7 @@ def _cmd_run_live(
     # LABRO_DISABLED check — before lock acquisition; no SQLite record written
     disabled_flag = db_path.parent / "LABRO_DISABLED"
     if disabled_flag.exists():
-        print("skipped: harness disabled (LABRO_DISABLED flag present)")
+        _log.info("run skipped: harness disabled (LABRO_DISABLED flag present)")
         return 0
 
     # Open database
@@ -266,7 +266,7 @@ def _cmd_run_live(
 
     # Acquire run lock
     if not store_mod.acquire_lock(conn, project_name, lock_timeout_s):
-        print(f"skipped: run in progress for project {project_name!r}")
+        _log.info("run skipped: run in progress for project %r", project_name)
         conn.close()
         return 0
 
@@ -298,7 +298,7 @@ def _cmd_run_live(
                     started_at=started_at,
                     ended_at=ended_at,
                 )
-                print(reason)
+                _log.info("%s", reason)
                 return 0
 
         # ── GitHub App: generate per-run installation token ────────────────────
@@ -355,7 +355,7 @@ def _cmd_run_live(
                 started_at=started_at,
                 ended_at=ended_at,
             )
-            print(f"skipped: no eligible task found for project {project_name!r}")
+            _log.info("run skipped: no eligible task found for project %r", project_name)
             return 0
 
         # Write items_touched row before agent runs (item already known for gh-label)
@@ -502,7 +502,7 @@ def _cmd_run_live(
             _log.info("%s", msg)
         else:
             _log.warning("%s", msg)
-        print(f"run complete: outcome={outcome!r} run_id={run_id}")
+        _log.info("run complete: outcome=%r run_id=%s", outcome, run_id)
         return 0 if outcome == "success" else 1
 
     finally:
