@@ -37,3 +37,13 @@ jobs:
           tags: |
             ghcr.io/rssrn/labro:${{ github.ref_name }}
             ghcr.io/rssrn/labro:latest
+
+      - name: Dispatch update to config repo
+        env:
+          TOKEN: ${{ secrets.CONFIG_REPO_DISPATCH_TOKEN }}
+        run: |
+          curl -fsSX POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/rssrn/labro-rssrn/dispatches \
+            -d "{\"event_type\":\"labro-release\",\"client_payload\":{\"tag\":\"${{ github.ref_name }}\"}}"
