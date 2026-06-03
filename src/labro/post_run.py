@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from urllib.parse import quote
 
 from labro.models import AgentConfig, AgentResult, Task
 
@@ -46,22 +47,68 @@ def _ensure_labels(repo: str, labels: list[str]) -> None:
 def _gh_edit(
     item_type: str, item_number: int, repo: str, add: list[str], remove: list[str]
 ) -> None:
-    """Run `gh issue/pr edit` to add/remove labels. Logs a warning on failure."""
+    """Add/remove labels on an issue or PR. Logs a warning on failure; never raises.
+
+    Routed through the REST API (`gh api`) rather than `gh issue/pr edit`: the
+    latter's GraphQL flow fetches the now-sunset Projects (classic)
+    ``projectCards`` field, which GitHub answers with a NOT_FOUND error, failing
+    the whole edit (rc=1) and silently dropping the label transition. The REST
+    ``issues`` labels endpoint serves PRs too, so one path covers both.
+
+    @author Claude Opus 4.8 Anthropic
+    """
     if add:
         _ensure_labels(repo, add)
-    cmd = ["gh", f"{item_type}", "edit", str(item_number), "--repo", repo]
-    for label in add:
-        cmd += ["--add-label", label]
-    for label in remove:
-        cmd += ["--remove-label", label]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        logger.warning(
-            "gh %s edit failed (rc=%d): %s", item_type, result.returncode, result.stderr.strip()
+        add_args: list[str] = []
+        for label in add:
+            add_args += ["-f", f"labels[]={label}"]
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                "--method",
+                "POST",
+                f"repos/{repo}/issues/{item_number}/labels",
+                *add_args,
+            ],
+            capture_output=True,
+            text=True,
         )
-    else:
-        changes = [f"+{label}" for label in add] + [f"-{label}" for label in remove]
-        logger.info("labelled %s #%d: %s", item_type, item_number, " ".join(changes))
+        if result.returncode != 0:
+            logger.warning(
+                "gh api add-label failed for %s #%d (rc=%d): %s",
+                item_type,
+                item_number,
+                result.returncode,
+                result.stderr.strip(),
+            )
+            return
+
+    for label in remove:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                "--method",
+                "DELETE",
+                f"repos/{repo}/issues/{item_number}/labels/{quote(label, safe='')}",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        # A 404 means the label was already absent — not worth surfacing.
+        if result.returncode != 0 and "404" not in result.stderr:
+            logger.warning(
+                "gh api remove-label %r failed for %s #%d (rc=%d): %s",
+                label,
+                item_type,
+                item_number,
+                result.returncode,
+                result.stderr.strip(),
+            )
+
+    changes = [f"+{label}" for label in add] + [f"-{label}" for label in remove]
+    logger.info("labelled %s #%d: %s", item_type, item_number, " ".join(changes))
 
 
 def _gh_comment(item_type: str, item_number: int, repo: str, body: str) -> None:

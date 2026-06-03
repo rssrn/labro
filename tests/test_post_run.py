@@ -58,8 +58,12 @@ def _make_result(*, outcome: str = "success", failure_reason: str | None = None)
 
 
 def _edit_cmds(mock_run: MagicMock) -> list[list[str]]:
-    """Return all subprocess calls that contain 'edit' (i.e. gh issue/pr edit calls)."""
-    return [c[0][0] for c in mock_run.call_args_list if "edit" in c[0][0]]
+    """Return all gh-api subprocess calls that hit the labels REST endpoint."""
+    return [
+        c[0][0]
+        for c in mock_run.call_args_list
+        if c[0][0][:2] == ["gh", "api"] and any("/labels" in a for a in c[0][0])
+    ]
 
 
 def _comment_cmds(mock_run: MagicMock) -> list[list[str]]:
@@ -120,13 +124,15 @@ def test_success_label_rule(mock_run: MagicMock, _mock_ensure: MagicMock) -> Non
     post_run("run-1", task, _make_result(), outcome="success")
 
     edits = _edit_cmds(mock_run)
-    assert len(edits) == 1
-    cmd = edits[0]
-    assert "--add-label" in cmd
-    assert "ai-dev-done" in cmd
-    assert "ai-contributed" in cmd
-    assert "--remove-label" in cmd
-    assert "ai-dev" in cmd
+    # one POST (add) + one DELETE (remove)
+    assert len(edits) == 2
+    add_cmd = edits[0]
+    assert "POST" in add_cmd
+    assert "labels[]=ai-dev-done" in add_cmd
+    assert "labels[]=ai-contributed" in add_cmd
+    del_cmd = edits[1]
+    assert "DELETE" in del_cmd
+    assert del_cmd[-1].endswith("/labels/ai-dev")
     assert _comment_cmds(mock_run) == []
 
 
@@ -141,10 +147,10 @@ def test_success_actor_rule_no_remove(mock_run: MagicMock, _mock_ensure: MagicMo
     edits = _edit_cmds(mock_run)
     assert len(edits) == 1
     cmd = edits[0]
-    assert "--add-label" in cmd
-    assert "ai-actor-done" in cmd
-    assert "ai-contributed" in cmd
-    assert "--remove-label" not in cmd
+    assert "POST" in cmd
+    assert "labels[]=ai-actor-done" in cmd
+    assert "labels[]=ai-contributed" in cmd
+    assert all("DELETE" not in c for c in edits)
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +169,8 @@ def test_failure_labels_and_comment(mock_run: MagicMock, _mock_ensure: MagicMock
 
     edits = _edit_cmds(mock_run)
     assert len(edits) == 1
-    assert "ai-failed" in edits[0]
-    assert "ai-contributed" in edits[0]
+    assert "labels[]=ai-failed" in edits[0]
+    assert "labels[]=ai-contributed" in edits[0]
 
     comments = _comment_cmds(mock_run)
     assert len(comments) == 1
@@ -245,8 +251,8 @@ def test_partial_adds_handover_labels(mock_run: MagicMock, _mock_ensure: MagicMo
 
     edits = _edit_cmds(mock_run)
     assert len(edits) == 1
-    assert "ai-handover" in edits[0]
-    assert "ai-contributed" in edits[0]
+    assert "labels[]=ai-handover" in edits[0]
+    assert "labels[]=ai-contributed" in edits[0]
 
 
 @patch("labro.post_run._ensure_labels")
