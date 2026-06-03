@@ -23,7 +23,17 @@ if [ "$#" -gt 0 ]; then
 fi
 
 # Crond mode (VPS): generate crontab and start crond as PID 1
-echo "$(labro --version) container starting up in cron mode"
+# Record startup in labro.log (not just stdout) so container restarts/upgrades
+# are visible alongside run records. Match the Python logger's line format so
+# the entries interleave cleanly: "<ts> INFO <name>: <message>".
+startup_msg="$(labro --version) container starting up in cron mode"
+echo "$startup_msg"
+# Guard the append (mirrors cli.py, which only logs to file when the dir exists)
+# so a missing /data volume can't abort startup under `set -e`.
+log_path="${LABRO_LOG_PATH:-/data/labro.log}"
+if [ -d "$(dirname "$log_path")" ]; then
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S') INFO entrypoint: $startup_msg" >> "$log_path"
+fi
 mkdir -p /var/log/labro
 labro gen-crontab > /etc/cron.d/labro
 chmod 644 /etc/cron.d/labro
