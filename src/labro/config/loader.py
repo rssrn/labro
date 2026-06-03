@@ -49,7 +49,7 @@ def required_env_vars(config: LabroConfig) -> list[str]:
 
     Rules (from ARCHITECTURE §8):
     - GH_TOKEN: required unless GitHub App auth is configured.
-    - GITHUB_APP_PRIVATE_KEY: required when GitHub App auth is configured (replaces GH_TOKEN).
+    - GH_APP_PRIVATE_KEY: required when GitHub App auth is configured (replaces GH_TOKEN).
     - Agent auth: checked separately by load_config via the agent registry.
     - GRAFANA_TOKEN: required if any project has a grafana-alerts source.
     - SLACK_WEBHOOK_URL: required if digest is enabled.
@@ -59,10 +59,10 @@ def required_env_vars(config: LabroConfig) -> list[str]:
     if config.github_app_id is not None:
         # GitHub App auth: private key via env var (base64 or plain); no GH_TOKEN needed.
         # Accept either form; resolve_private_key_pem() picks the right one at runtime.
-        if not os.environ.get("GITHUB_APP_PRIVATE_KEY_BASE64") and not os.environ.get(
-            "GITHUB_APP_PRIVATE_KEY"
+        if not os.environ.get("GH_APP_PRIVATE_KEY_BASE64") and not os.environ.get(
+            "GH_APP_PRIVATE_KEY"
         ):
-            required.append("GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_BASE64")
+            required.append("GH_APP_PRIVATE_KEY or GH_APP_PRIVATE_KEY_BASE64")
     else:
         required.append("GH_TOKEN")
 
@@ -102,9 +102,12 @@ def load_config(path: Path, perspectives_path: Path | None = None) -> LabroConfi
         raise ConfigError(f"TOML parse error in {path}: {exc}") from exc
 
     # Merge perspectives.toml if present.
-    persp_path = (
-        perspectives_path if perspectives_path is not None else path.parent / "perspectives.toml"
-    )
+    # Resolution order: explicit arg → LABRO_PERSPECTIVES env var → sibling of config → absent.
+    if perspectives_path is None:
+        env_persp = os.environ.get("LABRO_PERSPECTIVES")
+        persp_path = Path(env_persp) if env_persp else path.parent / "perspectives.toml"
+    else:
+        persp_path = perspectives_path
     if persp_path.exists():
         try:
             persp_data = tomllib.loads(persp_path.read_bytes().decode())

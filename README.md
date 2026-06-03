@@ -105,17 +105,17 @@ claude_assignee = "labro-yourusername[bot]"
 
 **5. Pass the private key as an environment variable:**
 
-The private key PEM goes in `GITHUB_APP_PRIVATE_KEY` — not in `labro.toml`, which keeps secrets out of your config file.
+The private key PEM goes in `GH_APP_PRIVATE_KEY` — not in `labro.toml`, which keeps secrets out of your config file.
 
 ```bash
-export GITHUB_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)"
+export GH_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)"
 ```
 
 For Docker:
 
 ```bash
 docker run --rm \
-  -e GITHUB_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)" \
+  -e GH_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)" \
   -e CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
   -v "$PWD/labro.toml:/data/labro.toml:ro" \
   labro:latest run my-project
@@ -324,8 +324,8 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 | Variable | Required | Notes |
 |---|---|---|
 | `GH_TOKEN` | Unless using GitHub App | GitHub PAT — see [GitHub token setup](#github-token-setup) |
-| `GITHUB_APP_PRIVATE_KEY` | If using GitHub App (local/plain) | Raw PEM private key for the GitHub App; replaces `GH_TOKEN` |
-| `GITHUB_APP_PRIVATE_KEY_BASE64` | If using GitHub App (container/CI) | `base64 -w 0 your-app.pem`; takes precedence over `GITHUB_APP_PRIVATE_KEY` if both are set |
+| `GH_APP_PRIVATE_KEY` | If using GitHub App (local/plain) | Raw PEM private key for the GitHub App; replaces `GH_TOKEN` |
+| `GH_APP_PRIVATE_KEY_BASE64` | If using GitHub App (container/CI) | `base64 -w 0 your-app.pem`; takes precedence over `GH_APP_PRIVATE_KEY` if both are set |
 | `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent | OAuth token from `claude setup-token`; tied to your Pro/Max subscription |
 | `ANTHROPIC_API_KEY` | Alternative to OAuth token | Bills your API account. If **both** are set, this takes precedence over the OAuth token |
 | `OPENROUTER_API_KEY` | If using opencode with OpenRouter | |
@@ -715,7 +715,7 @@ Where `/your/secrets/.env` contains (at minimum):
 ```
 LABRO_CONFIG=/data/labro.toml
 LABRO_REPOS_DIR=/data/repos
-GITHUB_APP_PRIVATE_KEY_BASE64=<base64 -w 0 your-app.pem>
+GH_APP_PRIVATE_KEY_BASE64=<base64 -w 0 your-app.pem>
 CLAUDE_CODE_OAUTH_TOKEN=<token>
 ```
 
@@ -786,7 +786,7 @@ All three workflows write `/your/secrets/.env` on the server from GitHub repo se
 | Secret | Notes |
 |---|---|
 | `DEPLOY_HOST` | `user@hostname` — your server's SSH address |
-| `GITHUB_APP_PRIVATE_KEY_BASE64` | `base64 -w 0 your-app.pem` |
+| `GH_APP_PRIVATE_KEY_BASE64` | `base64 -w 0 your-app.pem` |
 | `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent |
 | `OPENROUTER_API_KEY` | If using opencode with OpenRouter |
 | `CODEX_API_KEY` | If using codex via OpenAI API billing |

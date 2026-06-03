@@ -38,6 +38,6 @@ Any model available via the Anthropic API, e.g.:
 
 ## Limitations
 
-- Requires GitHub auth (`GH_TOKEN` PAT, or `GITHUB_APP_PRIVATE_KEY` for GitHub App auth) for the `gh` CLI calls the agent makes.
+- Requires GitHub auth (`GH_TOKEN` PAT, or `GH_APP_PRIVATE_KEY` for GitHub App auth) for the `gh` CLI calls the agent makes.
 - `--max-turns` is supported and enforced.
 - USD cost is reported per run (`total_cost_usd`).

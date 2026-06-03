@@ -57,7 +57,9 @@ ARG NODE_VERSION
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    LABRO_CONFIG=/data/labro.toml \
+    LABRO_PERSPECTIVES=/app/perspectives.toml
 
 # ── System dependencies + gh CLI + Node.js ───────────────────────────────────
 # Combined into one layer so apt lists are only fetched and cleaned once.

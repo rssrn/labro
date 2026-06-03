@@ -125,7 +125,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 1. Push a version tag (`v0.4.0`) to the labro repo; confirm the image appears in GHCR
 2. Create a private config repo; copy `docs/config-repo-scaffold/` workflow files into `.github/workflows/`
 3. Add `labro.toml` with at least one `gh-label` project
-4. Add GitHub Secrets to the config repo: `DEPLOY_HOST`, `GITHUB_APP_PRIVATE_KEY_BASE64` (or `GH_TOKEN`), `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), plus any agent-specific keys (`OPENROUTER_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON_BASE64`)
+4. Add GitHub Secrets to the config repo: `DEPLOY_HOST`, `GH_APP_PRIVATE_KEY_BASE64` (or `GH_TOKEN`), `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), plus any agent-specific keys (`OPENROUTER_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON_BASE64`)
 5. Deploy the container to the VPS; confirm `labro run <project>` completes a real run and writes a record to SQLite
 
 ---

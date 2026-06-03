@@ -592,9 +592,9 @@ def _cmd_check(args: argparse.Namespace) -> int:
         import labro.github_app as gh_app_mod
 
         key_var = (
-            "GITHUB_APP_PRIVATE_KEY_BASE64"
-            if os.environ.get("GITHUB_APP_PRIVATE_KEY_BASE64")
-            else "GITHUB_APP_PRIVATE_KEY"
+            "GH_APP_PRIVATE_KEY_BASE64"
+            if os.environ.get("GH_APP_PRIVATE_KEY_BASE64")
+            else "GH_APP_PRIVATE_KEY"
         )
         results.append(("OK  ", f"env var {key_var}"))
         # Try to get an installation token for the first enabled project's repo

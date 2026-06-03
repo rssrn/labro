@@ -587,7 +587,7 @@ class TestGitHubAppConfig:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("GH_TOKEN", raising=False)
-        monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "fake-pem")
+        monkeypatch.setenv("GH_APP_PRIVATE_KEY", "fake-pem")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
         p = write_toml(tmp_path, _APP_TOML)
@@ -601,7 +601,7 @@ class TestGitHubAppConfig:
     ) -> None:
         """GH_TOKEN must not be required when GitHub App auth is configured."""
         monkeypatch.delenv("GH_TOKEN", raising=False)
-        monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "fake-pem")
+        monkeypatch.setenv("GH_APP_PRIVATE_KEY", "fake-pem")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
         p = write_toml(tmp_path, _APP_TOML)
@@ -611,13 +611,13 @@ class TestGitHubAppConfig:
     def test_missing_private_key_env_var_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """GITHUB_APP_PRIVATE_KEY must be set when using GitHub App auth."""
+        """GH_APP_PRIVATE_KEY must be set when using GitHub App auth."""
         monkeypatch.delenv("GH_TOKEN", raising=False)
-        monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY", raising=False)
+        monkeypatch.delenv("GH_APP_PRIVATE_KEY", raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
         p = write_toml(tmp_path, _APP_TOML)
-        with pytest.raises(ConfigError, match="GITHUB_APP_PRIVATE_KEY"):
+        with pytest.raises(ConfigError, match="GH_APP_PRIVATE_KEY"):
             load_config(p)
 
     def test_partial_app_fields_raises(

@@ -8,7 +8,7 @@
 #
 # The container is recreated (stop → rm → run) so the new image is picked up.
 # Labro secrets are read from /opt/labro/.env on the host (written by this workflow
-# from GitHub repo secrets — add GITHUB_APP_PRIVATE_KEY_BASE64, CLAUDE_CODE_OAUTH_TOKEN,
+# from GitHub repo secrets — add GH_APP_PRIVATE_KEY_BASE64, CLAUDE_CODE_OAUTH_TOKEN,
 # OPENROUTER_API_KEY, CODEX_API_KEY, CODEX_AUTH_JSON_BASE64 as needed).
 # All persistent state lives under a single volume mount: /your/data/dir → /data.
 on:

@@ -431,7 +431,7 @@ Host machine (single server or dev machine)
     │   ├── repos/         Cloned project repos (LABRO_REPOS_DIR=/data/repos)
     │   └── codex/
     │       └── auth.json  Codex CLI auth — symlinked to ~/.codex/auth.json by entrypoint
-    └── env: GITHUB_APP_PRIVATE_KEY_BASE64, CLAUDE_CODE_OAUTH_TOKEN, OPENROUTER_API_KEY, ...
+    └── env: GH_APP_PRIVATE_KEY_BASE64, CLAUDE_CODE_OAUTH_TOKEN, OPENROUTER_API_KEY, ...
          (injected via --env-file from host; never baked into image)
 ```
 
@@ -518,7 +518,7 @@ labro repo (public)          config repo (private, operator-owned)
 | Secret | Notes |
 | :--- | :--- |
 | `DEPLOY_HOST` | `user@hostname` — server SSH address (Tailscale hostname recommended) |
-| `GITHUB_APP_PRIVATE_KEY_BASE64` | `base64 -w 0 your-app.pem` — safe for `--env-file` (no newlines) |
+| `GH_APP_PRIVATE_KEY_BASE64` | `base64 -w 0 your-app.pem` — safe for `--env-file` (no newlines) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent |
 | `OPENROUTER_API_KEY` | If using opencode with OpenRouter |
 | `CODEX_API_KEY` | If using codex via OpenAI API billing |
@@ -855,7 +855,7 @@ Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery
 
 * Single TOML file (`labro.toml`) declares all projects. Parsed with `tomllib` (stdlib); validated with Pydantic at startup. See [ADR-001](adr/0001-toml-config-format.md).
 * Invalid config is a hard failure with a clear error message; no runs attempted.
-* Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` is required unless GitHub App auth is configured, in which case `GITHUB_APP_PRIVATE_KEY` (raw PEM) or `GITHUB_APP_PRIVATE_KEY_BASE64` (base64-encoded PEM, preferred for container deployments) is required instead — labro generates a per-run installation token from it automatically; claude CLI auth requires either `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription OAuth token — recommended) or `ANTHROPIC_API_KEY` (API key); `OPENROUTER_API_KEY` if using opencode with OpenRouter; `CODEX_API_KEY` or `CODEX_AUTH_JSON_BASE64` if using codex; `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
+* Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` is required unless GitHub App auth is configured, in which case `GH_APP_PRIVATE_KEY` (raw PEM) or `GH_APP_PRIVATE_KEY_BASE64` (base64-encoded PEM, preferred for container deployments) is required instead — labro generates a per-run installation token from it automatically; claude CLI auth requires either `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription OAuth token — recommended) or `ANTHROPIC_API_KEY` (API key); `OPENROUTER_API_KEY` if using opencode with OpenRouter; `CODEX_API_KEY` or `CODEX_AUTH_JSON_BASE64` if using codex; `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
 * Required GitHub labels are checked at startup. If any are missing, the harness exits with: "Required label(s) missing in <repo> — run `labro init` to create them." `labro init` creates all required labels idempotently; `labro check` reports label status without writing.
 * Config is the only file an operator needs to edit to add a project.
 * Emergency pause: create `/data/LABRO_DISABLED` on the host to halt all runs immediately (checked before lock acquisition); remove it to resume. No container restart required.

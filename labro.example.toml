@@ -7,7 +7,7 @@
 #       github_app_id   = 12345
 #       github_app_name = "labro-yourusername"
 #     Pass the private key PEM via env var (keep it out of this file):
-#       GITHUB_APP_PRIVATE_KEY    contents of the .pem file downloaded from GitHub
+#       GH_APP_PRIVATE_KEY    contents of the .pem file downloaded from GitHub
 #     No GH_TOKEN needed — labro generates a per-run installation token automatically.
 #
 #   OPTION B — Personal access token (simpler setup):
@@ -114,7 +114,7 @@ model             = "claude-code:anthropic/claude-sonnet-4-6@medium"  # design r
 
 # ── GitHub App auth (recommended alternative to GH_TOKEN) ─────────────────────
 # Both fields must be set together, or neither.
-# Private key goes in GITHUB_APP_PRIVATE_KEY env var — not here.
+# Private key goes in GH_APP_PRIVATE_KEY env var — not here.
 # When set, labro generates a per-run installation token; GH_TOKEN is not needed.
 
 # github_app_id   = 12345

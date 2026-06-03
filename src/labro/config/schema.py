@@ -260,7 +260,7 @@ class LabroConfig(BaseModel):
     projects: list[ProjectConfig] = Field(default_factory=list)
     # GitHub App credentials (alternative to GH_TOKEN PAT).
     # Both must be set together, or neither.
-    # The private key is passed via the GITHUB_APP_PRIVATE_KEY env var (not in
+    # The private key is passed via the GH_APP_PRIVATE_KEY env var (not in
     # this file — keep secrets out of labro.toml).
     # When set, GH_TOKEN is not required — labro generates a per-run
     # installation access token automatically.

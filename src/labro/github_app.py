@@ -18,15 +18,15 @@ from typing import Any
 def resolve_private_key_pem() -> str:
     """Return the GitHub App private key PEM from the environment.
 
-    Checks GITHUB_APP_PRIVATE_KEY_BASE64 first (CI/container deployments where
+    Checks GH_APP_PRIVATE_KEY_BASE64 first (CI/container deployments where
     multi-line PEM is stored base64-encoded), then falls back to
-    GITHUB_APP_PRIVATE_KEY (raw PEM, local dev).  Raises KeyError if neither
+    GH_APP_PRIVATE_KEY (raw PEM, local dev).  Raises KeyError if neither
     is set.
     """
-    b64 = os.environ.get("GITHUB_APP_PRIVATE_KEY_BASE64")
+    b64 = os.environ.get("GH_APP_PRIVATE_KEY_BASE64")
     if b64:
         return base64.b64decode(b64).decode()
-    return os.environ["GITHUB_APP_PRIVATE_KEY"]
+    return os.environ["GH_APP_PRIVATE_KEY"]
 
 
 def _b64url(data: bytes) -> bytes:
