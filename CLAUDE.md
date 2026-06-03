@@ -77,7 +77,7 @@ if you skip it, requiring a second commit attempt.
 3. **Bump version** — update `version =` in `pyproject.toml` under `[project]`.
 4. **Commit** — use the form `Release vX.Y.Z: <one-line summary>` (not a generic `chore:` prefix).
 5. **Tag** — `git tag vX.Y.Z` on the release commit, then push the tag: `git push origin vX.Y.Z`.
-6. **Docker image** — `publish.yml` publishes to GHCR on push to `main`; confirm the image built successfully after pushing.
+6. **Docker image** — `publish.yml` triggers on the version-tag push (`v*.*.*`), publishing the versioned tag and `:latest` to GHCR; confirm the image built successfully after pushing the tag.
 
 ## Current Milestone
 
