@@ -16,12 +16,14 @@ export LABRO_CONFIG
 export -p > /etc/labro-env
 chmod 600 /etc/labro-env
 
-# One-shot mode (GitHub Actions / manual): pass args through to labro
+# On-demand mode (GitHub Actions / manual exec): pass args through to labro
 if [ "$#" -gt 0 ]; then
+    echo "$(labro --version) container starting up in on-demand mode"
     exec "$@"
 fi
 
 # Crond mode (VPS): generate crontab and start crond as PID 1
+echo "$(labro --version) container starting up in cron mode"
 mkdir -p /var/log/labro
 labro gen-crontab > /etc/cron.d/labro
 chmod 644 /etc/cron.d/labro

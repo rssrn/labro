@@ -879,6 +879,11 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Labro — AI coding agent harness",
     )
     parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__import__('labro').__version__}",
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         default=_default_config_path(),
