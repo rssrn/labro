@@ -21,10 +21,17 @@ jobs:
       - name: Graceful restart
         run: |
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            ${{ secrets.DEPLOY_HOST }} '
+            ${{ secrets.DEPLOY_HOST }} 'set -euo pipefail
             docker exec labro touch /data/LABRO_DISABLED
+            # Wait up to 5 minutes for in-flight runs; guard against infinite loop
+            # if the DB is missing or locked (query returns empty, not "0").
+            deadline=$(($(date +%s) + 300))
             while [ "$(docker exec labro sqlite3 /data/labro.db \
                 "SELECT COUNT(*) FROM project_locks" 2>/dev/null)" != "0" ]; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "timed out waiting for locks; proceeding anyway"
+                break
+              fi
               echo "waiting..."; sleep 5
             done
             docker restart labro
