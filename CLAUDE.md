@@ -70,6 +70,15 @@ if you skip it, requiring a second commit attempt.
 - mypy runs in strict mode; no `# type: ignore` without a comment explaining why
 - Config resolution order: label rule → task source → project → defaults
 
+## Release Process
+
+1. **Propose** — draft the changelog entries (features, fixes, breaking changes; user-facing, not commit-log) and propose a new version number (semver). Wait for user confirmation before making any changes.
+2. **Changelog** — add a `## vX.Y.Z — YYYY-MM-DD` heading to `CHANGELOG.md` with the confirmed entries.
+3. **Bump version** — update `version =` in `pyproject.toml` under `[project]`.
+4. **Commit** — use the form `Release vX.Y.Z: <one-line summary>` (not a generic `chore:` prefix).
+5. **Tag** — `git tag vX.Y.Z` on the release commit, then push the tag: `git push origin vX.Y.Z`.
+6. **Docker image** — `publish.yml` publishes to GHCR on push to `main`; confirm the image built successfully after pushing.
+
 ## Current Milestone
 
 - **M1–M5 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment, operator CLI.
