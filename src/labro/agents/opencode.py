@@ -104,7 +104,7 @@ class OpenCodeAgent(Agent):
 
     def invoke(self, prompt: str, config: AgentConfig) -> AgentResult:
         if not self.supports_max_turns:
-            _log.info(
+            _log.debug(
                 "opencode: max_turns setting ignored (not supported); bounded by timeout_s only"
             )
 

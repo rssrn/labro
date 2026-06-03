@@ -59,6 +59,9 @@ def _gh_edit(
         logger.warning(
             "gh %s edit failed (rc=%d): %s", item_type, result.returncode, result.stderr.strip()
         )
+    else:
+        changes = [f"+{label}" for label in add] + [f"-{label}" for label in remove]
+        logger.info("labelled %s #%d: %s", item_type, item_number, " ".join(changes))
 
 
 def _gh_comment(item_type: str, item_number: int, repo: str, body: str) -> None:

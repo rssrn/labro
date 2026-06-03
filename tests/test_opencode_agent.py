@@ -264,10 +264,10 @@ def test_invoke_logs_max_turns_ignored(tmp_path: Path, caplog: pytest.LogCapture
     with patch("labro.agents.opencode._run_subprocess", return_value=(stream, b"")):
         import logging
 
-        with caplog.at_level(logging.INFO, logger="labro.agents.opencode"):
+        with caplog.at_level(logging.DEBUG, logger="labro.agents.opencode"):
             _AGENT.invoke("test prompt", config)
 
-    assert any("max_turns" in r.message for r in caplog.records)
+    assert any("max_turns" in r.message and r.levelno == logging.DEBUG for r in caplog.records)
 
 
 # ── registry integration ──────────────────────────────────────────────────────

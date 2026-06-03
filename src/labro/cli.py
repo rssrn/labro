@@ -21,12 +21,14 @@ Live path (M2+):
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
 import logging
 import logging.handlers
 import os
 import subprocess
 import sys
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,6 +46,37 @@ from labro.prompt_builder import build_prompt
 from labro.repo import prepare_repo, preserve_wip
 
 _log = logging.getLogger(__name__)
+
+# Per-run context (project + short run_id) injected into every log line so
+# concurrent cron runs sharing /data/labro.log can be told apart. Empty until a
+# live run sets it via _set_run_context.
+_run_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("run_ctx", default="")
+
+
+class _RunContextFilter(logging.Filter):
+    """Attach the current run context to every record as ``run_ctx``.
+
+    @author Claude Opus 4.8 Anthropic
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.run_ctx = _run_ctx.get()
+        return True
+
+
+class _UTCFormatter(logging.Formatter):
+    """Formatter that renders timestamps in UTC to match the SQLite run records.
+
+    @author Claude Opus 4.8 Anthropic
+    """
+
+    converter = staticmethod(time.gmtime)
+    default_msec_format = "%s,%03dZ"
+
+
+def _set_run_context(project: str, run_id: str) -> None:
+    """Set the log prefix for the current run (e.g. ``[newschart 237f824e]``)."""
+    _run_ctx.set(f" [{project} {run_id[:8]}]")
 
 
 def _default_config_path() -> Path:
@@ -239,6 +272,9 @@ def _cmd_run_live(
 
     run_id = str(uuid.uuid4())
     started_at = _now_utc()
+    run_started = time.monotonic()
+    _set_run_context(project_name, run_id)
+    _log.info("run start: repo=%s config=%s", project.repo, config_path)
 
     try:
         # ── Budget check ───────────────────────────────────────────────────────
@@ -444,15 +480,28 @@ def _cmd_run_live(
             wip_branch_url=wip_branch_url,
         )
 
-        if outcome == "success":
-            _log.info("run complete: outcome=%r run_id=%s", outcome, run_id)
-        else:
-            _log.warning(
-                "run complete: outcome=%r run_id=%s failure_reason=%s",
-                outcome,
-                run_id,
-                failure_reason,
+        dur_s = time.monotonic() - run_started
+        parts = [f"run complete: outcome={outcome}", f"dur={dur_s:.0f}s"]
+        ar = agent_result
+        if ar is not None:
+            if ar.num_turns:
+                parts.append(f"turns={ar.num_turns}")
+            if ar.total_cost_usd:
+                parts.append(f"cost=${ar.total_cost_usd:.4f}")
+            total_tokens = (
+                ar.input_tokens + ar.output_tokens + ar.cache_read_tokens + ar.cache_write_tokens
             )
+            if total_tokens:
+                parts.append(f"tokens={total_tokens:,}")
+        if outcome != "success" and failure_reason:
+            parts.append(f"reason={failure_reason}")
+        if ar is not None and ar.summary:
+            parts.append(f'"{ar.summary.splitlines()[0]}"')
+        msg = " ".join(parts)
+        if outcome == "success":
+            _log.info("%s", msg)
+        else:
+            _log.warning("%s", msg)
         print(f"run complete: outcome={outcome!r} run_id={run_id}")
         return 0 if outcome == "success" else 1
 
@@ -1029,8 +1078,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Entry point for the ``labro`` CLI."""
-    log_fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    logging.basicConfig(level=logging.INFO, format=log_fmt)
+    log_fmt = "%(asctime)s %(levelname)s %(name)s%(run_ctx)s: %(message)s"
+    formatter = _UTCFormatter(log_fmt)
+    ctx_filter = _RunContextFilter()
+
+    stream = logging.StreamHandler()
+    stream.setFormatter(formatter)
+    stream.addFilter(ctx_filter)
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers = [stream]
 
     log_path = _default_log_path()
     if log_path.parent.exists():
@@ -1039,10 +1096,10 @@ def main() -> None:
             maxBytes=5 * 1024 * 1024,  # 5 MB
             backupCount=5,
         )
-        fh.setFormatter(logging.Formatter(log_fmt))
+        fh.setFormatter(formatter)
+        fh.addFilter(ctx_filter)
         # Replace the stderr StreamHandler — cron redirects stderr to the same
         # file, so keeping both would double every log line.
-        root = logging.getLogger()
         root.handlers = [fh]
 
     parser = _build_parser()
