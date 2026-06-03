@@ -37,6 +37,7 @@ htmlcov/
 
 # Claude Code session files (dropped by agent during live runs)
 .antigravitycli/
+.claude/
 
 # User-specific config (lives in a separate private repo — see labro.example.toml)
 labro.toml
