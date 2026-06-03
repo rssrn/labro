@@ -1,3 +1,24 @@
+# `gh-label` Source Type Naming
+
+The `gh-label` source type is a misleading name: it also handles `actor_rules`, which match
+open PRs/issues by the GitHub login that raised them — no label required. The name makes
+operators question whether `type = "gh-label"` is correct when they only use `actor_rules`.
+
+Two options:
+
+**Option A — rename to `gh-item`** (or `gh-trigger`): a single source type that covers both
+label-based and actor-based eligibility, with a name that doesn't imply labels are required.
+Backwards-compatible if the old name is kept as a deprecated alias.
+
+**Option B — split into `gh-label` and `gh-actor`**: `gh-label` keeps `label_rules` only;
+`gh-actor` takes `actor_rules` only. Cleaner conceptually; more explicit in config; but
+requires migrating any project that mixes both rule types into two separate source blocks
+(which changes priority ordering behaviour).
+
+Option A is lower friction. Option B is more honest about what each source does.
+
+---
+
 # `labro init` — Interactive Config Generator
 
 If the `[[projects.task_sources]]` repetition in `labro.toml` feels verbose, the fix is a
