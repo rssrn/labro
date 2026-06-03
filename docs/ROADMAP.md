@@ -115,17 +115,17 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | :--- | :--- |
 | `entrypoint.sh` | Exports env to `/etc/labro-env`; generates `/etc/cron.d/labro` from `labro.toml`; execs `crond -f` |
 | Crontab generation | Per-project entries + digest entry; disabled projects omitted; format documented in ARCHITECTURE.md §7 |
-| Docker bind-mount layout | `/config/`, `/data/`, `/repos/` verified and documented |
-| `.github/workflows/publish.yml` | Builds and pushes `ghcr.io/<owner>/labro:<tag>` on version tag push (`v*.*.*`); also tags `:latest`. Uses `GITHUB_TOKEN` — no extra secret required for GHCR on the same repo |
-| `docs/config-repo-scaffold/` | Two copyable workflow files for the operator's private config repo: `labro-deploy.yml` (push-triggered graceful restart on `labro.toml` change) and `labro-restart.yml` (manual `workflow_dispatch` for secret rotation). Full content in ARCHITECTURE.md §7 |
-| `README.md` | Add Docker deployment section: image build, bind-mount layout, GHCR image location, pointer to config repo scaffold; reference to two-repo pattern and `LABRO_CONFIG` env var |
+| Docker bind-mount layout | Single mount `-v /your/data/dir:/data`; all persistent state (config, SQLite, logs, repos, codex auth) under one directory. `LABRO_CONFIG=/data/labro.toml`, `LABRO_REPOS_DIR=/data/repos` |
+| `.github/workflows/publish.yml` | Builds and pushes `ghcr.io/<owner>/labro:<tag>` and `:latest` on version tag push (`v*.*.*`). Uses `GITHUB_TOKEN` — no extra secret required for GHCR on the same repo |
+| `docs/config-repo-scaffold/` | Three copyable workflow files for the operator's private config repo: `labro-deploy.yml` (push-triggered on `labro.toml`), `labro-update.yml` (manual image update), `labro-restart.yml` (manual secret refresh). All three write secrets from GitHub to host `.env` before recreating the container. See ARCHITECTURE.md §7 |
+| `README.md` | Docker deployment section, bind-mount layout, GHCR image location, config-repo pattern with link to labro-rssrn example |
 
 **Dogfood gate — before proceeding to M5:**
 
 1. Push a version tag (`v0.4.0`) to the labro repo; confirm the image appears in GHCR
 2. Create a private config repo; copy `docs/config-repo-scaffold/` workflow files into `.github/workflows/`
 3. Add `labro.toml` with at least one `gh-label` project
-4. Add GitHub Secrets to the config repo: `GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
+4. Add GitHub Secrets to the config repo: `DEPLOY_HOST`, `GITHUB_APP_PRIVATE_KEY_BASE64` (or `GH_TOKEN`), `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), plus any agent-specific keys (`OPENROUTER_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON_BASE64`)
 5. Deploy the container to the VPS; confirm `labro run <project>` completes a real run and writes a record to SQLite
 
 ---

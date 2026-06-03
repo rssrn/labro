@@ -423,18 +423,22 @@ _How Labro is deployed and operated._
 ```
 Host machine (single server or dev machine)
 └── Docker container
-    ├── /app/              Labro source code
-    │   └── entrypoint.sh  Generates crontab from labro.toml; starts crond
-    ├── /config/           labro.toml (bind-mounted from host)
-    ├── /data/             labro.db — SQLite store (bind-mounted from host)
-    ├── /repos/            Cloned project repos (bind-mounted from host)
-    └── env: GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY), GRAFANA_TOKEN, SLACK_WEBHOOK_URL, ...
+    ├── /app/              Labro source code + entrypoint.sh
+    ├── /data/             Single bind-mount from host — all persistent state:
+    │   ├── labro.toml     Operator config  (LABRO_CONFIG=/data/labro.toml)
+    │   ├── labro.db       SQLite run store
+    │   ├── labro.log      Structured run log
+    │   ├── repos/         Cloned project repos (LABRO_REPOS_DIR=/data/repos)
+    │   └── codex/
+    │       └── auth.json  Codex CLI auth — symlinked to ~/.codex/auth.json by entrypoint
+    └── env: GITHUB_APP_PRIVATE_KEY_BASE64, CLAUDE_CODE_OAUTH_TOKEN, OPENROUTER_API_KEY, ...
+         (injected via --env-file from host; never baked into image)
 ```
 
 * Container is built from a `Dockerfile` in the repo root.
-* `entrypoint.sh` reads `labro.toml` at container start, writes `/etc/cron.d/labro`, then starts `crond`. Adding a project requires only a config change and a container restart.
-* Config, data, and repos live on the host via bind mounts (survives container restarts).
-* Secrets are injected as environment variables (not baked into the image).
+* `entrypoint.sh` runs at startup: symlinks `codex/auth.json` if present, exports env to `/etc/labro-env`, generates `/etc/cron.d/labro` from `labro.toml`, then execs `crond`. Adding a project requires only a config change and a container restart.
+* All persistent state lives under a **single bind-mount** (`-v /your/data/dir:/data`) — easy to back up, inspect, and reason about.
+* Secrets are injected via `--env-file` at `docker run` time — never baked into the image or written to config.
 * `labro run <project>` invokes a single run on demand without the scheduler — useful during development and debugging.
 
 ### `entrypoint.sh` and crontab generation
@@ -489,46 +493,46 @@ exec crond -f -l 2
 Labro separates the **engine** (this repo) from the **operator's config** (a separate private repo). This keeps the labro repo shareable and free of user-specific data, while the config repo holds everything the operator owns:
 
 ```
-labro repo (public)          labro-config repo (private)
+labro repo (public)          config repo (private, operator-owned)
 ├── src/labro/               ├── labro.toml
-├── Dockerfile               ├── .github/
-├── labro.example.toml       │   └── workflows/
-└── ...                      │       └── labro-run.yml  ← cron schedule here
-                             └── (GitHub Secrets: GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, …)
+├── Dockerfile               ├── .gitignore
+├── labro.example.toml       ├── .github/
+└── docs/                    │   └── workflows/
+    └── config-repo-scaffold/│       ├── labro-deploy.yml   ← auto on labro.toml push
+        ├── labro-deploy.yml │       ├── labro-update.yml   ← manual: pull new image
+        ├── labro-update.yml │       └── labro-restart.yml  ← manual: refresh secrets
+        └── labro-restart.yml└── (GitHub Secrets — see below)
 ```
 
-**Secrets** are stored in the config repo's GitHub Secrets and injected as environment variables at runtime — never baked into the image or checked into either repo.
+**[rssrn/labro-rssrn](https://github.com/rssrn/labro-rssrn)** is a working example of this pattern.
+
+**Secrets** are stored as GitHub repo secrets in the config repo and written to a `.env` file on the host by the deployment workflows — never baked into the image or checked into either repo.
 
 **Config resolution** — the `labro` binary locates `labro.toml` via (highest priority first):
 1. `--config <path>` CLI flag
-2. `LABRO_CONFIG` environment variable
+2. `LABRO_CONFIG` environment variable (set to `/data/labro.toml` by the deployment workflows)
 3. `./labro.toml` in the current working directory
 
-**Recommended deployment target: GitHub Actions** (configured in the config repo). The workflow checks out the config repo, pulls the published labro image from a registry, and runs it with secrets injected:
+**GitHub repo secrets** required in the config repo:
 
-```yaml
-# .github/workflows/labro-run.yml (in the config repo)
-on:
-  schedule:
-    - cron: '0 9 * * 1-5'
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4   # checks out labro-config → labro.toml available
-      - run: |
-          docker run --rm \
-            -e GH_TOKEN=${{ secrets.GH_TOKEN }} \
-            -e CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} \
-            -v ${{ github.workspace }}/labro.toml:/config/labro.toml \
-            ghcr.io/rssrn/labro:v1.0.0 \
-            labro run my-project --config /config/labro.toml
-            # Alternative: -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-```
+| Secret | Notes |
+| :--- | :--- |
+| `DEPLOY_HOST` | `user@hostname` — server SSH address (Tailscale hostname recommended) |
+| `GITHUB_APP_PRIVATE_KEY_BASE64` | `base64 -w 0 your-app.pem` — safe for `--env-file` (no newlines) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent |
+| `OPENROUTER_API_KEY` | If using opencode with OpenRouter |
+| `CODEX_API_KEY` | If using codex via OpenAI API billing |
+| `CODEX_AUTH_JSON_BASE64` | If using codex CLI subscription billing — `base64 -w 0 ~/.codex/auth.json`; bind-mounted so headless token refresh persists |
 
-Pin the image tag (`:v1.0.0` not `:latest`) to avoid silent behaviour changes — consistent with the `claude` CLI pin in the Dockerfile itself.
+**Scaffold workflows** — copy from `docs/config-repo-scaffold/` into your config repo's `.github/workflows/`. The three workflows all: write a fresh `.env` on the host from GitHub secrets, then recreate the container. This means rotating any secret is just: update it in GitHub → run `labro-restart.yml`.
 
-**Alternative: Docker + cron on a VPS.** Bind-mount `labro.toml` from the host; pass secrets via `--env-file` (a `.env` file on the host, not in any repo, permissions `600`). This gives more control but requires a server to maintain.
+| Workflow | Trigger | What it does |
+| :--- | :--- | :--- |
+| `labro-deploy.yml` | Push to `labro.toml` | Copies new config + writes `.env` + recreates container (same image) |
+| `labro-update.yml` | `workflow_dispatch` | Writes `.env` + pulls `:latest` + recreates container |
+| `labro-restart.yml` | `workflow_dispatch` | Writes `.env` + recreates container (same image) |
+
+**Deployment target** — the scaffold assumes SSH access to a self-hosted server running Docker. The scaffold uses [Tailscale](https://tailscale.com) for private networking (no public SSH port needed; the runner advertises `tag:github-runner` and the host allows it via Tailscale SSH ACLs), but any SSH-reachable host works with minor adjustments.
 
 ### Config and secret changes on a VPS deployment
 
@@ -567,83 +571,9 @@ Steps 1 and 4 can also be performed from the host by touching/removing the file 
 
 > **Note:** `LABRO_DISABLED` lives in `/data/` which is bind-mounted — it survives the restart and must be explicitly removed after the container comes back up. If a workflow or script fails after creating the file, remove it manually: `docker exec labro rm /data/LABRO_DISABLED`.
 
-**Example config repo workflows for VPS deployment:**
+**Config repo scaffold workflows:**
 
-The config repo should provide two workflow files. Copy these into `.github/workflows/` and add `VPS_HOST`, `VPS_USER`, and `VPS_SSH_KEY` as GitHub Secrets in the config repo.
-
-`labro-deploy.yml` — fires automatically when `labro.toml` is pushed; performs a graceful restart:
-
-```yaml
-# .github/workflows/labro-deploy.yml (in the config repo)
-# Triggers on labro.toml changes. Copies the new config to the VPS and performs
-# a graceful restart (drains in-flight runs before restarting the container).
-on:
-  push:
-    paths:
-      - 'labro.toml'
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Copy updated config
-        run: |
-          scp labro.toml ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/labro/config/labro.toml
-
-      - name: Graceful restart
-        run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
-            docker exec labro touch /data/LABRO_DISABLED
-            while [ "$(docker exec labro sqlite3 /data/labro.db \
-                "SELECT COUNT(*) FROM project_locks")" != "0" ]; do
-              echo "waiting…"; sleep 5
-            done
-            docker restart labro
-            docker exec labro rm -f /data/LABRO_DISABLED
-          '
-```
-
-`labro-restart.yml` — manual trigger only; use after rotating a secret in GitHub Secrets:
-
-```yaml
-# .github/workflows/labro-restart.yml (in the config repo)
-# Run manually (Actions → Run workflow) after updating a secret.
-# Performs a graceful restart without copying any files.
-on:
-  workflow_dispatch:
-
-jobs:
-  restart:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Graceful restart
-        run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
-            docker exec labro touch /data/LABRO_DISABLED
-            while [ "$(docker exec labro sqlite3 /data/labro.db \
-                "SELECT COUNT(*) FROM project_locks")" != "0" ]; do
-              echo "waiting…"; sleep 5
-            done
-            docker restart labro
-            docker exec labro rm -f /data/LABRO_DISABLED
-          '
-```
+See [`docs/config-repo-scaffold/`](../config-repo-scaffold/) for ready-to-copy workflow files. The three workflows (`labro-deploy.yml`, `labro-update.yml`, `labro-restart.yml`) share the same structure: write a fresh `.env` on the host from GitHub secrets → gracefully drain in-flight runs → recreate the container. See the Two-repo deployment pattern section above for the full secrets table and workflow summary.
 
 ---
 
@@ -653,7 +583,7 @@ jobs:
 
 * GitHub token scoped to minimum required permissions per project.
 * Secrets never written to config or execution records. No output sanitisation pass: secrets (`GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
-* Agent is invoked with its working directory set to `/repos/<project-name>`, which scopes its default context to the cloned repo. This is a convention, not enforced isolation — Claude Code CLI can navigate to other paths within the container (e.g. `/data/labro.db`, `/config/labro.toml`, other repos under `/repos/`). The Docker container boundary is the real filesystem sandbox. See Risks.
+* Agent is invoked with its working directory set to the cloned repo under `LABRO_REPOS_DIR/<project-name>` (default `/repos/<project-name>`; `/data/repos/<project-name>` with the single-mount layout), which scopes its default context to the cloned repo. This is a convention, not enforced isolation — Claude Code CLI can navigate to other paths within the container (e.g. `/data/labro.db`). The Docker container boundary is the real filesystem sandbox. See Risks.
 * Action Permissions communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-action-permissions-enforcement.md).
 
 ### Observability & Logging
@@ -925,7 +855,7 @@ Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery
 
 * Single TOML file (`labro.toml`) declares all projects. Parsed with `tomllib` (stdlib); validated with Pydantic at startup. See [ADR-001](adr/0001-toml-config-format.md).
 * Invalid config is a hard failure with a clear error message; no runs attempted.
-* Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` is required unless GitHub App auth is configured, in which case `GITHUB_APP_PRIVATE_KEY` is required instead (labro generates a per-run installation token from it automatically); claude CLI auth requires either `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription OAuth token — recommended) or `ANTHROPIC_API_KEY` (API key); `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
+* Required environment variables are validated at startup alongside config. Which vars are required depends on what is configured: `GH_TOKEN` is required unless GitHub App auth is configured, in which case `GITHUB_APP_PRIVATE_KEY` (raw PEM) or `GITHUB_APP_PRIVATE_KEY_BASE64` (base64-encoded PEM, preferred for container deployments) is required instead — labro generates a per-run installation token from it automatically; claude CLI auth requires either `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription OAuth token — recommended) or `ANTHROPIC_API_KEY` (API key); `OPENROUTER_API_KEY` if using opencode with OpenRouter; `CODEX_API_KEY` or `CODEX_AUTH_JSON_BASE64` if using codex; `GRAFANA_TOKEN` only if any project has a `grafana-alerts` source; `SLACK_WEBHOOK_URL` only if the digest is enabled. Missing required vars are a hard failure with a descriptive error message.
 * Required GitHub labels are checked at startup. If any are missing, the harness exits with: "Required label(s) missing in <repo> — run `labro init` to create them." `labro init` creates all required labels idempotently; `labro check` reports label status without writing.
 * Config is the only file an operator needs to edit to add a project.
 * Emergency pause: create `/data/LABRO_DISABLED` on the host to halt all runs immediately (checked before lock acquisition); remove it to resume. No container restart required.
