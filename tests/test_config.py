@@ -706,3 +706,87 @@ class TestPerspectives:
         config = load_config(p)
         source = config.projects[0].task_sources[0]
         assert source.perspectives == ["red-team"]  # type: ignore[union-attr]
+
+
+# ── DashboardConfig ────────────────────────────────────────────────────────────
+
+
+class TestDashboardConfig:
+    def test_dashboard_disabled_by_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        p = write_toml(tmp_path, MINIMAL_VALID_TOML)
+        config = load_config(p)
+        assert not config.dashboard.enabled
+        assert config.dashboard.bucket is None
+
+    def test_dashboard_enabled_requires_bucket(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        toml = MINIMAL_VALID_TOML + "\n[dashboard]\nenabled = true\n"
+        p = write_toml(tmp_path, toml)
+        with pytest.raises(ConfigError, match="bucket"):
+            load_config(p)
+
+    def test_dashboard_enabled_with_bucket_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("R2_ACCESS_KEY_ID", "kid")
+        monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+        monkeypatch.setenv("R2_ACCOUNT_ID", "acct")
+        toml = MINIMAL_VALID_TOML + '\n[dashboard]\nenabled = true\nbucket = "my-bucket"\n'
+        p = write_toml(tmp_path, toml)
+        config = load_config(p)
+        assert config.dashboard.enabled
+        assert config.dashboard.bucket == "my-bucket"
+
+    def test_dashboard_required_env_vars(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When dashboard.enabled, R2_* vars are added to required_env_vars."""
+        from labro.config.loader import required_env_vars
+        from labro.config.schema import DashboardConfig, DefaultsConfig, DigestConfig, LabroConfig
+
+        config = LabroConfig(
+            digest=DigestConfig(enabled=False),
+            dashboard=DashboardConfig(enabled=True, bucket="my-bucket"),
+            defaults=DefaultsConfig(),
+        )
+        required = required_env_vars(config)
+        assert "R2_ACCESS_KEY_ID" in required
+        assert "R2_SECRET_ACCESS_KEY" in required
+        assert "R2_ACCOUNT_ID" in required
+
+    def test_dashboard_disabled_no_r2_vars_required(self) -> None:
+        """When dashboard.enabled = false, R2_* vars are NOT required."""
+        from labro.config.loader import required_env_vars
+        from labro.config.schema import DashboardConfig, DefaultsConfig, DigestConfig, LabroConfig
+
+        config = LabroConfig(
+            digest=DigestConfig(enabled=False),
+            dashboard=DashboardConfig(enabled=False),
+            defaults=DefaultsConfig(),
+        )
+        required = required_env_vars(config)
+        for var in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ACCOUNT_ID"):
+            assert var not in required
+
+    def test_dashboard_missing_r2_vars_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config raises ConfigError when dashboard is enabled but R2_* vars are absent."""
+        monkeypatch.setenv("GH_TOKEN", "ghp_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.delenv("R2_ACCESS_KEY_ID", raising=False)
+        monkeypatch.delenv("R2_SECRET_ACCESS_KEY", raising=False)
+        monkeypatch.delenv("R2_ACCOUNT_ID", raising=False)
+        toml = MINIMAL_VALID_TOML + '\n[dashboard]\nenabled = true\nbucket = "my-bucket"\n'
+        p = write_toml(tmp_path, toml)
+        with pytest.raises(ConfigError, match="R2_"):
+            load_config(p)

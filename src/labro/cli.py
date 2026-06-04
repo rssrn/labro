@@ -901,8 +901,144 @@ def _cmd_gen_crontab(args: argparse.Namespace) -> int:
             f"{config.digest.cron}   root  . /etc/labro-env; labro digest  >> {log_path}  2>&1"
         )
 
+    if config.dashboard.enabled:
+        lines.append("")
+        lines.append("# Dashboard DB snapshot upload")
+        lines.append(
+            f"{config.dashboard.cron}   root  . /etc/labro-env;"
+            f" labro publish-db  >> {log_path}  2>&1"
+        )
+
     print("\n".join(lines))
     return 0
+
+
+# ── labro publish-db ───────────────────────────────────────────────────────────
+
+
+def _cmd_publish_db(args: argparse.Namespace) -> int:
+    """Snapshot labro.db via VACUUM INTO and upload the snapshot + manifest to R2.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    import hashlib
+    import json
+
+    config_path: Path = args.config
+    db_path: Path = args.db_path
+    snapshot_path_override: Path | None = args.snapshot_path
+    dry_run: bool = args.dry_run
+
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if not config.dashboard.enabled:
+        _log.warning("publish-db: dashboard.enabled = false in config; nothing to do")
+        return 0
+
+    if not db_path.exists():
+        _log.warning("publish-db: database not found at %s; nothing to do", db_path)
+        return 0
+
+    # Build temp snapshot path (or use override)
+    if snapshot_path_override is not None:
+        snapshot_path = snapshot_path_override
+        cleanup_snapshot = False
+    else:
+        snapshot_path = db_path.parent / f".labro-snapshot-{os.getpid()}.db"
+        cleanup_snapshot = True
+
+    # Remove stale snapshot if present (VACUUM INTO requires the target not to exist)
+    if snapshot_path.exists():
+        snapshot_path.unlink()
+
+    try:
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            # Bound parameter avoids bandit B608 (SQL injection via f-string)
+            conn.execute("VACUUM INTO ?", (str(snapshot_path),))
+        finally:
+            conn.close()
+
+        # Hash the snapshot for content-addressed key and manifest
+        hasher = hashlib.sha256()
+        size_bytes = snapshot_path.stat().st_size
+        with open(snapshot_path, "rb") as f:
+            while chunk := f.read(65536):
+                hasher.update(chunk)
+        content_hash = hasher.hexdigest()
+
+        key_prefix = config.dashboard.key_prefix
+        db_filename = f"labro-{content_hash[:16]}.db"
+        db_key = f"{key_prefix}db/{db_filename}"
+
+        # Row count from snapshot
+        snap_conn = sqlite3.connect(str(snapshot_path))
+        try:
+            row_count: int = snap_conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        finally:
+            snap_conn.close()
+
+        manifest_dict = {
+            "schema_version": 1,
+            "db_filename": f"db/{db_filename}",
+            "content_hash": content_hash,
+            "generated_at": _now_utc(),
+            "size_bytes": size_bytes,
+            "row_count": row_count,
+        }
+        manifest_bytes = json.dumps(manifest_dict, indent=2).encode()
+
+        if dry_run:
+            print(f"snapshot: {snapshot_path}")
+            print(f"db_key:   {key_prefix}db/{db_filename}")
+            print(f"manifest: {json.dumps(manifest_dict, indent=2)}")
+            return 0
+
+        # Resolve credentials
+        import labro.r2 as r2_mod
+
+        try:
+            creds = r2_mod.credentials_from_env()
+        except KeyError as exc:
+            print(f"error: missing R2 credential env var: {exc}", file=sys.stderr)
+            return 1
+
+        # Override endpoint from config if set (used in tests / custom deployments)
+        if config.dashboard.endpoint is not None:
+            from dataclasses import replace
+
+            creds = replace(creds, endpoint=config.dashboard.endpoint)
+
+        bucket = config.dashboard.bucket
+        if bucket is None:
+            raise RuntimeError("dashboard.bucket is None despite enabled=True (should not happen)")
+
+        try:
+            # Upload DB first — manifest must never point at a missing object
+            r2_mod.upload_snapshot(creds, db_path=str(snapshot_path), db_key=db_key, bucket=bucket)
+            r2_mod.upload_manifest(creds, manifest=manifest_bytes, bucket=bucket)
+        except RuntimeError as exc:
+            print(f"error: upload failed: {exc}", file=sys.stderr)
+            return 1
+
+        _log.info(
+            "publish-db: uploaded %s (%d rows, %.1f KB) → %s",
+            db_key,
+            row_count,
+            size_bytes / 1024,
+            bucket,
+        )
+        return 0
+
+    finally:
+        if cleanup_snapshot and snapshot_path.exists():
+            snapshot_path.unlink(missing_ok=True)
 
 
 # ── CLI dispatch ───────────────────────────────────────────────────────────────
@@ -1055,6 +1191,33 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
     )
     list_locks_parser.set_defaults(func=_cmd_list_locks)
+
+    # ── labro publish-db ──────────────────────────────────────────────────────
+    publish_db_parser = subparsers.add_parser(
+        "publish-db",
+        help="Snapshot labro.db and upload to R2 for the metrics dashboard",
+    )
+    publish_db_parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=_default_db_path(),
+        metavar="PATH",
+        help="Path to the SQLite database (default: $LABRO_DB_PATH or /data/labro.db)",
+    )
+    publish_db_parser.add_argument(
+        "--snapshot-path",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Write the VACUUM snapshot here instead of a temp file (kept after upload)",
+    )
+    publish_db_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print snapshot path + manifest JSON without uploading",
+    )
+    publish_db_parser.set_defaults(func=_cmd_publish_db)
 
     # ── labro unlock ──────────────────────────────────────────────────────────
     unlock_parser = subparsers.add_parser(

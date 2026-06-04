@@ -240,6 +240,27 @@ class DigestConfig(BaseModel):
     cron: str = "0 8 * * *"
 
 
+class DashboardConfig(BaseModel):
+    """Metrics dashboard publish configuration.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+
+    enabled: bool = False
+    cron: str = "17 * * * *"
+    bucket: str | None = None
+    key_prefix: str = ""
+    # Override endpoint (for testing); derived from R2_ACCOUNT_ID if None.
+    endpoint: str | None = None
+    redact: bool = False  # reserved, no-op in M9.1
+
+    @model_validator(mode="after")
+    def require_bucket_when_enabled(self) -> DashboardConfig:
+        if self.enabled and not self.bucket:
+            raise ValueError("dashboard.enabled = true requires dashboard.bucket to be set")
+        return self
+
+
 class DefaultsConfig(BaseModel):
     """Global defaults inherited by all projects."""
 
@@ -256,6 +277,7 @@ class LabroConfig(BaseModel):
     perspectives: dict[str, PerspectiveConfig] = Field(default_factory=dict)
     shared_rules: dict[str, SharedRuleConfig] = Field(default_factory=dict)
     digest: DigestConfig = Field(default_factory=DigestConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     projects: list[ProjectConfig] = Field(default_factory=list)
     # GitHub App credentials (alternative to GH_TOKEN PAT).

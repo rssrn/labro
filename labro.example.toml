@@ -179,6 +179,20 @@ model             = "claude-code:anthropic/claude-sonnet-4-6@medium"  # design r
 enabled = false
 cron    = "0 8 * * *"
 
+# ── Dashboard ──────────────────────────────────────────────────────────────────
+# Publishes a read-only snapshot of labro.db to Cloudflare R2 for the metrics
+# SPA (M9).  Requires R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID.
+#
+# WARNING: the published snapshot contains run summaries and issue text from
+# your managed repos.  Keep the R2 bucket URL private — there is no built-in
+# access control.
+
+# [dashboard]
+# enabled    = true
+# cron       = "17 * * * *"   # upload every hour (at :17 to stagger with run crons)
+# bucket     = "labro-rssrn-metrics"   # R2 bucket name
+# key_prefix = ""              # optional prefix for all object keys
+
 # ── Defaults ───────────────────────────────────────────────────────────────────
 
 [defaults]

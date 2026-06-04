@@ -77,6 +77,10 @@ def required_env_vars(config: LabroConfig) -> list[str]:
     if has_grafana:
         required.append("GRAFANA_TOKEN")
 
+    if config.dashboard.enabled:
+        for r2_var in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ACCOUNT_ID"):
+            required.append(r2_var)
+
     return required
 
 
