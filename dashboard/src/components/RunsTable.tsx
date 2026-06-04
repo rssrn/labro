@@ -16,8 +16,15 @@ const OUTCOME_COLOR: Record<string, string> = {
   skipped: '#888',
 };
 
-function fmtDate(iso: string): string {
-  return iso.replace('T', ' ').slice(0, 16) + 'Z';
+function DateCell({ iso }: { iso: string }) {
+  const full = iso.replace('T', ' ').slice(0, 16) + 'Z'; // 2026-06-04 09:30Z
+  const short = iso.slice(5, 16).replace('T', ' ');       // 06-04 09:30
+  return (
+    <>
+      <span className="date-full">{full}</span>
+      <span className="date-short">{short}</span>
+    </>
+  );
 }
 
 function fmtModel(provider: string | null, model: string | null): string {
@@ -89,10 +96,10 @@ export default function RunsTable({ runs }: Props) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <table
+        className="runs-table"
         style={{
           width: '100%',
           borderCollapse: 'collapse',
-          fontSize: '0.82rem',
           fontFamily: 'monospace',
         }}
       >
@@ -101,11 +108,11 @@ export default function RunsTable({ runs }: Props) {
             {th('date', 'started_at')}
             {th('project', 'project')}
             {th('source', 'task_source')}
-            {th('model', 'model')}
+            <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('model')}>model{arrow('model')}</th>
             {th('outcome', 'outcome')}
-            {th('cost', 'total_cost_usd', { textAlign: 'right' })}
-            {th('turns', 'turns_used', { textAlign: 'right' })}
-            <th style={{ ...TH_STYLE, cursor: 'default', minWidth: '180px' }}>
+            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('total_cost_usd')}>cost{arrow('total_cost_usd')}</th>
+            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')}>turns{arrow('turns_used')}</th>
+            <th className="col-desktop" style={{ ...TH_STYLE, cursor: 'default', minWidth: '180px' }}>
               failure reason
             </th>
           </tr>
@@ -113,22 +120,22 @@ export default function RunsTable({ runs }: Props) {
         <tbody>
           {sorted.map((run) => (
             <tr key={run.run_id} style={{ color: '#ddd' }}>
-              <td style={TD_STYLE}>{fmtDate(run.started_at)}</td>
+              <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>{run.project}</td>
               <td style={TD_STYLE}>{run.task_source ?? '—'}</td>
-              <td style={TD_STYLE}>{fmtModel(run.provider, run.model)}</td>
+              <td className="col-desktop" style={TD_STYLE}>{fmtModel(run.provider, run.model)}</td>
               <td style={TD_STYLE}>
                 <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }}>
                   {run.outcome ?? '—'}
                 </span>
               </td>
-              <td style={{ ...TD_STYLE, textAlign: 'right', color: '#aaa' }}>
+              <td className="col-desktop" style={{ ...TD_STYLE, textAlign: 'right', color: '#aaa' }}>
                 {fmtCost(run.total_cost_usd)}
               </td>
-              <td style={{ ...TD_STYLE, textAlign: 'right', color: '#aaa' }}>
+              <td className="col-desktop" style={{ ...TD_STYLE, textAlign: 'right', color: '#aaa' }}>
                 {run.turns_used ?? '—'}
               </td>
-              <td style={{ ...TD_STYLE, whiteSpace: 'normal', color: '#888' }}>
+              <td className="col-desktop" style={{ ...TD_STYLE, whiteSpace: 'normal', color: '#888' }}>
                 {truncate(run.failure_reason, 60)}
               </td>
             </tr>

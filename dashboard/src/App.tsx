@@ -36,6 +36,7 @@ export default function App() {
 
   return (
     <div
+      className="mobile-pad"
       style={{
         fontFamily: 'monospace',
         padding: '1.5rem',

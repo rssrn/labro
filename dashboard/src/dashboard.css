@@ -1,0 +1,28 @@
+.runs-table {
+  font-size: 0.82rem;
+}
+
+@media (max-width: 640px) {
+  .col-desktop {
+    display: none;
+  }
+  .date-full {
+    display: none;
+  }
+  .mobile-pad {
+    padding: 0.75rem;
+  }
+  .runs-table {
+    font-size: 0.72rem;
+  }
+  .runs-table td,
+  .runs-table th {
+    padding: 0.25rem 0.4rem;
+  }
+}
+
+@media (min-width: 641px) {
+  .date-short {
+    display: none;
+  }
+}
