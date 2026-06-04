@@ -10,8 +10,6 @@
 - New `[dashboard]` config block with `enabled`, `cron`, `bucket`, `key_prefix` fields;
   `enabled = true` requires `bucket` and the three `R2_*` env vars
 - `labro gen-crontab` emits a `labro publish-db` cron line when `dashboard.enabled = true`
-- `upgrade-image.yml` now writes `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`
-  to the VPS `.env` file from repo secrets
 
 ## v0.3.2 — 2026-06-03
 
