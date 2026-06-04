@@ -1,0 +1,22 @@
+# .github/workflows/dashboard-dispatch.yml
+# On pushes to main that touch dashboard/, fire a repository_dispatch to labro-rssrn
+# which will build the SPA and upload it to R2.
+# @author Claude Sonnet 4.6 Anthropic
+on:
+  push:
+    branches: [main]
+    paths: ['dashboard/**']
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch dashboard-publish to config repo
+        env:
+          TOKEN: ${{ secrets.CONFIG_REPO_DISPATCH_TOKEN }}
+        run: |
+          curl -fsSX POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/rssrn/labro-rssrn/dispatches \
+            -d "{\"event_type\":\"dashboard-publish\",\"client_payload\":{\"ref\":\"${{ github.sha }}\"}}"

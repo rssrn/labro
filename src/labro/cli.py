@@ -1005,6 +1005,7 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
 
         try:
             creds = r2_mod.credentials_from_env()
+            bucket = os.environ["R2_BUCKET"]
         except KeyError as exc:
             print(f"error: missing R2 credential env var: {exc}", file=sys.stderr)
             return 1
@@ -1014,10 +1015,6 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
             from dataclasses import replace
 
             creds = replace(creds, endpoint=config.dashboard.endpoint)
-
-        bucket = config.dashboard.bucket
-        if bucket is None:
-            raise RuntimeError("dashboard.bucket is None despite enabled=True (should not happen)")
 
         try:
             # Upload DB first — manifest must never point at a missing object

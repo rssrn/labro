@@ -21,13 +21,11 @@ from labro.r2 import R2Credentials
 def _make_config(
     *,
     dashboard_enabled: bool = True,
-    bucket: str = "test-bucket",
     key_prefix: str = "",
     endpoint: str | None = "https://fake.r2.cloudflarestorage.com",
 ) -> LabroConfig:
     dashboard = DashboardConfig(
         enabled=dashboard_enabled,
-        bucket=bucket if dashboard_enabled else None,
         key_prefix=key_prefix,
         endpoint=endpoint,
     )
@@ -123,10 +121,13 @@ _FAKE_CREDS = R2Credentials(
 )
 
 
-def test_live_upload_two_calls_correct_order(tmp_path: Path) -> None:
+def test_live_upload_two_calls_correct_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Live path calls _put_object twice: db first, manifest second."""
+    monkeypatch.setenv("R2_BUCKET", "my-bucket")
     db_path = _make_db(tmp_path, num_rows=2)
-    config = _make_config(bucket="my-bucket", endpoint="https://fake.r2.example.com")
+    config = _make_config(endpoint="https://fake.r2.example.com")
 
     with (
         patch("labro.r2._put_object") as mock_put,
@@ -151,8 +152,9 @@ def test_live_upload_two_calls_correct_order(tmp_path: Path) -> None:
     assert "must-revalidate" in manifest_call.kwargs["cache_control"]
 
 
-def test_live_upload_manifest_content(tmp_path: Path) -> None:
+def test_live_upload_manifest_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Manifest JSON contains expected fields with correct row_count."""
+    monkeypatch.setenv("R2_BUCKET", "test-bucket")
     db_path = _make_db(tmp_path, num_rows=7)
     config = _make_config()
 
@@ -179,8 +181,9 @@ def test_live_upload_manifest_content(tmp_path: Path) -> None:
     assert "T" in manifest["generated_at"]
 
 
-def test_live_key_prefix(tmp_path: Path) -> None:
+def test_live_key_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """key_prefix is prepended to the db object key."""
+    monkeypatch.setenv("R2_BUCKET", "test-bucket")
     db_path = _make_db(tmp_path)
     config = _make_config(key_prefix="prod/")
 
@@ -249,8 +252,9 @@ def test_missing_creds_returns_one(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 # ── upload failure ─────────────────────────────────────────────────────────────
 
 
-def test_upload_failure_returns_one(tmp_path: Path) -> None:
+def test_upload_failure_returns_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Upload RuntimeError → return 1; temp snapshot cleaned up."""
+    monkeypatch.setenv("R2_BUCKET", "test-bucket")
     db_path = _make_db(tmp_path)
     config = _make_config()
 
@@ -271,8 +275,9 @@ def test_upload_failure_returns_one(tmp_path: Path) -> None:
 # ── snapshot path kept when --snapshot-path given ─────────────────────────────
 
 
-def test_snapshot_path_kept(tmp_path: Path) -> None:
+def test_snapshot_path_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """--snapshot-path file is NOT deleted after a successful upload."""
+    monkeypatch.setenv("R2_BUCKET", "test-bucket")
     db_path = _make_db(tmp_path)
     snapshot_path = tmp_path / "my-snapshot.db"
     config = _make_config()

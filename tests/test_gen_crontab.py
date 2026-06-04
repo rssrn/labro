@@ -51,14 +51,12 @@ def _make_config(
     digest_cron: str = "0 8 * * *",
     dashboard_enabled: bool = False,
     dashboard_cron: str = "17 * * * *",
-    dashboard_bucket: str | None = None,
 ) -> LabroConfig:
     return LabroConfig(
         digest=DigestConfig(enabled=digest_enabled, cron=digest_cron),
         dashboard=DashboardConfig(
             enabled=dashboard_enabled,
             cron=dashboard_cron,
-            bucket=dashboard_bucket if dashboard_enabled else None,
         ),
         defaults=DefaultsConfig(),
         projects=projects,
@@ -112,7 +110,6 @@ def test_dashboard_present_when_enabled(capsys: pytest.CaptureFixture[str]) -> N
         [_make_project("proj")],
         dashboard_enabled=True,
         dashboard_cron="17 * * * *",
-        dashboard_bucket="labro-rssrn-metrics",
     )
     out = _run(config, capsys)
     assert "labro publish-db" in out

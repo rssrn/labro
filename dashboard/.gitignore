@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# copied from node_modules by postinstall
+public/sql-wasm.wasm

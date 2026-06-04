@@ -720,19 +720,8 @@ class TestDashboardConfig:
         p = write_toml(tmp_path, MINIMAL_VALID_TOML)
         config = load_config(p)
         assert not config.dashboard.enabled
-        assert config.dashboard.bucket is None
 
-    def test_dashboard_enabled_requires_bucket(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("GH_TOKEN", "ghp_test")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-        toml = MINIMAL_VALID_TOML + "\n[dashboard]\nenabled = true\n"
-        p = write_toml(tmp_path, toml)
-        with pytest.raises(ConfigError, match="bucket"):
-            load_config(p)
-
-    def test_dashboard_enabled_with_bucket_accepted(
+    def test_dashboard_enabled_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("GH_TOKEN", "ghp_test")
@@ -740,11 +729,11 @@ class TestDashboardConfig:
         monkeypatch.setenv("R2_ACCESS_KEY_ID", "kid")
         monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
         monkeypatch.setenv("R2_ACCOUNT_ID", "acct")
-        toml = MINIMAL_VALID_TOML + '\n[dashboard]\nenabled = true\nbucket = "my-bucket"\n'
+        monkeypatch.setenv("R2_BUCKET", "my-bucket")
+        toml = MINIMAL_VALID_TOML + "\n[dashboard]\nenabled = true\n"
         p = write_toml(tmp_path, toml)
         config = load_config(p)
         assert config.dashboard.enabled
-        assert config.dashboard.bucket == "my-bucket"
 
     def test_dashboard_required_env_vars(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -755,13 +744,14 @@ class TestDashboardConfig:
 
         config = LabroConfig(
             digest=DigestConfig(enabled=False),
-            dashboard=DashboardConfig(enabled=True, bucket="my-bucket"),
+            dashboard=DashboardConfig(enabled=True),
             defaults=DefaultsConfig(),
         )
         required = required_env_vars(config)
         assert "R2_ACCESS_KEY_ID" in required
         assert "R2_SECRET_ACCESS_KEY" in required
         assert "R2_ACCOUNT_ID" in required
+        assert "R2_BUCKET" in required
 
     def test_dashboard_disabled_no_r2_vars_required(self) -> None:
         """When dashboard.enabled = false, R2_* vars are NOT required."""
@@ -774,7 +764,7 @@ class TestDashboardConfig:
             defaults=DefaultsConfig(),
         )
         required = required_env_vars(config)
-        for var in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ACCOUNT_ID"):
+        for var in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ACCOUNT_ID", "R2_BUCKET"):
             assert var not in required
 
     def test_dashboard_missing_r2_vars_raises(
@@ -786,7 +776,8 @@ class TestDashboardConfig:
         monkeypatch.delenv("R2_ACCESS_KEY_ID", raising=False)
         monkeypatch.delenv("R2_SECRET_ACCESS_KEY", raising=False)
         monkeypatch.delenv("R2_ACCOUNT_ID", raising=False)
-        toml = MINIMAL_VALID_TOML + '\n[dashboard]\nenabled = true\nbucket = "my-bucket"\n'
+        monkeypatch.delenv("R2_BUCKET", raising=False)
+        toml = MINIMAL_VALID_TOML + "\n[dashboard]\nenabled = true\n"
         p = write_toml(tmp_path, toml)
         with pytest.raises(ConfigError, match="R2_"):
             load_config(p)

@@ -248,17 +248,10 @@ class DashboardConfig(BaseModel):
 
     enabled: bool = False
     cron: str = "17 * * * *"
-    bucket: str | None = None
     key_prefix: str = ""
     # Override endpoint (for testing); derived from R2_ACCOUNT_ID if None.
     endpoint: str | None = None
     redact: bool = False  # reserved, no-op in M9.1
-
-    @model_validator(mode="after")
-    def require_bucket_when_enabled(self) -> DashboardConfig:
-        if self.enabled and not self.bucket:
-            raise ValueError("dashboard.enabled = true requires dashboard.bucket to be set")
-        return self
 
 
 class DefaultsConfig(BaseModel):
