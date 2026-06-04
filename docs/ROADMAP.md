@@ -191,6 +191,40 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 ---
 
+## M9 — Metrics dashboard (read-only SPA)
+
+**Goal:** the operator can explore run history and per-project metrics visually in a browser, filtering by timespan and across dimensions (project, model, task source), without querying SQLite by hand. The dashboard is a separate, read-only deployable — it reads a published snapshot of `labro.db` and has no live link to the harness (REQ-24).
+
+**Architecture:** static React + Vite + TypeScript SPA; `sql.js` (SQLite WASM) data layer loads the whole snapshot client-side; Apache ECharts for charts; hosted on Cloudflare R2 + CDN. See ARCHITECTURE.md §8 "Metrics Dashboard (read-only SPA)" and [ADR-007](adr/0007-metrics-dashboard.md).
+
+> **Data sensitivity (M9 scope):** the published snapshot contains private-repo prose and M9 ships **no access control**. Mitigation is a prominent README/docs warning that the operator must keep the R2 bucket/URL private. Built-in access control (Cloudflare Access) and `publish-db` column redaction are deferred.
+
+**Delivered in two phases.**
+
+### M9.1 — Publishing + runs list + stats
+
+| Component | Notes |
+| :--- | :--- |
+| `cli.py` — `labro publish-db` | `VACUUM INTO` consistent snapshot (collapses WAL); upload to R2 with `manifest.json` (content hash + `generated_at`) for cache-busting; optional free-text-column redaction |
+| `config/` — `[dashboard]` block | Object-store target: bucket, endpoint, credentials via env (e.g. `R2_*`); publish cron |
+| `entrypoint.sh` — publish cron entry | One top-level entry (like the digest); omitted if `[dashboard] enabled = false` |
+| `dashboard/` scaffold | React + Vite + TS app; sql.js data-layer module behind a thin interface (keeps the future HTTP-Range upgrade isolated); manifest-then-DB load flow |
+| Dashboard: runs list | Filterable/sortable table (project, outcome, model, task source, timespan) |
+| Dashboard: per-project stats | Run counts, success/failure/partial rates, total + avg cost, avg duration, avg turns |
+| Config-repo scaffold | A `dashboard-publish.yml` workflow (build SPA + upload to R2) for the operator's private config repo |
+| `README.md` | Document `labro publish-db`, the `[dashboard]` config block, and dashboard deployment to R2; **prominent warning** that the published snapshot contains private-repo prose and the bucket/URL must be kept private (no built-in access control) |
+
+### M9.2 — Charts
+
+| Component | Notes |
+| :--- | :--- |
+| Shared filter bar | Timespan + project / model / task-source filters driving both the table and all charts |
+| Cost & token trend charts | Spend over time; token usage (input/output/cache) over time, per project |
+| Outcome & breakdown charts | Outcome rates over time; agent/model distribution; perspective distribution; `items_touched` engagement signals (merge/close rates, 👍/👎, follow-up commits) |
+| `README.md` | Document the charts views and the shared filter model |
+
+---
+
 ## Requirements Coverage
 
 Maps every PRD requirement to the milestone where it is first completed. Requirements split across milestones list the primary milestone; extensions are noted.
@@ -221,3 +255,4 @@ Maps every PRD requirement to the milestone where it is first completed. Require
 | REQ-21 | Daily digest via Slack | M8 | `digest.py`; `labro digest [--dry-run]` |
 | REQ-22 | Outcome signals from passive GitHub state | M8 | Digest job reads `items_touched`; writes signals back to SQLite |
 | REQ-23 | 👍/👎 reactions as satisfaction signal | M8 | GitHub reactions API; surfaced in digest |
+| REQ-24 | Read-only static metrics dashboard | M9 | `labro publish-db` snapshot to R2; sql.js SPA; runs list + stats (M9.1), charts (M9.2) |

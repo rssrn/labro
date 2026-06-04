@@ -67,6 +67,9 @@ The agent's own structured assessment of whether it succeeded and what actions i
 **Daily Digest**
 A scheduled Slack summary (delivered via incoming webhook) covering all projects: runs fired, tasks selected per source, skips, token spend, failures, and outcome signals for prior runs. The primary "is this working?" signal for the operator. Also owns outcome signal collection: queries the `items_touched` table, reads current GitHub state for each item, and writes outcome signals back to SQLite before generating the report.
 
+**Metrics Dashboard**
+A read-only static web app (M9, REQ-24) that visualises run history and per-project metrics. It loads a published snapshot of `labro.db` client-side via `sql.js` (SQLite WASM) and renders interactive charts (ECharts). Fully decoupled from the harness — it reads a periodic snapshot produced by `labro publish-db` and can never trigger, pause, or mutate runs. Distinct from the *Daily Digest*: the digest is push (Slack, scheduled summary); the dashboard is pull (browser, explore on demand).
+
 **Permitted Actions**
 See *Action Permissions*.
 

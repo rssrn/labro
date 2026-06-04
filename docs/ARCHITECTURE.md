@@ -104,6 +104,7 @@ _Who and what does Labro interact with? (C4 Level 1)_
 | Grafana | Source of firing alert tasks. |
 | Claude Code CLI | Agent: invoked for complex reasoning tasks. |
 | Slack | Delivery channel for daily digest (incoming webhook). |
+| Cloudflare R2 + CDN | (M9) Hosts the published `labro.db` snapshot and the static metrics-dashboard SPA (REQ-24). Read-only; receives a periodic snapshot, never writes back to the harness. |
 
 ---
 
@@ -134,6 +135,8 @@ _Top-level deployable units. (C4 Level 2)_
 | Harness | Python 3.12 | Task selection, prompt construction, agent invocation, label transitions, logging. |
 | Agent CLI | Claude Code CLI | Executes the task; interacts with GitHub via `gh`; makes code changes. |
 | Store | SQLite (single bind-mounted file) | Persist structured execution records; queried by digest and review CLI. |
+
+> **Metrics Dashboard (M9):** a separate, read-only deployable — a static SPA on Cloudflare R2 that loads a published snapshot of `labro.db` client-side via sql.js. It is not part of the container and has no live link to the harness; see [§8 Metrics Dashboard (read-only SPA)](#metrics-dashboard-read-only-spa).
 
 ---
 
@@ -178,6 +181,7 @@ Harness
 | `labro list-locks` | Show all currently held project locks with `project`, `locked_at`, and age. |
 | `labro unlock <project>` | Manually release a stale lock for a project. |
 | `labro review` | Print a table of recent execution records from SQLite. Default: last 20 runs. Columns: `started_at`, `project`, `outcome`, `task_source`, `item_url` (truncated), `duration_s`, `total_cost_usd`, `turns_used`, `summary` (truncated). Footer shows total cost and token usage. Flags: `--limit N`, `--project <name>`, `--outcome <success\|failure\|partial\|skipped>`, `--db-path PATH`. Plain text to stdout. |
+| `labro publish-db` | (M9) Produce a consistent snapshot of `labro.db` via `VACUUM INTO` and upload it to the configured object store (Cloudflare R2) alongside a `manifest.json` (content hash + `generated_at`) for cache-busting. Feeds the read-only metrics dashboard (REQ-24). Optional column redaction for free-text fields. No reads from GitHub; no run state touched. |
 
 ### Key Interfaces
 
@@ -1006,6 +1010,46 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 - **`docs/adr/NNN-title.md`** — architectural decisions that need more context than a table row. Write an ADR when a non-obvious decision is made that affects the system's structure, constraints, or quality properties. `NNN` is a zero-padded sequence number; Section 9 maintains the index. ADRs are append-only — update status to `Superseded` rather than editing the original.
 - **`docs/ARCHITECTURE.md`, `docs/PRD.md`, `docs/ROADMAP.md`** — design and planning docs maintained alongside the code. No auto-generated API docs are planned: Labro is a CLI tool with no library surface, and the annotated `labro.toml` reference in §8 Configuration serves as the operator API reference.
 
+### Metrics Dashboard (read-only SPA)
+
+_Delivered in M9 (REQ-24). A separate deployable, fully decoupled from the harness._
+
+The dashboard is a static single-page app that visualises Labro's run history and per-project metrics. It has **no backend and no live connection to the harness**: it reads a periodically published snapshot of `labro.db` and renders entirely in the browser. It can never trigger, pause, or mutate a run — consistent with the PRD non-goal of "no real-time or control UI".
+
+**Stack:**
+
+| Concern | Choice | Rationale |
+| :--- | :--- | :--- |
+| Framework | React 18 + Vite + TypeScript | Matches the operator's existing `newschart` toolchain; reactivity keeps the shared filter bar driving table + charts simple. Build output is static. |
+| Data layer | `sql.js` (SQLite compiled to WASM) | Loads the whole published `.db` client-side and runs arbitrary SQL in the browser. No export step, no API — schema changes are reflected automatically. |
+| Charts | Apache ECharts | Richest built-in interactivity (timespan brush-select, zoom, tooltips, legend toggling) with minimal config; lazy-loaded. |
+| Hosting | Cloudflare R2 (object storage) + Cloudflare CDN | Static assets + the `.db` snapshot served as plain objects. SPA and DB sit behind the **same custom domain** so DB fetches are same-origin (no CORS). |
+
+**Data flow:**
+
+```
+labro.db (WAL, bind-mounted)
+    │  labro publish-db  (cron, independent of project runs)
+    ▼
+VACUUM INTO snapshot.db   ← consistent single-file copy; collapses WAL, no -wal/-shm sidecars
+    │  upload via Cloudflare API token (rclone / aws s3 / wrangler)
+    ▼
+R2 bucket:  /db/labro-<hash>.db   +   /manifest.json  +  static SPA assets
+    │  Cloudflare CDN  (no built-in access control in M9 — see warning below)
+    ▼
+Browser:  SPA reads manifest.json → fetches /db/labro-<hash>.db → sql.js → ECharts
+```
+
+**Consistent snapshot.** `labro.db` runs in WAL mode and may be written mid-publish. `labro publish-db` (new in M9) uses `VACUUM INTO` to produce a single self-consistent file with no `-wal`/`-shm` sidecars — never copies the live file directly.
+
+**Cache invalidation.** Cloudflare will cache the `.db` object aggressively. The publisher writes a small `manifest.json` containing the snapshot's content hash and `generated_at`; the SPA fetches the manifest first (short TTL) and requests the hashed DB filename (`labro-<hash>.db`, long/immutable TTL). A new snapshot is a new filename, so the CDN is never serving stale data and no manual purge is required.
+
+**⚠️ Access control & data sensitivity.** Run records contain prose — `task_description`, `summary`, `failure_reason`, `item_url` — derived from potentially private repositories. **M9 ships no access control**: keeping the published snapshot and dashboard from leaking is the operator's responsibility. The README and dashboard deployment docs must carry a prominent warning that the R2 bucket/URL is sensitive and should not be made public or linked from anywhere indexable. Built-in protection (e.g. Cloudflare Access / Zero Trust in front of both the SPA and the `/db/` path) and an optional free-text-column redaction mode for `labro publish-db` are deliberately deferred — candidates for a later milestone if the simple posture proves insufficient. The secret-handling rules in [Security](#security) still apply: secrets never reach the run records in the first place, so the snapshot carries no credentials — only potentially-private prose.
+
+**Scale / upgrade path.** sql.js downloads the whole `.db` on load, which is ideal while the database is small (one row per run — single-digit MB for years). If it ever grows past ~10 MB, the data layer can switch to range-request paging (`sql.js-httpvfs` or an equivalent HTTP-Range VFS) without touching the rest of the SPA — R2 already serves `Accept-Ranges`, and indexes on `runs(project, started_at, outcome)` already exist to keep paged queries cheap. This is an isolated, deferred change behind the data-layer interface.
+
+**Repo layout.** The dashboard lives under `dashboard/` in the labro repo (its own `package.json` and Vite build), published to R2 by a workflow in the operator's config repo — not baked into the harness Docker image.
+
 ### Testing & Static Analysis
 
 Quality gates are enforced via pre-commit hooks (`.pre-commit-config.yaml`). Fast, file-scoped checks run pre-commit; slow or project-wide checks run pre-push.
@@ -1056,6 +1100,9 @@ _Record significant decisions here, or link to individual ADR files in `docs/adr
 | [ADR-002](adr/0002-github-as-state-store.md) | Use GitHub labels as the state store for outcome tracking; universal `ai-contributed` marker label | Accepted | 2026-05-26 |
 | [ADR-003](adr/0003-prompt-only-action-permissions-enforcement.md) | Prompt-only enforcement for action permissions in v1; no `gh` wrapper script | Accepted | 2026-05-26 |
 | [ADR-004](adr/0004-sqlite-persistence.md) | Use SQLite as the persistence layer; no external database service | Accepted | 2026-05-26 |
+| [ADR-005](adr/0005-partial-run-handover.md) | Treat turn-limit exhaustion as a `partial` outcome with WIP-branch handover | Accepted | — |
+| [ADR-006](adr/0006-multi-provider-agent-registry.md) | Multi-provider agent registry; CLI-prefixed slug grammar | Accepted | 2026-06-01 |
+| [ADR-007](adr/0007-metrics-dashboard.md) | Read-only static metrics dashboard: sql.js SPA over a published `labro.db` snapshot on Cloudflare R2 | Accepted | 2026-06-04 |
 
 > _Use `docs/adr/NNN-title.md` for decisions that need more context than a table row._
 
@@ -1104,6 +1151,7 @@ _Testability and quality gates for the architecture._
 | `claude` CLI update silently changes response shape | Medium | High | `structured_output` format is a single point of failure for the result pipeline. Mitigation: pin the `claude` CLI version in the Dockerfile; `runner.py` must schema-validate `structured_output` before use and fail loudly if the shape is unexpected. See Design Notes. |
 | `grafana-alerts` dedup gap creates duplicate tracking issues | Low–Medium | Low–Medium | If the agent creates a tracking issue but `structured_output` is malformed or the run aborts before delivery, `post_run.py` never applies `ai-alert:<rule-uid>` — the alert fires again next run and creates a second issue. Accepted risk for v1; digest failure rate surfaces repeated failures. Operators should check for duplicate `ai-contributed` issues if a persistent alert recurs unexpectedly. |
 | `agent-chooses` runs have higher cost than `harness-random` | Medium | Low–Medium | The `agent-chooses` strategy passes the full target list and lets the agent pick scope; broad targets (e.g. `architecture-review`, `competitor-analysis`) routinely consume more turns and tokens than narrowly-scoped `harness-random` or `gh-label` runs. The global `max_turns` and `timeout_s` apply equally to all strategies — there is no per-strategy cap. Mitigation: `daily_budget_usd` limits exposure per project per day; digest cost reporting surfaces unexpectedly expensive proactive runs. Per-strategy turn/cost overrides are a v1.1 candidate if the global cap proves too coarse. |
+| Published DB snapshot leaks private-repo prose (M9 dashboard) | Medium | Medium–High | `labro.db` carries `task_description`, `summary`, `failure_reason`, and `item_url` from potentially private repos. M9 ships no access control, so an exposed R2 bucket/URL leaks this content. **Accepted for M9** to keep the dashboard simple: mitigation is a prominent docs/README warning that the bucket/URL is sensitive and must not be made public. Built-in access control (Cloudflare Access) and `publish-db` column redaction are deferred. No secrets are ever written to run records, so the snapshot carries no credentials. |
 
 ---
 
