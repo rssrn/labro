@@ -42,8 +42,12 @@ export class SqlJsDataSource implements DataSource {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const limitClause = filter.limit != null ? `LIMIT ${filter.limit}` : 'LIMIT 200';
     const sql = `
-      SELECT run_id, project, started_at, task_source, provider, model,
-             outcome, failure_reason, duration_s, total_cost_usd, turns_used
+      SELECT run_id, project, started_at, ended_at,
+             task_source, task_description, item_url, trigger_label,
+             agent, provider, model, effort,
+             outcome, failure_reason, duration_s, total_cost_usd, turns_used,
+             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+             summary, actions_taken, wip_branch_url, chosen_perspective
       FROM runs
       ${where}
       ORDER BY started_at DESC
@@ -54,17 +58,31 @@ export class SqlJsDataSource implements DataSource {
     if (!result[0]) return [];
 
     return result[0].values.map((row) => ({
-      run_id: row[0] as string,
-      project: row[1] as string,
-      started_at: row[2] as string,
-      task_source: row[3] as string | null,
-      provider: row[4] as string | null,
-      model: row[5] as string | null,
-      outcome: row[6] as string | null,
-      failure_reason: row[7] as string | null,
-      duration_s: row[8] as number | null,
-      total_cost_usd: row[9] as number | null,
-      turns_used: row[10] as number | null,
+      run_id:             row[0]  as string,
+      project:            row[1]  as string,
+      started_at:         row[2]  as string,
+      ended_at:           row[3]  as string | null,
+      task_source:        row[4]  as string | null,
+      task_description:   row[5]  as string | null,
+      item_url:           row[6]  as string | null,
+      trigger_label:      row[7]  as string | null,
+      agent:              row[8]  as string | null,
+      provider:           row[9]  as string | null,
+      model:              row[10] as string | null,
+      effort:             row[11] as string | null,
+      outcome:            row[12] as string | null,
+      failure_reason:     row[13] as string | null,
+      duration_s:         row[14] as number | null,
+      total_cost_usd:     row[15] as number | null,
+      turns_used:         row[16] as number | null,
+      input_tokens:       row[17] as number | null,
+      output_tokens:      row[18] as number | null,
+      cache_read_tokens:  row[19] as number | null,
+      cache_write_tokens: row[20] as number | null,
+      summary:            row[21] as string | null,
+      actions_taken:      row[22] as string | null,
+      wip_branch_url:     row[23] as string | null,
+      chosen_perspective: row[24] as string | null,
     }));
   }
 

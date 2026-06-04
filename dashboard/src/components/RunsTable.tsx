@@ -7,6 +7,7 @@ type SortDir = 'asc' | 'desc';
 
 interface Props {
   runs: Run[];
+  onSelect: (run: Run) => void;
 }
 
 const OUTCOME_COLOR: Record<string, string> = {
@@ -60,7 +61,7 @@ const TD_STYLE: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-export default function RunsTable({ runs }: Props) {
+export default function RunsTable({ runs, onSelect }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('started_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -119,7 +120,7 @@ export default function RunsTable({ runs }: Props) {
         </thead>
         <tbody>
           {sorted.map((run) => (
-            <tr key={run.run_id} style={{ color: '#ddd' }}>
+            <tr key={run.run_id} style={{ color: '#ddd' }} onClick={() => onSelect(run)}>
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>{run.project}</td>
               <td style={TD_STYLE}>{run.task_source ?? '—'}</td>

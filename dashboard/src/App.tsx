@@ -5,6 +5,7 @@ import { fetchManifest } from './data/manifest';
 import type { Manifest } from './data/manifest';
 import type { Run } from './data/DataSource';
 import RunsTable from './components/RunsTable';
+import RunDrawer from './components/RunDrawer';
 
 type State =
   | { status: 'loading'; step: string }
@@ -15,6 +16,7 @@ const ds = new SqlJsDataSource();
 
 export default function App() {
   const [state, setState] = useState<State>({ status: 'loading', step: 'manifest' });
+  const [selectedRun, setSelectedRun] = useState<Run | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -64,9 +66,10 @@ export default function App() {
             {(state.manifest.size_bytes / 1024).toFixed(1)} KB ·{' '}
             {state.manifest.content_hash.slice(0, 16)}
           </p>
-          <RunsTable runs={state.runs} />
+          <RunsTable runs={state.runs} onSelect={setSelectedRun} />
         </>
       )}
+      <RunDrawer run={selectedRun} onClose={() => setSelectedRun(null)} />
     </div>
   );
 }

@@ -2,6 +2,34 @@
   font-size: 0.82rem;
 }
 
+.runs-table tbody tr {
+  cursor: pointer;
+}
+
+.runs-table tbody tr:hover td {
+  background: #1e1e1e;
+}
+
+/* Drawer: right-panel on desktop, full-screen on mobile */
+@keyframes drawer-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.run-drawer {
+  width: 560px;
+  animation: drawer-in 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+@media (max-width: 640px) {
+  .run-drawer {
+    left: 0;
+    width: auto;
+    border-left: none;
+    border-top: 1px solid #333;
+  }
+}
+
 @media (max-width: 640px) {
   .col-desktop {
     display: none;
