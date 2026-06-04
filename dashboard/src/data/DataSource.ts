@@ -17,6 +17,7 @@ export interface Run {
   failure_reason: string | null;
   duration_s: number | null;
   total_cost_usd: number | null;
+  turns_used: number | null;
 }
 
 export interface ProjectStats {

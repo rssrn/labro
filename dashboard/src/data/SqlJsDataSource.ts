@@ -1,4 +1,3 @@
-import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
 import type { DataSource, ProjectStats, Run, RunFilter } from './DataSource';
 import type { Manifest } from './manifest';
@@ -7,6 +6,11 @@ export class SqlJsDataSource implements DataSource {
   private db: Database | null = null;
 
   async init(manifest: Manifest): Promise<void> {
+    // Dynamic import handles CJS/ESM interop: Vite dev resolves the browser ESM build
+    // which has no `default`; the prod bundle uses CJS with a default export.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod = await import('sql.js') as any;
+    const initSqlJs = mod.default ?? mod;
     const SQL = await initSqlJs({ locateFile: () => '/sql-wasm.wasm' });
     const res = await fetch('/' + manifest.db_filename);
     if (!res.ok) throw new Error(`db fetch failed: ${res.status}`);
@@ -39,7 +43,7 @@ export class SqlJsDataSource implements DataSource {
     const limitClause = filter.limit != null ? `LIMIT ${filter.limit}` : 'LIMIT 200';
     const sql = `
       SELECT run_id, project, started_at, task_source, provider, model,
-             outcome, failure_reason, duration_s, total_cost_usd
+             outcome, failure_reason, duration_s, total_cost_usd, turns_used
       FROM runs
       ${where}
       ORDER BY started_at DESC
@@ -60,6 +64,7 @@ export class SqlJsDataSource implements DataSource {
       failure_reason: row[7] as string | null,
       duration_s: row[8] as number | null,
       total_cost_usd: row[9] as number | null,
+      turns_used: row[10] as number | null,
     }));
   }
 

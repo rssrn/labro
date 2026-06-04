@@ -39,5 +39,8 @@ htmlcov/
 .antigravitycli/
 .claude/
 
+# Playwright MCP screenshots/snapshots (local dev only)
+.playwright-mcp/
+
 # User-specific config (lives in a separate private repo — see labro.example.toml)
 labro.toml
