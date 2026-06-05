@@ -1,18 +1,20 @@
 // @author Claude Sonnet 4.6 Anthropic
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { SqlJsDataSource } from './data/SqlJsDataSource';
 import { fetchManifest } from './data/manifest';
 import type { Manifest } from './data/manifest';
-import type { Run, ProjectStats } from './data/DataSource';
+import type { Run, ProjectStats, RunFilter, FilterOptions } from './data/DataSource';
 import RunsTable from './components/RunsTable';
 import RunDrawer from './components/RunDrawer';
 import ProjectStatsView from './components/ProjectStats';
+import FilterBar from './components/FilterBar';
+import ChartsView from './components/ChartsView';
 
-type Tab = 'runs' | 'stats';
+type Tab = 'runs' | 'stats' | 'charts';
 
 type State =
   | { status: 'loading'; step: string }
-  | { status: 'ready'; runs: Run[]; stats: ProjectStats[]; manifest: Manifest }
+  | { status: 'ready'; runs: Run[]; stats: ProjectStats[]; manifest: Manifest; filterOptions: FilterOptions }
   | { status: 'error'; message: string };
 
 const ds = new SqlJsDataSource();
@@ -21,6 +23,16 @@ export default function App() {
   const [state, setState] = useState<State>({ status: 'loading', step: 'manifest' });
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [tab, setTab] = useState<Tab>('runs');
+  const [filter, setFilter] = useState<RunFilter>({});
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ projects: [], models: [], task_sources: [], outcomes: [] });
+
+  const fetchData = useCallback(async (f: RunFilter) => {
+    const [runs, stats] = await Promise.all([
+      ds.listRuns({ ...f, limit: 200 }),
+      ds.projectStats(f),
+    ]);
+    return { runs, stats };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -31,17 +43,27 @@ export default function App() {
         setState({ status: 'loading', step: 'database' });
         await ds.init(manifest);
 
-        setState({ status: 'loading', step: 'runs' });
-        const [runs, stats] = await Promise.all([
-          ds.listRuns({ limit: 200 }),
-          ds.projectStats(),
-        ]);
-        setState({ status: 'ready', runs, stats, manifest });
+        setState({ status: 'loading', step: 'filter options' });
+        const filterOptions = await ds.getFilterOptions();
+
+        setState({ status: 'loading', step: 'data' });
+        const { runs, stats } = await fetchData({});
+        setFilterOptions(filterOptions);
+        setState({ status: 'ready', runs, stats, manifest, filterOptions });
       } catch (err) {
         setState({ status: 'error', message: String(err) });
       }
     })();
-  }, []);
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (state.status === 'ready') {
+      fetchData(filter).then(({ runs, stats }) => {
+        setState({ ...state, runs, stats } as State);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, fetchData]);
 
   const TAB_STYLE = (active: boolean): React.CSSProperties => ({
     background: 'none',
@@ -85,6 +107,7 @@ export default function App() {
             {(state.manifest.size_bytes / 1024).toFixed(1)} KB ·{' '}
             {state.manifest.content_hash.slice(0, 16)}
           </p>
+          <FilterBar options={filterOptions} value={filter} onChange={setFilter} />
           <div style={{ marginBottom: '1.25rem', borderBottom: '1px solid #2a2a2a' }}>
             <button style={TAB_STYLE(tab === 'runs')} onClick={() => setTab('runs')}>
               runs
@@ -92,12 +115,18 @@ export default function App() {
             <button style={TAB_STYLE(tab === 'stats')} onClick={() => setTab('stats')}>
               by project
             </button>
+            <button style={TAB_STYLE(tab === 'charts')} onClick={() => setTab('charts')}>
+              charts
+            </button>
           </div>
           {tab === 'runs' && (
             <RunsTable runs={state.runs} onSelect={setSelectedRun} />
           )}
           {tab === 'stats' && (
             <ProjectStatsView stats={state.stats} />
+          )}
+          {tab === 'charts' && (
+            <ChartsView ds={ds} filter={filter} />
           )}
         </>
       )}

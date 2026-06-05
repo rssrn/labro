@@ -4,6 +4,9 @@ export interface RunFilter {
   project?: string;
   since?: string;
   limit?: number;
+  model?: string;
+  task_source?: string;
+  outcome?: string;
 }
 
 export interface Run {
@@ -47,9 +50,55 @@ export interface ProjectStats {
   avg_turns: number | null;
 }
 
+export interface TrendPoint {
+  date: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  success: number;
+  failure: number;
+  partial: number;
+  skipped: number;
+}
+
+export interface BreakdownEntry {
+  label: string;
+  count: number;
+}
+
+export interface EngagementRow {
+  outcome_state: string;
+  count: number;
+  thumbs_up: number;
+  thumbs_down: number;
+  follow_up_commits: number;
+}
+
+export interface DurationPoint {
+  date: string;
+  model: string;
+  avg_duration_s: number;
+}
+
+export interface FilterOptions {
+  projects: string[];
+  models: string[];
+  task_sources: string[];
+  outcomes: string[];
+}
+
 export interface DataSource {
   init(manifest: Manifest): Promise<void>;
   count(table: string): Promise<number>;
   listRuns(filter?: RunFilter): Promise<Run[]>;
   projectStats(filter?: RunFilter): Promise<ProjectStats[]>;
+  getFilterOptions(): Promise<FilterOptions>;
+  trend(filter?: RunFilter): Promise<TrendPoint[]>;
+  modelBreakdown(filter?: RunFilter): Promise<BreakdownEntry[]>;
+  taskSourceBreakdown(filter?: RunFilter): Promise<BreakdownEntry[]>;
+  perspectiveBreakdown(filter?: RunFilter): Promise<BreakdownEntry[]>;
+  engagementSignals(filter?: RunFilter): Promise<EngagementRow[]>;
+  durationTrend(filter?: RunFilter): Promise<DurationPoint[]>;
 }

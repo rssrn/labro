@@ -592,6 +592,19 @@ Copy `docs/config-repo-scaffold/dashboard-publish.yml` into `.github/workflows/`
 
 The SPA rebuilds automatically when `dashboard/**` changes on labro `main` (dispatched via `dashboard-dispatch.yml`). Snapshot publishing runs independently on the cron in `[dashboard]`.
 
+### 6. Dashboard — charts
+
+M9.2 adds a "charts" tab alongside the existing runs and stats views:
+
+**Shared filter bar** — sits above the tab bar. Dropdowns for timespan (All time / 90d / 30d / 7d), project, model, and task source. All three tabs (runs, stats, charts) respond to the active filter.
+
+**Chart sections** (all rendered with ECharts, matching the dark monospace theme):
+
+- **Cost & Token Trends** — daily cost line chart + stacked area chart of input, output, cache-read, and cache-write tokens.
+- **Outcomes** — stacked bar of daily success / failure / partial / skipped counts (colour-coded to match the runs table palette).
+- **Breakdowns** — three horizontal bar charts (model, task source, perspective). The perspective chart is hidden automatically when no runs have a `chosen_perspective` value.
+- **Engagement** — bar chart of `items_touched` outcome states (merged, closed_completed, closed_not_planned, closed_unmerged, open) plus a summary row of thumbs-up, thumbs-down, and follow-up commits. Shows "no engagement data" when `items_touched` is empty.
+
 ---
 
 ## Operator CLI Reference

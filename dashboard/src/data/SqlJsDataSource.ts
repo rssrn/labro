@@ -1,5 +1,5 @@
 import type { Database } from 'sql.js';
-import type { DataSource, ProjectStats, Run, RunFilter } from './DataSource';
+import type { DataSource, ProjectStats, Run, RunFilter, TrendPoint, BreakdownEntry, EngagementRow, FilterOptions, DurationPoint } from './DataSource';
 import type { Manifest } from './manifest';
 
 export class SqlJsDataSource implements DataSource {
@@ -25,6 +25,37 @@ export class SqlJsDataSource implements DataSource {
     return typeof val === 'number' ? val : 0;
   }
 
+  private _whereClause(filter: RunFilter): { clause: string; params: (string | number)[] } {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (filter.project) {
+      conditions.push('r.project = ?');
+      params.push(filter.project);
+    }
+    if (filter.since) {
+      conditions.push('r.started_at >= ?');
+      params.push(filter.since);
+    }
+    if (filter.model) {
+      conditions.push('r.model = ?');
+      params.push(filter.model);
+    }
+    if (filter.task_source) {
+      conditions.push('r.task_source = ?');
+      params.push(filter.task_source);
+    }
+    if (filter.outcome) {
+      conditions.push('r.outcome = ?');
+      params.push(filter.outcome);
+    }
+
+    return {
+      clause: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+      params,
+    };
+  }
+
   async listRuns(filter: RunFilter = {}): Promise<Run[]> {
     const db = this._db();
     const conditions: string[] = [];
@@ -37,6 +68,18 @@ export class SqlJsDataSource implements DataSource {
     if (filter.since) {
       conditions.push('started_at >= ?');
       params.push(filter.since);
+    }
+    if (filter.model) {
+      conditions.push('model = ?');
+      params.push(filter.model);
+    }
+    if (filter.task_source) {
+      conditions.push('task_source = ?');
+      params.push(filter.task_source);
+    }
+    if (filter.outcome) {
+      conditions.push('outcome = ?');
+      params.push(filter.outcome);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -86,9 +129,10 @@ export class SqlJsDataSource implements DataSource {
     }));
   }
 
-  async projectStats(_filter: RunFilter = {}): Promise<ProjectStats[]> {
+  async projectStats(filter: RunFilter = {}): Promise<ProjectStats[]> {
     const db = this._db();
-    const result = db.exec(`
+    const { clause, params } = this._whereClause(filter);
+    const sql = `
       SELECT
         project,
         COUNT(*) AS total_runs,
@@ -101,9 +145,11 @@ export class SqlJsDataSource implements DataSource {
         AVG(COALESCE(duration_s, CASE WHEN ended_at IS NOT NULL THEN (strftime('%s', ended_at) - strftime('%s', started_at)) END)) AS avg_duration_s,
         AVG(turns_used)           AS avg_turns
       FROM runs
+      ${clause.replace(/r\./g, '')}
       GROUP BY project
       ORDER BY project
-    `);
+    `;
+    const result = db.exec(sql, params);
     if (!result[0]) return [];
 
     return result[0].values.map((row) => ({
@@ -117,6 +163,155 @@ export class SqlJsDataSource implements DataSource {
       avg_cost_usd: row[7] as number | null,
       avg_duration_s: row[8] as number | null,
       avg_turns: row[9] as number | null,
+    }));
+  }
+
+  async getFilterOptions(): Promise<FilterOptions> {
+    const db = this._db();
+
+    const projects = db.exec('SELECT DISTINCT project FROM runs ORDER BY project');
+    const models = db.exec('SELECT DISTINCT model FROM runs WHERE model IS NOT NULL ORDER BY model');
+    const taskSources = db.exec('SELECT DISTINCT task_source FROM runs WHERE task_source IS NOT NULL ORDER BY task_source');
+    const outcomes = db.exec("SELECT DISTINCT outcome FROM runs WHERE outcome IS NOT NULL ORDER BY outcome");
+
+    const extract = (r: typeof projects) =>
+      r[0]?.values.map((v) => v[0] as string) ?? [];
+
+    return {
+      projects: extract(projects),
+      models: extract(models),
+      task_sources: extract(taskSources),
+      outcomes: extract(outcomes),
+    };
+  }
+
+  async trend(filter: RunFilter = {}): Promise<TrendPoint[]> {
+    const db = this._db();
+    const { clause, params } = this._whereClause(filter);
+    const sql = `
+      SELECT date(r.started_at) as date,
+        SUM(r.total_cost_usd) as cost_usd,
+        SUM(r.input_tokens) as input_tokens,
+        SUM(r.output_tokens) as output_tokens,
+        SUM(r.cache_read_tokens) as cache_read_tokens,
+        SUM(r.cache_write_tokens) as cache_write_tokens,
+        SUM(CASE WHEN r.outcome='success' THEN 1 ELSE 0 END) as success,
+        SUM(CASE WHEN r.outcome='failure' THEN 1 ELSE 0 END) as failure,
+        SUM(CASE WHEN r.outcome='partial' THEN 1 ELSE 0 END) as partial,
+        SUM(CASE WHEN r.outcome='skipped' THEN 1 ELSE 0 END) as skipped
+      FROM runs r
+      ${clause}
+      GROUP BY date(r.started_at)
+      ORDER BY date
+    `;
+    const result = db.exec(sql, params);
+    if (!result[0]) return [];
+
+    return result[0].values.map((row) => ({
+      date: row[0] as string,
+      cost_usd: row[1] as number,
+      input_tokens: row[2] as number,
+      output_tokens: row[3] as number,
+      cache_read_tokens: row[4] as number,
+      cache_write_tokens: row[5] as number,
+      success: row[6] as number,
+      failure: row[7] as number,
+      partial: row[8] as number,
+      skipped: row[9] as number,
+    }));
+  }
+
+  async modelBreakdown(filter: RunFilter = {}): Promise<BreakdownEntry[]> {
+    const db = this._db();
+    const { clause, params } = this._whereClause(filter);
+    const sql = `
+      SELECT r.model AS label, COUNT(*) as count
+      FROM runs r
+      ${clause}
+      GROUP BY r.model
+      ORDER BY count DESC
+    `;
+    const result = db.exec(sql, params);
+    if (!result[0]) return [];
+    return result[0].values.map((row) => ({ label: row[0] as string, count: row[1] as number }));
+  }
+
+  async taskSourceBreakdown(filter: RunFilter = {}): Promise<BreakdownEntry[]> {
+    const db = this._db();
+    const { clause, params } = this._whereClause(filter);
+    const sql = `
+      SELECT r.task_source AS label, COUNT(*) as count
+      FROM runs r
+      ${clause}
+      GROUP BY r.task_source
+      ORDER BY count DESC
+    `;
+    const result = db.exec(sql, params);
+    if (!result[0]) return [];
+    return result[0].values.map((row) => ({ label: row[0] as string, count: row[1] as number }));
+  }
+
+  async perspectiveBreakdown(filter: RunFilter = {}): Promise<BreakdownEntry[]> {
+    const db = this._db();
+    const { clause, params } = this._whereClause(filter);
+    const sql = `
+      SELECT r.chosen_perspective AS label, COUNT(*) as count
+      FROM runs r
+      ${clause}
+      GROUP BY r.chosen_perspective
+      ORDER BY count DESC
+    `;
+    const result = db.exec(sql, params);
+    if (!result[0]) return [];
+    return result[0].values.map((row) => ({ label: row[0] as string, count: row[1] as number }));
+  }
+
+  async engagementSignals(filter: RunFilter = {}): Promise<EngagementRow[]> {
+    const db = this._db();
+    const { clause, params } = this._whereClause(filter);
+    const sql = `
+      SELECT it.outcome_state,
+        COUNT(*) as count,
+        SUM(it.thumbs_up) as thumbs_up,
+        SUM(it.thumbs_down) as thumbs_down,
+        SUM(it.follow_up_commits) as follow_up_commits
+      FROM items_touched it
+      JOIN runs r ON it.run_id = r.run_id
+      ${clause}
+      GROUP BY it.outcome_state
+      ORDER BY count DESC
+    `;
+    const result = db.exec(sql, params);
+    if (!result[0]) return [];
+
+    return result[0].values.map((row) => ({
+      outcome_state: row[0] as string,
+      count: row[1] as number,
+      thumbs_up: row[2] as number,
+      thumbs_down: row[3] as number,
+      follow_up_commits: row[4] as number,
+    }));
+  }
+
+  async durationTrend(filter: RunFilter = {}): Promise<DurationPoint[]> {
+    const db = this._db();
+    const { clause, params } = this._whereClause(filter);
+    const sql = `
+      SELECT date(r.started_at) as date,
+        r.model,
+        AVG(COALESCE(r.duration_s, CASE WHEN r.ended_at IS NOT NULL THEN (strftime('%s', r.ended_at) - strftime('%s', r.started_at)) END)) as avg_duration_s
+      FROM runs r
+      ${clause}
+      GROUP BY date(r.started_at), r.model
+      ORDER BY date, r.model
+    `;
+    const result = db.exec(sql, params);
+    if (!result[0]) return [];
+
+    return result[0].values.map((row) => ({
+      date: row[0] as string,
+      model: row[1] as string,
+      avg_duration_s: row[2] as number,
     }));
   }
 
