@@ -49,6 +49,56 @@ def _label_names(item: dict[str, Any]) -> set[str]:
     return {lbl["name"] for lbl in item.get("labels", [])}
 
 
+def _fetch_open_alert_deps(repo: str) -> list[tuple[str, str]]:
+    """Return ``(package_name, manifest_dir)`` for each open Dependabot alert on *repo*.
+
+    Used to single out Dependabot *security*-update PRs.  Dependabot applies no
+    label or other marker distinguishing security updates from routine version
+    bumps, so the alerts API is the only reliable signal: a security PR fixes a
+    package that currently has an open alert.
+
+    Both values are lower-cased for case-insensitive matching.  Failures (alerts
+    disabled, missing token scope, 404) are swallowed and yield an empty list, so
+    a security-only rule simply matches nothing rather than blocking selection.
+    """
+    try:
+        alerts: list[dict[str, Any]] = _run_gh_api(
+            f"repos/{repo}/dependabot/alerts?state=open&per_page=100"
+        )
+    except Exception:
+        return []
+
+    deps: list[tuple[str, str]] = []
+    for alert in alerts:
+        dep = alert.get("dependency") or {}
+        pkg = (dep.get("package") or {}).get("name", "")
+        manifest = dep.get("manifest_path") or ""
+        manifest_dir = manifest.rsplit("/", 1)[0] if "/" in manifest else ""
+        if pkg:
+            deps.append((pkg.lower(), manifest_dir.lower()))
+    return deps
+
+
+def _matches_open_alert(item: dict[str, Any], alert_deps: list[tuple[str, str]]) -> bool:
+    """True if *item* is a PR bumping a package that has an open Dependabot alert.
+
+    Dependabot PR bodies always name the bumped package (e.g. ``Bumps [vite]...``),
+    so a case-insensitive search of each alert's package name against the PR title
+    and body is a reliable signal.  When the alert names a manifest sub-directory
+    (e.g. ``dashboard``), the PR text must also reference it, scoping the match in
+    monorepos.  The failure direction is safe: a false positive only ever *raises*
+    priority, and a routine bump of an already-vulnerable package is itself a
+    security fix.
+    """
+    if "pull_request" not in item:
+        return False
+    haystack = f"{item.get('title', '')}\n{item.get('body') or ''}".lower()
+    for pkg, manifest_dir in alert_deps:
+        if pkg in haystack and (not manifest_dir or manifest_dir in haystack):
+            return True
+    return False
+
+
 def _item_type(item: dict[str, Any]) -> str:
     return "pr" if "pull_request" in item else "issue"
 
@@ -153,6 +203,8 @@ class GhAuthorTaskSource(TaskSource):
 
         # Fetch all open items once; filter per-rule client-side.
         all_open: list[dict[str, Any]] | None = None
+        # Open Dependabot alerts, fetched lazily only when a rule needs them.
+        alert_deps: list[tuple[str, str]] | None = None
 
         for rule in self._cfg.author_rules:
             if all_open is None:
@@ -168,9 +220,10 @@ class GhAuthorTaskSource(TaskSource):
                     continue
                 if rule.done_label in labels:
                     continue
-                if rule.required_labels is not None:
-                    missing = [lbl for lbl in rule.required_labels if lbl not in labels]
-                    if missing:
+                if rule.requires_dependabot_alert:
+                    if alert_deps is None:
+                        alert_deps = _fetch_open_alert_deps(project.repo)
+                    if not _matches_open_alert(item, alert_deps):
                         continue
                 created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
                 candidates.append((created_at, item, rule))

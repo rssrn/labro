@@ -72,14 +72,14 @@ def _author_rule(
     done_label: str = _DONE_LABEL,
     model: str | None = None,
     permitted_actions: list[PermittedAction] | None = None,
-    required_labels: list[str] | None = None,
+    requires_dependabot_alert: bool = False,
 ) -> AuthorRule:
     return AuthorRule(
         actor=actor,
         done_label=done_label,
         model=model,
         permitted_actions=permitted_actions,
-        required_labels=required_labels,
+        requires_dependabot_alert=requires_dependabot_alert,
     )
 
 
@@ -247,20 +247,31 @@ def test_author_rule_model_override() -> None:
     assert agent_cfg.model == "claude-haiku-4-5"
 
 
-def test_author_rule_required_labels_match() -> None:
-    """Item must carry all required_labels to be eligible."""
-    rule = _author_rule(actor=_ACTOR, done_label=_DONE_LABEL, required_labels=["security"])
+def _alert(pkg: str, manifest: str = "dashboard/package-lock.json") -> dict[str, Any]:
+    """A single open Dependabot alert as returned by the alerts API."""
+    return {
+        "state": "open",
+        "dependency": {"package": {"name": pkg}, "manifest_path": manifest},
+        "security_advisory": {"severity": "medium"},
+    }
+
+
+def test_author_rule_requires_dependabot_alert_match() -> None:
+    """A PR bumping a package with an open Dependabot alert is eligible."""
+    rule = _author_rule(requires_dependabot_alert=True)
     src_cfg = _source_config(author_rules=[rule])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
     source = GhAuthorTaskSource(src_cfg)
 
-    security_item = {**_ACTOR_ITEM, "labels": [{"name": "security"}]}
+    security_pr = {**_ACTOR_ITEM, "body": "Bumps [vite] from 5.4.21 to 8.0.16 in /dashboard"}
 
     def fake_gh_api(url: str) -> list[Any]:
         if "comments" in url:
             return []
-        return [security_item]
+        if "dependabot/alerts" in url:
+            return [_alert("vite")]
+        return [security_pr]
 
     with patch("labro.task_sources.gh_author._run_gh_api", side_effect=fake_gh_api):
         result = _fetch(source, proj, cfg)
@@ -270,9 +281,55 @@ def test_author_rule_required_labels_match() -> None:
     assert task.item_number == 100
 
 
-def test_author_rule_required_labels_no_match() -> None:
-    """Item missing a required_label is skipped."""
-    rule = _author_rule(actor=_ACTOR, done_label=_DONE_LABEL, required_labels=["security"])
+def test_author_rule_requires_dependabot_alert_no_match() -> None:
+    """A routine bump with no corresponding open alert is skipped."""
+    rule = _author_rule(requires_dependabot_alert=True)
+    src_cfg = _source_config(author_rules=[rule])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhAuthorTaskSource(src_cfg)
+
+    routine_pr = {**_ACTOR_ITEM, "body": "Bumps [left-pad] from 1.0 to 1.1 in /dashboard"}
+
+    def fake_gh_api(url: str) -> list[Any]:
+        if "comments" in url:
+            return []
+        if "dependabot/alerts" in url:
+            return [_alert("vite")]  # alert is for a different package
+        return [routine_pr]
+
+    with patch("labro.task_sources.gh_author._run_gh_api", side_effect=fake_gh_api):
+        result = _fetch(source, proj, cfg)
+
+    assert result is None
+
+
+def test_author_rule_requires_dependabot_alert_manifest_dir_scoped() -> None:
+    """A bump of the alerted package in a *different* directory is not matched."""
+    rule = _author_rule(requires_dependabot_alert=True)
+    src_cfg = _source_config(author_rules=[rule])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhAuthorTaskSource(src_cfg)
+
+    other_dir_pr = {**_ACTOR_ITEM, "body": "Bumps [vite] from 5.4.21 to 8.0.16 in /frontend"}
+
+    def fake_gh_api(url: str) -> list[Any]:
+        if "comments" in url:
+            return []
+        if "dependabot/alerts" in url:
+            return [_alert("vite", manifest="dashboard/package-lock.json")]
+        return [other_dir_pr]
+
+    with patch("labro.task_sources.gh_author._run_gh_api", side_effect=fake_gh_api):
+        result = _fetch(source, proj, cfg)
+
+    assert result is None
+
+
+def test_author_rule_requires_dependabot_alert_api_failure_skips() -> None:
+    """If the alerts API errors (e.g. alerts disabled), the rule matches nothing."""
+    rule = _author_rule(requires_dependabot_alert=True)
     src_cfg = _source_config(author_rules=[rule])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
@@ -281,7 +338,9 @@ def test_author_rule_required_labels_no_match() -> None:
     def fake_gh_api(url: str) -> list[Any]:
         if "comments" in url:
             return []
-        return [_ACTOR_ITEM]  # no labels
+        if "dependabot/alerts" in url:
+            raise RuntimeError("403 Dependabot alerts are disabled for this repository")
+        return [{**_ACTOR_ITEM, "body": "Bumps [vite] from 5.4.21 to 8.0.16 in /dashboard"}]
 
     with patch("labro.task_sources.gh_author._run_gh_api", side_effect=fake_gh_api):
         result = _fetch(source, proj, cfg)

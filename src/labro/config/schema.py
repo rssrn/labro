@@ -163,7 +163,14 @@ class AuthorRule(BaseModel):
     persona: str | None = None
     model: ModelSlug | None = None
     permitted_actions: list[PermittedAction] | None = None
-    required_labels: list[str] | None = None
+    requires_dependabot_alert: bool = False
+    """Only match PRs that fix an open Dependabot alert (security updates).
+
+    Dependabot applies no label or marker distinguishing security-update PRs from
+    routine version bumps, so the harness cross-references the Dependabot alerts
+    API to tell them apart.  Use a security-only rule (``requires_dependabot_alert
+    = true``) ahead of a plain routine-bump rule to prioritise security fixes.
+    """
 
 
 class GhLabelSource(BaseModel):

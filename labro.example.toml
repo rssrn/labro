@@ -216,16 +216,19 @@ cron    = "0 9 * * 1-5"
 context = "Follow the coding conventions in CLAUDE.md closely."
 
 # (1) dependabot security PRs — highest priority.
-#     Dependabot security advisories carry the "security" label automatically.
-#     Using required_labels narrows the rule to only those PRs.
+#     Dependabot applies NO label or marker distinguishing security updates from
+#     routine version bumps, so requires_dependabot_alert tells the harness to
+#     cross-reference the repo's open Dependabot alerts and match only the PRs
+#     that fix one. (Needs the alerts API readable: GitHub App with "Dependabot
+#     alerts: read", or a PAT with security_events / repo scope.)
 [[projects.task_sources]]
 type = "gh-author"
 
 [[projects.task_sources.author_rules]]
-actor             = "dependabot[bot]"
-done_label        = "ai-maintainer-done"
-required_labels   = ["security"]
-permitted_actions = ["comment_on_pr"]
+actor                     = "dependabot[bot]"
+done_label                = "ai-maintainer-done"
+requires_dependabot_alert = true
+permitted_actions         = ["comment_on_pr"]
 
 # (2) dev label — high-priority feature / bug work
 [[projects.task_sources]]
@@ -257,7 +260,7 @@ rule = "architect"
 
 # (6) dependabot routine bumps — lowest priority for bots; only picked when
 #     no security PRs are waiting (fall-through from source #1).
-#     Omitting required_labels matches all remaining PRs from this author.
+#     Omitting requires_dependabot_alert matches all remaining PRs from this author.
 [[projects.task_sources]]
 type = "gh-author"
 
