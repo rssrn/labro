@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.0 — 2026-06-05
+
+### Features
+- **Dashboard Charts (M9.2)** — new `Charts` tab with shared filter bar, 5 chart groups (cost trend, engagement, outcome trend, speed, token trend), and a duration-per-model graph
+- **`[signals]` config section** — `collect-signals` cron scheduling is now config-driven via `labro.toml`; `gen-crontab` emits the cron line when `signals.enabled = true`; the `collect-signals` command back-fills outcome signals (`outcome_state`, `follow_up_commits`, 👍/👎) on `items_touched` rows by querying the GitHub API
+
+### Fixed
+- **Dashboard cost column** — zero and negative cost values handled gracefully
+
+### Docs
+- Split roadmap M8 into M8.1 (engagement metrics) and M8.2 (Slack digest)
+
 ## v0.6.0 — 2026-06-05
 
 ### Features
