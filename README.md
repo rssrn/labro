@@ -334,6 +334,10 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 | `LABRO_REPOS_DIR` | Optional | Where repos are cloned (default: `/repos`; set to `/data/repos` with single-mount layout) |
 | `LABRO_DB_PATH` | Optional | SQLite path (default: `/data/labro.db`) |
 | `LABRO_LOG_PATH` | Optional | Log file path (default: `/data/labro.log`) |
+| `R2_ACCESS_KEY_ID` | If `[dashboard] enabled = true` | Cloudflare R2 S3 API access key |
+| `R2_SECRET_ACCESS_KEY` | If `[dashboard] enabled = true` | Cloudflare R2 S3 API secret key |
+| `R2_ACCOUNT_ID` | If `[dashboard] enabled = true` | Cloudflare account ID (endpoint derived automatically) |
+| `R2_BUCKET` | If using `dashboard-publish.yml` | R2 bucket name — used by the CI workflow to upload SPA assets; the harness reads the bucket from `[dashboard] bucket` in `labro.toml` |
 
 ### Emergency pause — `LABRO_DISABLED`
 
@@ -543,6 +547,53 @@ sqlite3 -column -header /data/labro.db \
 
 ---
 
+## Metrics Dashboard
+
+> **⚠️ Data sensitivity:** the published snapshot contains private-repo prose — task descriptions, summaries, failure reasons, and item URLs from your monitored repositories. M9.1 ships **no built-in access control**. The bucket URL is the only barrier. Keep it private: do not share it, embed it in public pages, or link to it from anywhere indexable. See [ADR-0007](docs/adr/0007-metrics-dashboard.md) for the accepted risk posture and the deferred Cloudflare Access / column-redaction options.
+
+The dashboard is a read-only static SPA (React + Vite + sql.js) served from Cloudflare R2. It loads a published snapshot of `labro.db` client-side and renders a runs list and per-project stats. It has no runtime link to the harness and cannot affect runs.
+
+### 1. Create an R2 bucket and bind a custom domain
+
+In the Cloudflare dashboard, create an R2 bucket, then generate an S3 API token scoped to it (Account → R2 → Manage R2 API tokens). Note the access key ID, secret key, and your Cloudflare account ID.
+
+Bind a **custom domain** to the bucket (bucket → Settings → Custom Domains). The SPA, `/manifest.json`, and `/db/*.db` must share the same origin so DB fetches are same-origin and no CORS headers are needed.
+
+### 2. Configure `[dashboard]` in `labro.toml`
+
+```toml
+[dashboard]
+enabled    = true
+bucket     = "my-labro-dashboard"   # R2 bucket name
+key_prefix = ""                     # optional path prefix inside the bucket
+cron       = "17 * * * *"           # snapshot publish frequency
+```
+
+When `enabled = true`, `labro gen-crontab` emits a `labro publish-db` cron line automatically and `labro check` validates the three `R2_*` env vars.
+
+### 3. Set R2 credentials
+
+Add `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ACCOUNT_ID` to:
+- the VPS `.env` file (see [Config repo](#config-repo))
+- your config-repo GitHub Secrets (for the `dashboard-publish.yml` workflow)
+
+### 4. Publish the first snapshot
+
+```bash
+labro publish-db --dry-run   # prints hashed db_key + manifest JSON; no upload, no creds required
+labro publish-db             # uploads snapshot to R2 (db first, then manifest)
+```
+
+After the first successful upload, `manifest.json` and `db/labro-<hash>.db` appear in the R2 bucket. The DB is uploaded before the manifest so the manifest never points at a missing file.
+
+### 5. Deploy the SPA
+
+Copy `docs/config-repo-scaffold/dashboard-publish.yml` into `.github/workflows/` in your config repo and add the four R2 secrets. Push to trigger the first build and upload. Once deployed, open your custom domain — the dashboard loads data from the published snapshot.
+
+The SPA rebuilds automatically when `dashboard/**` changes on labro `main` (dispatched via `dashboard-dispatch.yml`). Snapshot publishing runs independently on the cron in `[dashboard]`.
+
+---
+
 ## Operator CLI Reference
 
 All subcommands read `--config` (default: `$LABRO_CONFIG` or `./labro.toml`) from the global flag.
@@ -598,6 +649,23 @@ labro unlock my-project
 ```
 
 This is a last-resort recovery tool. Under normal operation locks are released automatically in a `finally` block at the end of every run. A lock only gets stuck if the container was killed mid-run before the `finally` block executed.
+
+### `labro publish-db [--dry-run] [--db-path PATH] [--snapshot-path PATH]`
+
+Publishes a consistent snapshot of `labro.db` to R2 for the metrics dashboard.
+
+```bash
+labro publish-db                             # upload snapshot + manifest to R2
+labro publish-db --dry-run                   # print hashed db_key + manifest; no upload
+labro publish-db --db-path /data/labro.db    # override DB path
+labro publish-db --snapshot-path /tmp/snap.db  # keep snapshot file after upload
+```
+
+Requires `[dashboard] enabled = true` and the three `R2_*` env vars. If the dashboard is disabled, the command prints a notice and exits 0. If creds are missing or the upload fails, it exits 1.
+
+The snapshot is taken via `VACUUM INTO` (collapses WAL; never copies the live file while it may be open). The hashed filename (`db/labro-<sha256[:16]>.db`) means every new snapshot is a new URL and CDN caches never go stale without a purge. The DB is always uploaded before the manifest.
+
+See [Metrics Dashboard](#metrics-dashboard) for full setup.
 
 ---
 
@@ -761,6 +829,7 @@ my-labro-config/
     labro-deploy.yml                ← auto-triggered on labro.toml changes
     labro-update.yml                ← manual: pull latest image and redeploy
     labro-restart.yml               ← manual: refresh secrets and restart
+    dashboard-publish.yml           ← auto-triggered on dashboard/** changes; builds + uploads SPA to R2
 ```
 
 Scaffold copies of all three workflows are in [`docs/config-repo-scaffold/`](docs/config-repo-scaffold/). Copy them into your config repo and adjust the host paths and image name to match your setup:
@@ -778,6 +847,7 @@ The workflows SSH to your server (the scaffolds use [Tailscale](https://tailscal
 | `labro-deploy.yml` | Push to `labro.toml` | Writes fresh secrets → copies config → recreates container |
 | `labro-update.yml` | Manual | Writes fresh secrets → pulls `:latest` → recreates container |
 | `labro-restart.yml` | Manual | Writes fresh secrets → recreates container (same image) |
+| `dashboard-publish.yml` | `dashboard-publish` dispatch or manual | Checks out labro repo → builds SPA → uploads assets to R2 |
 
 All three workflows write `/your/secrets/.env` on the server from GitHub repo secrets before recreating the container, so rotating any API key is just: update the secret in GitHub → run `labro-restart.yml`.
 
@@ -791,6 +861,10 @@ All three workflows write `/your/secrets/.env` on the server from GitHub repo se
 | `OPENROUTER_API_KEY` | If using opencode with OpenRouter |
 | `CODEX_API_KEY` | If using codex via OpenAI API billing |
 | `CODEX_AUTH_JSON_BASE64` | If using codex via CLI subscription billing — `base64 -w 0 ~/.codex/auth.json`; bind-mounted so headless token refresh persists across container recreations |
+| `R2_ACCESS_KEY_ID` | If `[dashboard] enabled = true` — used by `dashboard-publish.yml` to upload the SPA, and by the deploy workflows to write the VPS `.env` |
+| `R2_SECRET_ACCESS_KEY` | If `[dashboard] enabled = true` |
+| `R2_ACCOUNT_ID` | If `[dashboard] enabled = true` |
+| `R2_BUCKET` | If `[dashboard] enabled = true` — bucket name used by both `dashboard-publish.yml` and `labro publish-db` |
 
 #### Codex CLI auth in containers
 

@@ -201,7 +201,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 **Delivered in two phases.**
 
-### M9.1 — Publishing + runs list + stats
+### M9.1 — Publishing + runs list + stats ✓ Shipped
 
 | Component | Notes |
 | :--- | :--- |

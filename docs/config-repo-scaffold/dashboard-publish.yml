@@ -1,0 +1,53 @@
+# .github/workflows/dashboard-publish.yml (in the config repo)
+# Triggered when dashboard/** changes on the labro main branch (via repository_dispatch
+# from dashboard-dispatch.yml in the labro repo) or manually.
+# Checks out the labro repo, builds the dashboard SPA, and uploads assets to R2.
+#
+# Required repo secrets:
+#   R2_ACCESS_KEY_ID     — Cloudflare R2 S3 API access key (scoped to the dashboard bucket)
+#   R2_SECRET_ACCESS_KEY — Cloudflare R2 S3 API secret key
+#   R2_ACCOUNT_ID        — Cloudflare account ID (endpoint is derived automatically)
+#   R2_BUCKET            — R2 bucket name
+#
+# This workflow writes only to the SPA root (HTML/JS/CSS/wasm assets).
+# It does NOT pass --delete, so /db/ and /manifest.json (written by labro publish-db
+# on the VPS) are never removed when the SPA is redeployed.
+on:
+  repository_dispatch:
+    types: [dashboard-publish]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: rssrn/labro   # replace with your labro fork/mirror if different
+          ref: ${{ github.event.client_payload.ref || 'main' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Upload SPA assets to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          aws s3 sync dashboard/dist/ "s3://$R2_BUCKET/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "public, max-age=300" \
+            --no-progress
