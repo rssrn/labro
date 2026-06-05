@@ -173,6 +173,15 @@ model             = "claude-code:anthropic/claude-sonnet-4-6@medium"  # design r
 # claude_assignee = "labro-yourusername[bot]"   # GitHub App (recommended)
 # claude_assignee = "claude-code-youruser"       # PAT / dedicated user
 
+# ── Signals ────────────────────────────────────────────────────────────────────
+# Back-fills outcome signals (merge/close state, reactions, follow-up commits)
+# for items_touched rows by querying the GitHub API on a schedule.
+# Recommended: once daily, at a time that doesn't overlap with project crons.
+
+[signals]
+enabled = true
+cron    = "0 6 * * *"
+
 # ── Digest ─────────────────────────────────────────────────────────────────────
 
 [digest]

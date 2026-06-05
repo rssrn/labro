@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS items_touched (
                                         'closed_completed',
                                         'closed_not_planned',
                                         'closed_unmerged',
+                                        'closed_duplicate',
                                         'open'
                                     )),
     follow_up_commits       INTEGER,
@@ -99,6 +100,50 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists on existing installs
+
+    # Forward migration: widen items_touched.outcome_state CHECK constraint
+    # to include 'closed_duplicate'. SQLite cannot ALTER CONSTRAINT, so we
+    # recreate the table.
+    conn.execute("SAVEPOINT migrate_closed_duplicate")
+    try:
+        conn.execute("ALTER TABLE items_touched RENAME TO items_touched_old")
+        conn.execute(
+            """
+            CREATE TABLE items_touched (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT    NOT NULL    REFERENCES runs (run_id),
+                repo                    TEXT    NOT NULL,
+                item_type               TEXT    NOT NULL    CHECK (item_type IN ('issue', 'pr')),
+                item_number             INTEGER NOT NULL,
+                outcome_state           TEXT    CHECK (outcome_state IN (
+                                                    'merged',
+                                                    'closed_completed',
+                                                    'closed_not_planned',
+                                                    'closed_unmerged',
+                                                    'closed_duplicate',
+                                                    'open'
+                                                )),
+                follow_up_commits       INTEGER,
+                thumbs_up               INTEGER,
+                thumbs_down             INTEGER,
+                signals_collected_at    TEXT
+            )
+            """
+        )
+        conn.execute("INSERT INTO items_touched SELECT * FROM items_touched_old")
+        conn.execute("DROP TABLE items_touched_old")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_touched_run_id ON items_touched (run_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_touched_repo_item"
+            " ON items_touched (repo, item_type, item_number)"
+        )
+        conn.execute("RELEASE migrate_closed_duplicate")
+        conn.commit()
+    except sqlite3.OperationalError:
+        conn.execute("ROLLBACK TO migrate_closed_duplicate")
+
     return conn
 
 
@@ -194,6 +239,89 @@ def insert_items_touched(
     conn.execute(
         "INSERT INTO items_touched (run_id, repo, item_type, item_number) VALUES (?, ?, ?, ?)",
         (run_id, repo, item_type, item_number),
+    )
+    conn.commit()
+
+
+def get_items_for_signal_collection(
+    conn: sqlite3.Connection,
+    *,
+    stale_days: int | None = None,
+) -> list[sqlite3.Row]:
+    """Return items_touched rows needing signal collection.
+
+    Returns rows where ``signals_collected_at`` is NULL (never collected),
+    or where the item was still open at last collection and is older than
+    *stale_days* days (re-collect to catch state transitions like merges).
+
+    Args:
+        conn: Open database connection.
+        stale_days: Re-collect open items not refreshed in this many days.
+            ``None`` (default) skips the stale clause — only uncollected rows
+            are returned.
+
+    Returns:
+        A list of :class:`sqlite3.Row` objects with columns ``id``, ``repo``,
+        ``item_type``, ``item_number``, ``outcome_state``, ``started_at``.
+    """
+    if stale_days is None:
+        return conn.execute(
+            """
+            SELECT it.id, it.repo, it.item_type, it.item_number, it.outcome_state,
+                   r.started_at
+            FROM items_touched it
+            JOIN runs r ON it.run_id = r.run_id
+            WHERE it.signals_collected_at IS NULL
+            ORDER BY r.started_at DESC
+            """,
+        ).fetchall()
+
+    return conn.execute(
+        """
+        SELECT it.id, it.repo, it.item_type, it.item_number, it.outcome_state,
+               r.started_at
+        FROM items_touched it
+        JOIN runs r ON it.run_id = r.run_id
+        WHERE it.signals_collected_at IS NULL
+           OR (
+               it.outcome_state = 'open'
+               AND it.signals_collected_at < datetime('now', ?)
+           )
+        ORDER BY r.started_at DESC
+        """,
+        (f"-{stale_days} days",),
+    ).fetchall()
+
+
+def update_item_signals(
+    conn: sqlite3.Connection,
+    item_id: int,
+    *,
+    outcome_state: str | None,
+    follow_up_commits: int | None,
+    thumbs_up: int,
+    thumbs_down: int,
+    collected_at: str,
+) -> None:
+    """Back-fill the signal columns for a single items_touched row.
+
+    Args:
+        conn: Open database connection.
+        item_id: Primary key of the ``items_touched`` row.
+        outcome_state: The resolved outcome state (e.g. ``"merged"``, ``"open"``).
+        follow_up_commits: Number of follow-up commits (PRs only; ``None`` for issues).
+        thumbs_up: Count of +1 reactions.
+        thumbs_down: Count of -1 reactions.
+        collected_at: ISO 8601 UTC timestamp for the collection.
+    """
+    conn.execute(
+        """
+        UPDATE items_touched
+        SET outcome_state=?, follow_up_commits=?, thumbs_up=?, thumbs_down=?,
+            signals_collected_at=?
+        WHERE id=?
+        """,
+        (outcome_state, follow_up_commits, thumbs_up, thumbs_down, collected_at, item_id),
     )
     conn.commit()
 

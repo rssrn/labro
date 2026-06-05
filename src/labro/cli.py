@@ -35,6 +35,7 @@ from pathlib import Path
 
 import labro.logger as logger_mod
 import labro.post_run as post_run_mod
+import labro.signals as signals_mod
 import labro.store as store_mod
 from labro.agents.base import AgentOutputError, AgentTimeoutError
 from labro.agents.registry import get_agent
@@ -873,6 +874,94 @@ def _cmd_unlock(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── labro collect-signals ────────────────────────────────────────────────────────
+
+
+def _cmd_collect_signals(args: argparse.Namespace) -> int:
+    """Back-fill engagement signals (outcome, reactions, follow-up commits) for
+    ``items_touched`` rows that have never been collected, or re-collect open
+    items that have gone stale.
+
+    Returns 0 even when some items error — partial success is normal.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    db_path: Path = args.db_path
+    dry_run: bool = args.dry_run
+    stale_days: int = args.stale_days
+
+    # Derive bot identity from config so thumbs are only counted on
+    # bot-authored content (issue body + comments).
+    bot_username: str | None = None
+    config_path: Path = args.config
+    try:
+        config = load_config(config_path, check_env=False)
+        if config.github_app_name is not None:
+            bot_username = f"{config.github_app_name}[bot]"
+    except ConfigError:
+        pass  # no config → no bot identity → legacy reaction counting
+
+    if not db_path.exists():
+        print(f"No database at {db_path}.")
+        return 0
+
+    conn = store_mod.open_db(db_path)
+    try:
+        rows = store_mod.get_items_for_signal_collection(conn, stale_days=stale_days)
+    except Exception:
+        conn.close()
+        raise
+
+    if not rows:
+        print("No items require signal collection.")
+        conn.close()
+        return 0
+
+    updated = 0
+    errors = 0
+    for row in rows:
+        repo: str = row["repo"]
+        item_type: str = row["item_type"]
+        item_number: int = row["item_number"]
+        started_at: str = row["started_at"]
+        item_id: int = row["id"]
+
+        try:
+            signals = signals_mod.collect(
+                repo, item_type, item_number, started_at, bot_username=bot_username
+            )
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+            _log.warning("collect-signals error %s#%d: %s", repo, item_number, exc)
+            errors += 1
+            continue
+
+        collected_at = _now_utc()
+        if not dry_run:
+            store_mod.update_item_signals(
+                conn,
+                item_id,
+                outcome_state=signals.outcome_state,
+                follow_up_commits=signals.follow_up_commits,
+                thumbs_up=signals.thumbs_up,
+                thumbs_down=signals.thumbs_down,
+                collected_at=collected_at,
+            )
+        updated += 1
+
+        thumbs_str = f"\U0001f44d{signals.thumbs_up} \U0001f44e{signals.thumbs_down}"
+        _log.info(
+            "collect-signals %s#%d \u2192 %s %s",
+            repo,
+            item_number,
+            signals.outcome_state or "-",
+            thumbs_str,
+        )
+
+    print(f"{updated} updated, {errors} errors")
+    conn.close()
+    return 0
+
+
 # ── gen-crontab ────────────────────────────────────────────────────────────────
 
 _CRONTAB_HEADER = """\
@@ -914,6 +1003,14 @@ def _cmd_gen_crontab(args: argparse.Namespace) -> int:
         lines.append(
             f"{config.dashboard.cron}   root  . /etc/labro-env;"
             f" labro publish-db  >> {log_path}  2>&1"
+        )
+
+    if config.signals.enabled:
+        lines.append("")
+        lines.append("# Signal collection (back-fill outcome signals)")
+        lines.append(
+            f"{config.signals.cron}   root  . /etc/labro-env;"
+            f" labro collect-signals  >> {log_path}  2>&1"
         )
 
     print("\n".join(lines))
@@ -1239,6 +1336,36 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
     )
     unlock_parser.set_defaults(func=_cmd_unlock)
+
+    # ── labro collect-signals ───────────────────────────────────────────────
+    collect_signals_parser = subparsers.add_parser(
+        "collect-signals",
+        help="Back-fill engagement signals for items_touched rows via the GitHub API",
+    )
+    collect_signals_parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=_default_db_path(),
+        metavar="PATH",
+        help="Path to the SQLite database (default: $LABRO_DB_PATH or /data/labro.db)",
+    )
+    collect_signals_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print what would be written without modifying the database",
+    )
+    collect_signals_parser.add_argument(
+        "--stale-days",
+        type=int,
+        default=7,
+        metavar="N",
+        help=(
+            "Re-collect open items not refreshed in N days (default: 7)."
+            " Set to 0 to collect only uncollected items."
+        ),
+    )
+    collect_signals_parser.set_defaults(func=_cmd_collect_signals)
 
     return parser
 

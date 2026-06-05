@@ -20,6 +20,7 @@ from labro.config.schema import (
     LabelRule,
     LabroConfig,
     ProjectConfig,
+    SignalsConfig,
 )
 
 
@@ -51,6 +52,8 @@ def _make_config(
     digest_cron: str = "0 8 * * *",
     dashboard_enabled: bool = False,
     dashboard_cron: str = "17 * * * *",
+    signals_enabled: bool = True,
+    signals_cron: str = "0 6 * * *",
 ) -> LabroConfig:
     return LabroConfig(
         digest=DigestConfig(enabled=digest_enabled, cron=digest_cron),
@@ -58,6 +61,7 @@ def _make_config(
             enabled=dashboard_enabled,
             cron=dashboard_cron,
         ),
+        signals=SignalsConfig(enabled=signals_enabled, cron=signals_cron),
         defaults=DefaultsConfig(),
         projects=projects,
     )
@@ -114,3 +118,20 @@ def test_dashboard_present_when_enabled(capsys: pytest.CaptureFixture[str]) -> N
     out = _run(config, capsys)
     assert "labro publish-db" in out
     assert "17 * * * *" in out
+
+
+def test_signals_absent_when_disabled(capsys: pytest.CaptureFixture[str]) -> None:
+    config = _make_config([_make_project("proj")], signals_enabled=False)
+    out = _run(config, capsys)
+    assert "labro collect-signals" not in out
+
+
+def test_signals_present_when_enabled(capsys: pytest.CaptureFixture[str]) -> None:
+    config = _make_config(
+        [_make_project("proj")],
+        signals_enabled=True,
+        signals_cron="0 7,18 * * *",
+    )
+    out = _run(config, capsys)
+    assert "labro collect-signals" in out
+    assert "0 7,18 * * *" in out

@@ -277,6 +277,16 @@ class DashboardConfig(BaseModel):
     redact: bool = False  # reserved, no-op in M9.1
 
 
+class SignalsConfig(BaseModel):
+    """Signal collection (back-fill outcome signals for items_touched rows).
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+
+    enabled: bool = True
+    cron: str = "0 6 * * *"
+
+
 class DefaultsConfig(BaseModel):
     """Global defaults inherited by all projects."""
 
@@ -294,6 +304,7 @@ class LabroConfig(BaseModel):
     shared_rules: dict[str, SharedRuleConfig] = Field(default_factory=dict)
     digest: DigestConfig = Field(default_factory=DigestConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
+    signals: SignalsConfig = Field(default_factory=SignalsConfig)
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     projects: list[ProjectConfig] = Field(default_factory=list)
     # GitHub App credentials (alternative to GH_TOKEN PAT).

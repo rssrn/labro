@@ -8,6 +8,7 @@ All tests use SQLite :memory: databases; no temp files required.
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -390,6 +391,54 @@ def test_get_prior_wip_run_ignores_different_url() -> None:
     )
     result = get_prior_wip_run(conn, "https://github.com/o/r/issues/1")
     assert result is None
+
+
+def test_migration_adds_closed_duplicate_to_constraint(tmp_path: Path) -> None:
+    """A DB created with the old CHECK constraint is migrated to accept closed_duplicate."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    # Create items_touched with the OLD CHECK (no closed_duplicate)
+    conn.executescript(
+        """
+        CREATE TABLE items_touched (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            repo TEXT NOT NULL,
+            item_type TEXT NOT NULL CHECK (item_type IN ('issue', 'pr')),
+            item_number INTEGER NOT NULL,
+            outcome_state TEXT CHECK (outcome_state IN (
+                'merged', 'closed_completed', 'closed_not_planned',
+                'closed_unmerged', 'open'
+            )),
+            follow_up_commits INTEGER,
+            thumbs_up INTEGER,
+            thumbs_down INTEGER,
+            signals_collected_at TEXT
+        );
+        """
+    )
+    conn.commit()
+
+    # closed_duplicate should be rejected by the old constraint
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO items_touched (run_id, repo, item_type, item_number, outcome_state)"
+            " VALUES ('r1', 'o/r', 'issue', 1, 'closed_duplicate')"
+        )
+    conn.close()
+
+    # Now open with open_db — migration should apply
+    db_path = tmp_path / "migrate.db"
+    conn2 = open_db(str(db_path))
+    conn2.execute(
+        "INSERT INTO items_touched (run_id, repo, item_type, item_number, outcome_state)"
+        " VALUES ('r1', 'o/r', 'issue', 1, 'closed_duplicate')"
+    )
+    conn2.commit()
+    row = conn2.execute("SELECT outcome_state FROM items_touched WHERE run_id='r1'").fetchone()
+    assert row["outcome_state"] == "closed_duplicate"
+    conn2.close()
 
 
 def test_migration_adds_wip_branch_url_column() -> None:

@@ -607,7 +607,46 @@ M9.2 adds a "charts" tab alongside the existing runs and stats views:
 
 ---
 
-## Operator CLI Reference
+## Signal Collection
+
+Labro records which items (issues/PRs) were touched during each run in the `items_touched` table. The signal columns — `outcome_state`, `follow_up_commits`, `thumbs_up`, `thumbs_down` — are left NULL when the row is first inserted. The `labro collect-signals` command back-fills these columns by querying the GitHub API after the fact.
+
+### Signal columns
+
+| Column | Type | Meaning |
+|---|---|---|
+| `outcome_state` | string | One of `merged` (PR), `closed_completed`, `closed_not_planned`, `closed_unmerged` (PR), or `open` |
+| `follow_up_commits` | integer | Commits pushed to a PR *after* the run started (PRs only; `NULL` for issues) |
+| `thumbs_up` | integer | Count of +1 reactions on the item |
+| `thumbs_down` | integer | Count of -1 reactions on the item |
+| `signals_collected_at` | timestamp | When the row was last refreshed (UTC) |
+
+### Usage
+
+```bash
+labro collect-signals                              # default: stale-days=7
+labro collect-signals --dry-run                    # print what would be written
+labro collect-signals --stale-days 0               # only uncollected items
+labro collect-signals --stale-days 14              # re-collect after 14 days
+```
+
+- **First run** collects every row that has never been touched, regardless of age.
+- **Subsequent runs** skip rows that have already been collected, *unless* the outcome was `open` and the collection is older than `--stale-days` (default 7). This catches state transitions like issue closures or PR merges that happened after the initial collection.
+- Partial success is normal: if one API call fails (e.g. the repo was deleted), the command logs a warning, increments the error counter, and continues with the next item.
+
+### Scheduling
+
+Add a `[signals]` section to `labro.toml` to control the cron schedule:
+
+```toml
+[signals]
+enabled = true
+cron    = "0 6 * * *"
+```
+
+The `labro gen-crontab` command emits the signal-collection cron line automatically from this config. The defaults (`--stale-days 7`) mean a weekly refresh of open items is sufficient, but running daily is harmless — already-collected closed items are skipped on subsequent passes.
+
+---
 
 All subcommands read `--config` (default: `$LABRO_CONFIG` or `./labro.toml`) from the global flag.
 
