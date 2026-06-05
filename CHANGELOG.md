@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 — 2026-06-05
+
+### Features
+- **Dashboard per-project stats tab** — new tab showing aggregate stats per project
+- **Dashboard tooltips** — inline explanations for core concepts throughout the UI
+
+### Fixed
+- **`gh-author` logging** — `match=security/standard` now included in the picked log line
+- **Vite 8 compat** — bumped `@vitejs/plugin-react` to `^5.2.0`
+
+### Docs
+- Dashboard setup and `publish-db` walkthrough; M9.1 marked shipped
+- Model selection guide with caveats and cross-repo examples
 
 ## v0.5.0 — 2026-06-05
 
