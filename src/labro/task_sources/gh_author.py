@@ -235,12 +235,14 @@ class GhAuthorTaskSource(TaskSource):
         candidates.sort(key=lambda t: t[0])
         _ts, item, winning_rule = candidates[0]
 
+        match_kind = "security" if winning_rule.requires_dependabot_alert else "standard"
         logger.info(
-            "gh-author: picked %s #%d %r via author_rule actor=%r (%d candidate%s)",
+            "gh-author: picked %s #%d %r via author_rule actor=%r match=%s (%d candidate%s)",
             _item_type(item),
             item["number"],
             item.get("title", ""),
             winning_rule.actor,
+            match_kind,
             len(candidates),
             "s" if len(candidates) != 1 else "",
         )
