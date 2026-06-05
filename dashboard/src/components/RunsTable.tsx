@@ -17,6 +17,20 @@ const OUTCOME_COLOR: Record<string, string> = {
   skipped: '#888',
 };
 
+const OUTCOME_TOOLTIP: Record<string, string> = {
+  success: 'Agent ran to completion and reported success.',
+  failure: 'Agent ran but reported failure, or the run errored out.',
+  partial: 'Agent hit the configured turn limit and was cut short. Work is saved to a WIP branch and a handover comment is posted.',
+  skipped: 'Harness did not invoke the agent — see failure reason for why (e.g. no task found, daily budget exceeded, project already locked).',
+};
+
+const SOURCE_TOOLTIP: Record<string, string> = {
+  'gh-label': 'Picks up open GitHub issues/PRs that carry a configured trigger label.',
+  'gh-author': 'Picks up PRs/issues matching a configured author pattern (e.g. Dependabot).',
+  'proactive-improvement': 'No pre-existing item — harness creates a fresh issue and gives the agent a randomly chosen perspective to guide an improvement suggestion.',
+  'grafana-alerts': 'Picks up firing Grafana alert rules for the project.',
+};
+
 function DateCell({ iso }: { iso: string }) {
   const full = iso.replace('T', ' ').slice(0, 16) + 'Z'; // 2026-06-04 09:30Z
   const short = iso.slice(5, 16).replace('T', ' ');       // 06-04 09:30
@@ -108,11 +122,11 @@ export default function RunsTable({ runs, onSelect }: Props) {
           <tr style={{ color: '#aaa' }}>
             {th('date', 'started_at')}
             {th('project', 'project')}
-            {th('source', 'task_source')}
+            <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from.">source{arrow('task_source')}</th>
             <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('model')}>model{arrow('model')}</th>
-            {th('outcome', 'outcome')}
+            <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run.">outcome{arrow('outcome')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('total_cost_usd')}>cost{arrow('total_cost_usd')}</th>
-            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')}>turns{arrow('turns_used')}</th>
+            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')} title="Number of agent conversation turns used. Capped by the configured max_turns; if turns = max and outcome = partial, the run was cut short.">turns{arrow('turns_used')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, cursor: 'default', minWidth: '180px' }}>
               failure reason
             </th>
@@ -123,10 +137,10 @@ export default function RunsTable({ runs, onSelect }: Props) {
             <tr key={run.run_id} style={{ color: '#ddd' }} onClick={() => onSelect(run)}>
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>{run.project}</td>
-              <td style={TD_STYLE}>{run.task_source ?? '—'}</td>
+              <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{run.task_source ?? '—'}</td>
               <td className="col-desktop" style={TD_STYLE}>{fmtModel(run.provider, run.model)}</td>
               <td style={TD_STYLE}>
-                <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }}>
+                <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }} title={run.outcome ? OUTCOME_TOOLTIP[run.outcome] : undefined}>
                   {run.outcome ?? '—'}
                 </span>
               </td>

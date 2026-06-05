@@ -14,6 +14,20 @@ const OUTCOME_COLOR: Record<string, string> = {
   skipped: '#888',
 };
 
+const OUTCOME_TOOLTIP: Record<string, string> = {
+  success: 'Agent ran to completion and reported success.',
+  failure: 'Agent ran but reported failure, or the run errored out.',
+  partial: 'Agent hit the configured turn limit and was cut short. Work is saved to a WIP branch and a handover comment is posted on the item.',
+  skipped: 'Harness did not invoke the agent — see failure reason for why (e.g. no task found, daily budget exceeded, project already locked).',
+};
+
+const SOURCE_TOOLTIP: Record<string, string> = {
+  'gh-label': 'Picks up open GitHub issues/PRs that carry a configured trigger label.',
+  'gh-author': 'Picks up PRs/issues matching a configured author pattern (e.g. Dependabot).',
+  'proactive-improvement': 'No pre-existing item — harness creates a fresh issue and gives the agent a randomly chosen perspective to guide an improvement suggestion.',
+  'grafana-alerts': 'Picks up firing Grafana alert rules for the project.',
+};
+
 function fmtSecs(s: number): string {
   if (s < 60) return s >= 9.5 ? `${Math.round(s)}s` : `${s.toFixed(1)}s`;
   return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
@@ -40,10 +54,10 @@ function fmtTokens(n: number | null): string {
 }
 
 // Compact two-column grid cell: label above value
-function Cell({ label, children }: { label: string; children: React.ReactNode }) {
+function Cell({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-      <span style={{ color: '#555', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }} title={title}>
+      <span style={{ color: '#555', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.07em', cursor: title ? 'help' : undefined }}>
         {label}
       </span>
       <span style={{ color: '#ddd', fontSize: '0.85rem' }}>{children}</span>
@@ -52,12 +66,17 @@ function Cell({ label, children }: { label: string; children: React.ReactNode })
 }
 
 // Full-width labeled block for prose / lists
-function Block({ label, children }: { label: string; children: React.ReactNode }) {
+function Block({ label, subtitle, children }: { label: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: '1.1rem' }}>
-      <div style={{ color: '#555', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.35rem' }}>
+      <div style={{ color: '#555', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: subtitle ? '0.15rem' : '0.35rem' }}>
         {label}
       </div>
+      {subtitle && (
+        <div style={{ color: '#444', fontSize: '0.7rem', marginBottom: '0.35rem', fontStyle: 'italic' }}>
+          {subtitle}
+        </div>
+      )}
       <div style={{ color: '#ccc', fontSize: '0.82rem', lineHeight: 1.55 }}>{children}</div>
     </div>
   );
@@ -123,18 +142,21 @@ export default function RunDrawer({ run, onClose }: Props) {
               <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#eee', letterSpacing: '-0.01em' }}>
                 {run.project}
               </span>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                color: outcomeColor,
-                background: `${outcomeColor}18`,
-                border: `1px solid ${outcomeColor}44`,
-                borderRadius: '3px',
-                padding: '0.1rem 0.45rem',
-                fontSize: '0.7rem',
-                fontWeight: 'bold',
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-              }}>
+              <span
+                title={run.outcome ? OUTCOME_TOOLTIP[run.outcome] : undefined}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                  color: outcomeColor,
+                  background: `${outcomeColor}18`,
+                  border: `1px solid ${outcomeColor}44`,
+                  borderRadius: '3px',
+                  padding: '0.1rem 0.45rem',
+                  fontSize: '0.7rem',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.05em',
+                  textTransform: 'uppercase',
+                  cursor: 'help',
+                }}>
                 <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: outcomeColor, display: 'inline-block' }} />
                 {run.outcome ?? '—'}
               </span>
@@ -163,9 +185,9 @@ export default function RunDrawer({ run, onClose }: Props) {
 
           {/* 1. Task — what was the job */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-            <Cell label="source">{run.task_source ?? '—'}</Cell>
+            <Cell label="source" title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{run.task_source ?? '—'}</Cell>
             {run.trigger_label
-              ? <Cell label="trigger">{run.trigger_label}</Cell>
+              ? <Cell label="trigger" title="The GitHub label that triggered this gh-label run.">{run.trigger_label}</Cell>
               : <div />
             }
           </div>
@@ -186,7 +208,7 @@ export default function RunDrawer({ run, onClose }: Props) {
             </Block>
           )}
           {run.wip_branch_url && (
-            <Block label="wip branch">
+            <Block label="wip branch" subtitle="Run was cut short (partial) — in-progress changes were pushed here for handover.">
               <a href={run.wip_branch_url} target="_blank" rel="noreferrer"
                 style={{ color: '#5af', textDecoration: 'none', wordBreak: 'break-all' }}>
                 {run.wip_branch_url}
@@ -224,15 +246,20 @@ export default function RunDrawer({ run, onClose }: Props) {
             <Cell label="agent">{run.agent ?? '—'}</Cell>
             <Cell label="total cost">{fmtCost(run.total_cost_usd)}</Cell>
             <Cell label="model">{run.model ?? '—'}</Cell>
-            <Cell label="turns">{run.turns_used ? run.turns_used : <span style={{ color: '#555' }}>Not reported</span>}</Cell>
+            <Cell label="turns" title="Agent conversation turns used. Capped by max_turns; if turns = max and outcome = partial, the run was cut short.">{run.turns_used ? run.turns_used : <span style={{ color: '#555' }}>Not reported</span>}</Cell>
             {run.provider && <Cell label="provider">{run.provider}</Cell>}
-            {run.effort && <Cell label="effort">{run.effort}</Cell>}
+            {run.effort && <Cell label="effort" title="Agent reasoning depth. Higher effort = more thorough but slower and costlier.">{run.effort}</Cell>}
           </div>
 
           {/* 4. Token tiles */}
           {(run.input_tokens != null || run.output_tokens != null) && (
-            <div style={{ color: '#555', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>
-              tokens
+            <div style={{ marginBottom: '0.5rem' }}>
+              <div style={{ color: '#555', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.15rem' }}>
+                tokens
+              </div>
+              <div style={{ color: '#444', fontSize: '0.7rem', fontStyle: 'italic' }}>
+                cache read = reused from prior run (reduces cost); cache write = stored this run for future reuse
+              </div>
             </div>
           )}
           {(run.input_tokens != null || run.output_tokens != null) && (
@@ -273,7 +300,7 @@ export default function RunDrawer({ run, onClose }: Props) {
           {run.chosen_perspective && (
             <>
               <Divider />
-              <Block label="perspective">{run.chosen_perspective}</Block>
+              <Block label="perspective" subtitle="Randomly chosen lens injected into the proactive-improvement prompt to guide the agent's suggestion.">{run.chosen_perspective}</Block>
             </>
           )}
         </div>
