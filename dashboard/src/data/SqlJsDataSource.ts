@@ -98,7 +98,7 @@ export class SqlJsDataSource implements DataSource {
         SUM(outcome = 'skipped')  AS skipped_count,
         SUM(total_cost_usd)       AS total_cost_usd,
         AVG(total_cost_usd)       AS avg_cost_usd,
-        AVG(duration_s)           AS avg_duration_s,
+        AVG(COALESCE(duration_s, CASE WHEN ended_at IS NOT NULL THEN (strftime('%s', ended_at) - strftime('%s', started_at)) END)) AS avg_duration_s,
         AVG(turns_used)           AS avg_turns
       FROM runs
       GROUP BY project

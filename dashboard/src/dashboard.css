@@ -31,6 +31,14 @@
 }
 
 @media (max-width: 640px) {
+  .stats-table td,
+  .stats-table th {
+    padding: 0.25rem 0.4rem;
+    font-size: 0.72rem;
+  }
+}
+
+@media (max-width: 640px) {
   .col-desktop {
     display: none;
   }
