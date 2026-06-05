@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v0.4.0 — 2026-06-05
+
+### Features
+- **`gh-author` task source** — items matched by GitHub login (PRs/issues opened by a specific author) are now a dedicated source type, `gh-author`, with its own `author_rules` config field. `gh-label` retains `label_rules` only, making each source's name honest about what it watches.
+- **Metrics dashboard SPA** — Vite + React + TypeScript single-page app (`dashboard/`) that loads a SQL.js WASM snapshot from R2 and renders a runs table with project, cost, and turn counts. Includes a drilldown drawer with full run field detail and responsive mobile layout.
+
+### Changed
+- `actor_rules` in `gh-label` source config renamed to `author_rules` (used in the new `gh-author` source); config must be updated if you previously used `actor_rules` under a `gh-label` source.
+- `dashboard.bucket` moved from `labro.toml` to the `R2_BUCKET` environment variable; `DashboardConfig` no longer has a `bucket` field.
+
+### Fixed
+- Entrypoint startup log timestamp now includes milliseconds.
+
 ## v0.3.3 — 2026-06-04
 
 ### Features
