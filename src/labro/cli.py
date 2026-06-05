@@ -82,7 +82,7 @@ class _UTCFormatter(logging.Formatter):
 
 def _set_run_context(project: str, run_id: str) -> None:
     """Set the log prefix for the current run (e.g. ``[newschart 237f824e]``)."""
-    _run_ctx.set(f" [{project} {run_id[:8]}]")
+    _run_ctx.set(f"[{project} {run_id[:8]}] ")
 
 
 def _default_config_path() -> Path:
@@ -1245,7 +1245,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Entry point for the ``labro`` CLI."""
-    log_fmt = "%(asctime)s %(levelname)s %(name)s%(run_ctx)s: %(message)s"
+    log_fmt = "%(asctime)s %(levelname)s %(run_ctx)s%(name)s - %(message)s"
     formatter = _UTCFormatter(log_fmt)
     ctx_filter = _RunContextFilter()
 
