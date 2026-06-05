@@ -72,12 +72,14 @@ def _author_rule(
     done_label: str = _DONE_LABEL,
     model: str | None = None,
     permitted_actions: list[PermittedAction] | None = None,
+    required_labels: list[str] | None = None,
 ) -> AuthorRule:
     return AuthorRule(
         actor=actor,
         done_label=done_label,
         model=model,
         permitted_actions=permitted_actions,
+        required_labels=required_labels,
     )
 
 
@@ -243,6 +245,48 @@ def test_author_rule_model_override() -> None:
     _, agent_cfg = result
     assert agent_cfg.slug == "claude-code:anthropic/claude-haiku-4-5"
     assert agent_cfg.model == "claude-haiku-4-5"
+
+
+def test_author_rule_required_labels_match() -> None:
+    """Item must carry all required_labels to be eligible."""
+    rule = _author_rule(actor=_ACTOR, done_label=_DONE_LABEL, required_labels=["security"])
+    src_cfg = _source_config(author_rules=[rule])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhAuthorTaskSource(src_cfg)
+
+    security_item = {**_ACTOR_ITEM, "labels": [{"name": "security"}]}
+
+    def fake_gh_api(url: str) -> list[Any]:
+        if "comments" in url:
+            return []
+        return [security_item]
+
+    with patch("labro.task_sources.gh_author._run_gh_api", side_effect=fake_gh_api):
+        result = _fetch(source, proj, cfg)
+
+    assert result is not None
+    task, _ = result
+    assert task.item_number == 100
+
+
+def test_author_rule_required_labels_no_match() -> None:
+    """Item missing a required_label is skipped."""
+    rule = _author_rule(actor=_ACTOR, done_label=_DONE_LABEL, required_labels=["security"])
+    src_cfg = _source_config(author_rules=[rule])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhAuthorTaskSource(src_cfg)
+
+    def fake_gh_api(url: str) -> list[Any]:
+        if "comments" in url:
+            return []
+        return [_ACTOR_ITEM]  # no labels
+
+    with patch("labro.task_sources.gh_author._run_gh_api", side_effect=fake_gh_api):
+        result = _fetch(source, proj, cfg)
+
+    assert result is None
 
 
 def test_author_rule_multiple_authors_oldest_wins() -> None:

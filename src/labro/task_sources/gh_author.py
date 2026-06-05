@@ -168,6 +168,10 @@ class GhAuthorTaskSource(TaskSource):
                     continue
                 if rule.done_label in labels:
                     continue
+                if rule.required_labels is not None:
+                    missing = [lbl for lbl in rule.required_labels if lbl not in labels]
+                    if missing:
+                        continue
                 created_at = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
                 candidates.append((created_at, item, rule))
 

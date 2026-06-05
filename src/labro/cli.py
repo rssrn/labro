@@ -886,7 +886,7 @@ def _cmd_gen_crontab(args: argparse.Namespace) -> int:
     """Output a /etc/cron.d/labro file derived from labro.toml to stdout."""
     config_path: Path = args.config
     try:
-        config = load_config(config_path)
+        config = load_config(config_path, check_env=False)
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

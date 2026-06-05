@@ -91,12 +91,19 @@ def required_env_vars(config: LabroConfig) -> list[str]:
     return required
 
 
-def load_config(path: Path, perspectives_path: Path | None = None) -> LabroConfig:
+def load_config(
+    path: Path,
+    perspectives_path: Path | None = None,
+    check_env: bool = True,
+) -> LabroConfig:
     """Parse and validate labro.toml at *path*.
 
     If *perspectives_path* is None, ``perspectives.toml`` is auto-discovered
     in the same directory as *path*.  If absent, perspective injection is
     disabled and a warning is logged.
+
+    Pass ``check_env=False`` for commands that only need the config structure
+    and do not exercise runtime secrets (e.g. ``gen-crontab``).
 
     Raises:
         ConfigError: on TOML syntax error, Pydantic validation failure,
@@ -135,23 +142,24 @@ def load_config(path: Path, perspectives_path: Path | None = None) -> LabroConfi
     except Exception as exc:
         raise ConfigError(f"Config validation error: {exc}") from exc
 
-    missing = [var for var in required_env_vars(config) if not os.environ.get(var)]
-    if missing:
-        raise ConfigError(f"Missing required environment variable(s): {', '.join(missing)}")
+    if check_env:
+        missing = [var for var in required_env_vars(config) if not os.environ.get(var)]
+        if missing:
+            raise ConfigError(f"Missing required environment variable(s): {', '.join(missing)}")
 
-    # Per-agent auth check (fast env/file check, not full HTTP validation)
-    from labro.agents.registry import get_agent
+        # Per-agent auth check (fast env/file check, not full HTTP validation)
+        from labro.agents.registry import get_agent
 
-    for agent_id in sorted(referenced_agents(config)):
-        try:
-            agent = get_agent(agent_id)
-        except ValueError as exc:
-            raise ConfigError(str(exc)) from exc
-        if not agent.has_auth():
-            auth_vars = ", ".join(agent.auth_env_vars)
-            raise ConfigError(
-                f"Missing auth for agent '{agent_id}': set {auth_vars}"
-                + (" or provide ~/.codex/auth.json" if agent_id == "codex" else "")
-            )
+        for agent_id in sorted(referenced_agents(config)):
+            try:
+                agent = get_agent(agent_id)
+            except ValueError as exc:
+                raise ConfigError(str(exc)) from exc
+            if not agent.has_auth():
+                auth_vars = ", ".join(agent.auth_env_vars)
+                raise ConfigError(
+                    f"Missing auth for agent '{agent_id}': set {auth_vars}"
+                    + (" or provide ~/.codex/auth.json" if agent_id == "codex" else "")
+                )
 
     return config

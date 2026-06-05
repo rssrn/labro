@@ -215,35 +215,49 @@ repo    = "owner/my-api"
 cron    = "0 9 * * 1-5"
 context = "Follow the coding conventions in CLAUDE.md closely."
 
-# (1) dev label — highest priority; acted on before anything else
+# (1) dependabot security PRs — highest priority.
+#     Dependabot security advisories carry the "security" label automatically.
+#     Using required_labels narrows the rule to only those PRs.
+[[projects.task_sources]]
+type = "gh-author"
+
+[[projects.task_sources.author_rules]]
+actor             = "dependabot[bot]"
+done_label        = "ai-maintainer-done"
+required_labels   = ["security"]
+permitted_actions = ["comment_on_pr"]
+
+# (2) dev label — high-priority feature / bug work
 [[projects.task_sources]]
 type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 rule = "dev"
 
-# (2) grafana alerts — only reached when no dev items are waiting
+# (3) grafana alerts — only reached when no security or dev items are waiting
 [[projects.task_sources]]
 type         = "grafana-alerts"
 min_severity = "warning"
 persona      = "frontline-support"
 permitted_actions = ["create_issue"]
 
-# (3) ba label — lower priority than alerts
+# (4) ba label
 [[projects.task_sources]]
 type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 rule = "ba"
 
-# (4) architect label — lowest priority label task
+# (5) architect label
 [[projects.task_sources]]
 type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 rule = "architect"
 
-# (5) dependabot / renovate PRs — author-based, no label needed
+# (6) dependabot routine bumps — lowest priority for bots; only picked when
+#     no security PRs are waiting (fall-through from source #1).
+#     Omitting required_labels matches all remaining PRs from this author.
 [[projects.task_sources]]
 type = "gh-author"
 
@@ -252,7 +266,7 @@ actor             = "dependabot[bot]"
 done_label        = "ai-maintainer-done"
 permitted_actions = ["comment_on_pr"]
 
-# (6) proactive improvement — fires when nothing else is queued.
+# (7) proactive improvement — fires when nothing else is queued.
 #     Labro creates a GitHub issue and asks the agent to investigate from a
 #     randomly selected perspective (defined in perspectives.toml).
 #     Omit `perspectives` to draw from all defined perspectives.

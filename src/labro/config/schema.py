@@ -163,6 +163,7 @@ class AuthorRule(BaseModel):
     persona: str | None = None
     model: ModelSlug | None = None
     permitted_actions: list[PermittedAction] | None = None
+    required_labels: list[str] | None = None
 
 
 class GhLabelSource(BaseModel):
