@@ -175,18 +175,27 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 
 ---
 
-## M8 — Daily digest
+## M8 — Engagement metrics and digest
 
-**Goal:** operator receives a daily Slack summary covering runs, costs, and outcome signals, without needing to check GitHub or query SQLite directly.
+**Goal:** outcome signals are collected from passive GitHub state and surfaced in the dashboard; optionally delivered as a daily Slack summary.
 
-**Completed here:**
+**Delivered in two phases.**
+
+### M8.1 — Engagement metrics
+
+| Component | Notes |
+| :--- | :--- |
+| `items_touched` outcome signal columns populated | Columns exist in schema from M2; collection logic (`outcome_state`, `follow_up_commits`, `thumbs_up`, `thumbs_down`, `signals_collected_at`) implemented here |
+| `cli.py` — `labro collect-signals [--dry-run]` | Standalone command on its own cron entry; `--dry-run` skips writes; no Slack config required |
+| `README.md` | Document `labro collect-signals`, signal columns, and cron scheduling |
+
+### M8.2 — Slack digest
 
 | Component | Notes |
 | :--- | :--- |
 | `store.py` — `digests` table | Scheduling anchor and failure tracking; extends M2 store |
-| `digest.py` | All four phases: outcome signal collection, run stats aggregation, Slack message assembly, local file write + HTTP POST delivery |
-| `cli.py` — `labro digest [--dry-run]` | `--dry-run` skips Phase 1 (no `signals_collected_at` writes) and Phase 4 (no file write, no Slack POST); no `digests` row written |
-| `items_touched` outcome signal columns populated | Columns exist in schema from M2; collection logic (`outcome_state`, `follow_up_commits`, `thumbs_up`, `thumbs_down`, `signals_collected_at`) implemented here |
+| `digest.py` | Run stats aggregation, Slack message assembly, local file write + HTTP POST delivery; reads signals collected by M8.1 |
+| `cli.py` — `labro digest [--dry-run]` | `--dry-run` skips file write and Slack POST; no `digests` row written |
 | `README.md` | Document digest setup: `[digest]` config block, `SLACK_WEBHOOK_URL` env var, local file fallback at `/data/digest-YYYY-MM-DD.txt`, `labro digest --dry-run` for testing before live delivery |
 
 ---
@@ -252,7 +261,7 @@ Maps every PRD requirement to the milestone where it is first completed. Require
 | REQ-18 | Multi-project config; per-project schedule, stack, actions | M1 + M2 + M4 | Schema in M1; `LABRO_DISABLED` and `daily_budget_usd` in M2; cron generation in M4 |
 | REQ-19 | New project onboarded with config change only | M5 | `labro init` completes label setup; no code changes required |
 | REQ-20 | Label transitions as deterministic post-run step | M3 | `post_run.py`; extended in M6 and M7 |
-| REQ-21 | Daily digest via Slack | M8 | `digest.py`; `labro digest [--dry-run]` |
-| REQ-22 | Outcome signals from passive GitHub state | M8 | Digest job reads `items_touched`; writes signals back to SQLite |
-| REQ-23 | 👍/👎 reactions as satisfaction signal | M8 | GitHub reactions API; surfaced in digest |
+| REQ-21 | Daily digest via Slack | M8.2 | `digest.py`; `labro digest [--dry-run]` |
+| REQ-22 | Outcome signals from passive GitHub state | M8.1 | `labro collect-signals`; writes signals back to `items_touched` |
+| REQ-23 | 👍/👎 reactions as satisfaction signal | M8.1 | GitHub reactions API; surfaced in dashboard and digest |
 | REQ-24 | Read-only static metrics dashboard | M9 | `labro publish-db` snapshot to R2; sql.js SPA; runs list + stats (M9.1), charts (M9.2) |
