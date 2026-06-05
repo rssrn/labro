@@ -50,6 +50,7 @@ function fmtModel(provider: string | null, model: string | null): string {
 
 function fmtCost(usd: number | null): string {
   if (usd == null) return '—';
+  if (usd <= 0) return '$0.00';
   if (usd < 0.01) return '<$0.01';
   return `$${usd.toFixed(2)}`;
 }

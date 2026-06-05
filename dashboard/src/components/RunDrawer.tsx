@@ -44,6 +44,7 @@ function fmtDuration(duration_s: number | null, started_at: string, ended_at: st
 
 function fmtCost(usd: number | null): string {
   if (usd == null) return '—';
+  if (usd <= 0) return '$0.0000';
   if (usd < 0.01) return '<$0.01';
   return `$${usd.toFixed(4)}`;
 }
