@@ -37,7 +37,7 @@ The operator configures which projects to monitor, what tasks to prioritise, whi
 - **Graceful failure labelling** — success, partial, and failure outcomes each get distinct GitHub labels so the state of every item is visible at a glance without reading run logs
 - **Full audit trail** — every run writes outcome, cost, token usage, and actions to a local SQLite database
 - **Emergency pause** — drop a `LABRO_DISABLED` flag file to stop new runs instantly without restarting containers; any run already in progress finishes normally
-- **Multi-provider support** — Claude Code, Codex, and OpenCode are all supported; spread scheduled work across providers or use OpenCode to access any model on [models.dev](https://models.dev) (OpenRouter, Anthropic, OpenAI, Mistral, and more)
+- **Multi-provider support** — Claude Code, Codex, and OpenCode are all supported; spread scheduled work across providers or use OpenCode to access any model on [models.dev](https://models.dev) (OpenRouter, Anthropic, OpenAI, Mistral, and more). See [Model Selection Guide](docs/MODEL-SELECTION.md) for advice on picking the right model for each task type.
 
 ---
 
@@ -823,6 +823,7 @@ The following documents define the product and architecture:
 - **[Product Requirements Document](docs/PRD.md)** — problem statement, design principles, functional requirements, and success metrics.
 - **[Architecture](docs/ARCHITECTURE.md)** — system context, component design, runtime flow, and architectural decisions.
 - **[Roadmap](docs/ROADMAP.md)** — delivery milestones and per-file completion tracking.
+- **[Model Selection Guide](docs/MODEL-SELECTION.md)** — advice on choosing agents and models per task type, with cost-shaping strategies and caveats.
 - **[Domain Glossary](CONTEXT.md)** — canonical definitions for terms used across all Labro documents and code.
 
 ### [Architectural Decision Records](docs/adr/)
