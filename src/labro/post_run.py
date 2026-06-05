@@ -167,7 +167,7 @@ def post_run(
         _post_run_proactive(task, agent_result, outcome=outcome, agent_name=agent_name)
         return
 
-    if task.source != "gh-label" or task.item_number is None:
+    if task.source not in {"gh-label", "gh-author"} or task.item_number is None:
         return
 
     item_type = task.item_type or "issue"

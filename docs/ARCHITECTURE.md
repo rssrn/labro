@@ -213,13 +213,13 @@ Each agent owns its structured-output delivery method: `ClaudeCodeAgent` uses `-
 
 #### `Task`
 
-Produced by `TaskSource.fetch_task()`; consumed by `prompt_builder.py`, `post_run.py`, and `logger.py`. All resolution of label_rule / actor_rule / source / project config overrides happens inside the task source before returning — `Task` carries only the resolved values.
+Produced by `TaskSource.fetch_task()`; consumed by `prompt_builder.py`, `post_run.py`, and `logger.py`. All resolution of label_rule / author_rule / source / project config overrides happens inside the task source before returning — `Task` carries only the resolved values.
 
 ```python
 @dataclass
 class Task:
     task_id: str                          # UUID v4, generated at selection time
-    source: str                           # "grafana-alerts" | "gh-label" | "proactive-improvement"
+    source: str                           # "grafana-alerts" | "gh-label" | "gh-author" | "proactive-improvement"
     description: str                      # human-readable; inserted into prompt section 2
     permitted_actions: list[PermittedAction]  # effective set; inserted into prompt section 3
 
@@ -230,12 +230,12 @@ class Task:
     item_url: str | None
 
     # Label transitions — post_run.py only; None for sources with no pre-existing item
-    source_label: str | None       # label to remove on success (gh-label label_rules only; None for actor_rules and other sources)
-    done_label: str | None         # label to apply on success (gh-label only; None for other sources)
+    source_label: str | None       # label to remove on success (gh-label label_rules only; None for gh-author and other sources)
+    done_label: str | None         # label to apply on success (gh-label and gh-author; None for other sources)
     grafana_rule_uid: str | None   # rule UID for grafana-alerts tasks; post_run.py applies ai-alert:<rule-uid> to items_created
 ```
 
-For all tasks, `repo` is always set to the project's configured repo — every task belongs to exactly one project. For `gh-label` tasks, `item_type`, `item_number`, and `item_url` are also populated — the item exists before the agent runs, so `store.py` writes the `items_touched` row at task-selection time. For `grafana-alerts` and `proactive-improvement`, `item_type`, `item_number`, and `item_url` are `None` at selection time; `items_touched` rows are written after the run using `task.repo` + each entry in `items_created` from `AgentResult`.
+For all tasks, `repo` is always set to the project's configured repo — every task belongs to exactly one project. For `gh-label` and `gh-author` tasks, `item_type`, `item_number`, and `item_url` are also populated — the item exists before the agent runs, so `store.py` writes the `items_touched` row at task-selection time. For `grafana-alerts` and `proactive-improvement`, `item_type`, `item_number`, and `item_url` are `None` at selection time; `items_touched` rows are written after the run using `task.repo` + each entry in `items_created` from `AgentResult`.
 
 #### `AgentConfig`
 
@@ -310,13 +310,13 @@ The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` and `ai-
 | **Partial (turn limit)** | — | Apply `ai-handover` + `ai-contributed`; post handover comment (includes WIP branch URL if code was preserved) |
 | **Failure** | — | Keep source label; apply `ai-failed`; apply `ai-contributed`; post failure comment (includes WIP branch URL if any) |
 
-#### `gh-label` — actor_rules
+#### `gh-author`
 
 No source label to remove — the done label is the "already processed" gate. `ai-failed` and `ai-handover` exclusions apply here too.
 
 | Phase | Labels on item | Harness action |
 | :--- | :--- | :--- |
-| **Eligible** | Opened by configured actor AND NOT has done label AND NOT `ai-failed` AND NOT `ai-handover` | Picker selects item |
+| **Eligible** | Opened by configured author AND NOT has done label AND NOT `ai-failed` AND NOT `ai-handover` | Picker selects item |
 | **Skipped — done** | Has done label | Picker ignores |
 | **Skipped — failed** | Has `ai-failed` | Picker ignores |
 | **Success** | — | Apply done label; apply `ai-contributed` |
@@ -758,8 +758,8 @@ CREATE TABLE runs (
     project             TEXT    NOT NULL,
     task_source         TEXT,                           -- NULL when outcome = 'skipped' (no task found)
     task_description    TEXT,
-    item_url            TEXT,                           -- GitHub URL of the *source* item selected by the picker (gh-label only); NULL for grafana-alerts and proactive-improvement — agent-created items are in items_touched, not here
-    trigger_label       TEXT,                           -- the specific label that caused the trigger (label_rules only); NULL for actor_rules, grafana-alerts, proactive-improvement, and skipped runs
+    item_url            TEXT,                           -- GitHub URL of the *source* item selected by the picker (gh-label/gh-author); NULL for grafana-alerts and proactive-improvement — agent-created items are in items_touched, not here
+    trigger_label       TEXT,                           -- the specific label that caused the trigger (label_rules only); NULL for gh-author, grafana-alerts, proactive-improvement, and skipped runs
     agent               TEXT,                           -- e.g. "claude-code"
     model               TEXT,
     started_at          TEXT    NOT NULL,               -- ISO 8601 UTC
@@ -790,7 +790,7 @@ CREATE TABLE project_locks (
 );
 
 -- items_touched: GitHub items acted on during a run; one row per item per run.
--- Written by the harness at run time (for gh-label: at task-selection time;
+-- Written by the harness at run time (for gh-label/gh-author: at task-selection time;
 -- for other sources: from items_created in the agent's structured output).
 -- Outcome signal columns are NULL until the daily digest job collects them.
 CREATE TABLE items_touched (
@@ -939,14 +939,8 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "create_issue"]
 # ── gh-label ───────────────────────────────────────────────────────────────
 [[projects.task_sources]]
 type = "gh-label"
-# Rule resolution: label_rules and actor_rules are evaluated in config declaration order
-# (label_rules first if not interleaved). First matching rule for a given item determines
-# its done_label, permitted_actions, and source_label. An item matching multiple rules is
-# governed by the first match — later rules are not consulted for that item.
-# Selection: all matching items across all rules form a candidate pool; oldest by GitHub
-# item created_at is picked. Note: label application time would be more precise for
-# label_rules (picks by when the operator requested AI work, not when the issue was filed)
-# but requires extra API calls per candidate — deferred to a future version.
+# Selection: all matching items across all label_rules form a candidate pool; oldest by
+# GitHub item created_at is picked.
 
 # Label-based eligibility: each label entry may declare its own permitted_actions.
 # If absent, falls back to source-level then project-level permitted_actions.
@@ -960,9 +954,13 @@ label             = "ai-review"
 done_label        = "ai-review-done"
 permitted_actions = ["comment_on_issue", "comment_on_pr"]
 
-# Actor-based eligibility: matches open PRs/issues from a specific GitHub login.
-# No label required on the item — implicit eligibility.
-[[projects.task_sources.actor_rules]]
+# ── gh-author ──────────────────────────────────────────────────────────────
+# Author-based eligibility: matches open PRs/issues created by a specific GitHub login.
+# No label required on the item — the author is the eligibility criterion.
+[[projects.task_sources]]
+type = "gh-author"
+
+[[projects.task_sources.author_rules]]
 actor             = "dependabot[bot]"   # exact GitHub login match
 done_label        = "ai-done"
 model             = "anthropic/claude-haiku-4-5"  # route to cheaper model for routine Dependabot PRs
@@ -1001,7 +999,7 @@ permitted_actions = ["comment_on_issue", "comment_on_pr", "open_pr"]
 - `model` — a CLI-prefixed slug in the form `<cli>[:<provider>/<model>][@<effort>]` (e.g. `claude-code:anthropic/claude-opus-4-7@high`). The CLI id is the agent registry key. The slug format is validated at config load time via `parse_slug()`; the agent implementation uses the parsed `model` and `effort` fields directly. Bare legacy slugs (`anthropic/...`) are rejected at config load time with a helpful message. See `docs/providers/` for per-agent slug examples.
 - `timeout_s` — subprocess wall-clock timeout in seconds. The stale-lock age threshold in `store.py` is `timeout_s + 60` (fixed 60-second grace period; not configurable). No separate config key — operators set `timeout_s`; the grace period is an implementation detail of `store.py`.
 - `daily_budget_usd` — optional float; omit or set `0.0` to disable. Checked after lock acquisition by querying `SUM(total_cost_usd)` from `runs` for the current UTC date. Skips with a structured reason string so it aggregates cleanly in the digest alongside other skip reasons.
-- `gh-label` with no `label_rules` and no `actor_rules` — hard config error at startup. A source that can never match is a misconfiguration, not a valid no-op.
+- `gh-label` with no `label_rules` — hard config error at startup. `gh-author` with no `author_rules` — likewise. A source that can never match is a misconfiguration, not a valid no-op.
 
 ### Documentation
 
@@ -1126,7 +1124,7 @@ _Testability and quality gates for the architecture._
 | `prompt_builder.py` called with a task | Any `Task` input | Output contains exactly four sections in order; permitted actions section enumerates only the effective `permitted_actions`; no section is empty. |
 | `post_run.py` label_rule success path | Agent returns `outcome="success"` | Source label removed; done label applied; `ai-contributed` applied; no `ai-failed`; no failure comment. |
 | `post_run.py` label_rule failure path | Agent returns `outcome="failure"` | Source label kept; `ai-failed` applied; `ai-contributed` applied; failure comment posted. |
-| `post_run.py` actor_rule success path | Agent returns `outcome="success"` | Done label applied; `ai-contributed` applied; no source label to remove; no `ai-failed`. |
+| `post_run.py` gh-author success path | Agent returns `outcome="success"` | Done label applied; `ai-contributed` applied; no source label to remove; no `ai-failed`. |
 | `daily_budget_usd` reached | Today's spend ≥ configured cap | Run logged as `skipped: daily budget exceeded ($X.XX of $Y.YY used)`; no agent invoked; lock released. |
 | `store.py` lock acquisition | Project not currently locked | `INSERT` succeeds; `project_locks` row present with correct `project` and `locked_at`. |
 | `store.py` lock contention | Project already locked (non-stale) | `INSERT` fails; returns `False`; no second lock row created. |
@@ -1163,7 +1161,7 @@ Each prompt passed to the agent has four sections, in order:
 
 1. **Role + harness context** — a short paragraph explaining that the agent is operating autonomously on behalf of Labro, on a schedule, with no human present. It should act decisively within its permitted actions or explicitly report that it cannot complete the task — it must not ask clarifying questions or wait for input.
 
-2. **Task** — the task description from the task source. For `gh-label`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: depends on `selection_strategy` — `harness-random` passes a single pre-selected target; `agent-chooses` passes the full target list with an explicit instruction to pick exactly one and open at most one issue or PR.
+2. **Task** — the task description from the task source. For `gh-label` and `gh-author`: GitHub issue/PR title, body, and URL. For `grafana-alerts`: alert name, rule UID, severity, and current labels. For `proactive-improvement`: depends on `selection_strategy` — `harness-random` passes a single pre-selected target; `agent-chooses` passes the full target list with an explicit instruction to pick exactly one and open at most one issue or PR.
 
 3. **Permitted actions** — an explicit enumeration of the *GitHub write operations* the agent may and may not perform in this run (derived from the effective action permissions). Scoped narrowly to side-effectful GitHub actions only — read operations, web searches, MCP tool calls (e.g. context7, web fetch), and local file operations are always unrestricted. Example: "You may: post a comment on a GitHub issue or PR, open a pull request. You must not: merge a pull request, approve a pull request, push directly to the default branch."
 

@@ -21,7 +21,7 @@ class Task:
     """
 
     task_id: str  # UUID v4, generated at selection time
-    source: str  # "grafana-alerts" | "gh-label" | "proactive-improvement"
+    source: str  # "grafana-alerts" | "gh-label" | "gh-author" | "proactive-improvement"
     description: str  # human-readable; inserted into prompt section 2
     permitted_actions: list[PermittedAction]  # effective set; inserted into prompt section 3
 

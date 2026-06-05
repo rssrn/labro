@@ -155,8 +155,8 @@ class LabelRule(BaseModel):
         return self
 
 
-class ActorRule(BaseModel):
-    """An actor-based eligibility rule within a gh-label source."""
+class AuthorRule(BaseModel):
+    """An author-based eligibility rule within a gh-author source."""
 
     actor: str
     done_label: str
@@ -166,19 +166,34 @@ class ActorRule(BaseModel):
 
 
 class GhLabelSource(BaseModel):
-    """Task source: gh-label (label_rules and/or actor_rules)."""
+    """Task source: gh-label (label_rules only)."""
 
     type: Literal["gh-label"]
     label_rules: list[LabelRule] = Field(default_factory=list)
-    actor_rules: list[ActorRule] = Field(default_factory=list)
     permitted_actions: list[PermittedAction] | None = None
     model: ModelSlug | None = None
 
     @model_validator(mode="after")
     def require_at_least_one_rule(self) -> GhLabelSource:
-        """gh-label with no rules is a hard config error."""
-        if not self.label_rules and not self.actor_rules:
-            raise ValueError("gh-label source must define at least one label_rule or actor_rule")
+        """gh-label with no label_rules is a hard config error."""
+        if not self.label_rules:
+            raise ValueError("gh-label source must define at least one label_rule")
+        return self
+
+
+class GhAuthorSource(BaseModel):
+    """Task source: gh-author (author_rules — items opened by a specific GitHub login)."""
+
+    type: Literal["gh-author"]
+    author_rules: list[AuthorRule] = Field(default_factory=list)
+    permitted_actions: list[PermittedAction] | None = None
+    model: ModelSlug | None = None
+
+    @model_validator(mode="after")
+    def require_at_least_one_rule(self) -> GhAuthorSource:
+        """gh-author with no author_rules is a hard config error."""
+        if not self.author_rules:
+            raise ValueError("gh-author source must define at least one author_rule")
         return self
 
 
@@ -205,7 +220,7 @@ class ProactiveImprovementSource(BaseModel):
 
 # Union discriminated on `type`.
 TaskSource = Annotated[
-    GhLabelSource | GrafanaAlertsSource | ProactiveImprovementSource,
+    GhLabelSource | GhAuthorSource | GrafanaAlertsSource | ProactiveImprovementSource,
     Field(discriminator="type"),
 ]
 
@@ -329,7 +344,8 @@ class LabroConfig(BaseModel):
                             raise ValueError(
                                 f"persona {lrule.persona!r} is not defined in [personas]"
                             )
-                    for arule in source.actor_rules:
+                elif isinstance(source, GhAuthorSource):
+                    for arule in source.author_rules:
                         if arule.persona is not None and arule.persona not in self.personas:
                             raise ValueError(
                                 f"persona {arule.persona!r} is not defined in [personas]"

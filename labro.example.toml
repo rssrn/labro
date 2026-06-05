@@ -243,7 +243,16 @@ type = "gh-label"
 [[projects.task_sources.label_rules]]
 rule = "architect"
 
-# (5) proactive improvement — fires when nothing else is queued.
+# (5) dependabot / renovate PRs — author-based, no label needed
+[[projects.task_sources]]
+type = "gh-author"
+
+[[projects.task_sources.author_rules]]
+actor             = "dependabot[bot]"
+done_label        = "ai-maintainer-done"
+permitted_actions = ["comment_on_pr"]
+
+# (6) proactive improvement — fires when nothing else is queued.
 #     Labro creates a GitHub issue and asks the agent to investigate from a
 #     randomly selected perspective (defined in perspectives.toml).
 #     Omit `perspectives` to draw from all defined perspectives.

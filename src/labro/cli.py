@@ -39,7 +39,13 @@ import labro.store as store_mod
 from labro.agents.base import AgentOutputError, AgentTimeoutError
 from labro.agents.registry import get_agent
 from labro.config.loader import ConfigError, load_config, referenced_agents, required_env_vars
-from labro.config.schema import GhLabelSource, LabroConfig, PermittedAction, ProjectConfig
+from labro.config.schema import (
+    GhAuthorSource,
+    GhLabelSource,
+    LabroConfig,
+    PermittedAction,
+    ProjectConfig,
+)
 from labro.models import AgentResult
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
@@ -546,7 +552,8 @@ def _collect_labels_for_project(project: ProjectConfig, _config: LabroConfig) ->
             for lr in source.label_rules:
                 _add(lr.label)
                 _add(lr.done_label)
-            for ar in source.actor_rules:
+        elif isinstance(source, GhAuthorSource):
+            for ar in source.author_rules:
                 _add(ar.done_label)
 
     return labels

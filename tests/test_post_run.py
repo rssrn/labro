@@ -138,10 +138,10 @@ def test_success_label_rule(mock_run: MagicMock, _mock_ensure: MagicMock) -> Non
 
 @patch("labro.post_run._ensure_labels")
 @patch("labro.post_run.subprocess.run")
-def test_success_actor_rule_no_remove(mock_run: MagicMock, _mock_ensure: MagicMock) -> None:
-    """actor_rule path (source_label=None): no --remove-label flag."""
+def test_success_gh_author_no_remove(mock_run: MagicMock, _mock_ensure: MagicMock) -> None:
+    """gh-author path (source_label=None): done_label applied, no label removal."""
     mock_run.return_value = MagicMock(returncode=0, stderr="")
-    task = _make_task(source_label=None, done_label="ai-actor-done")
+    task = _make_task(source="gh-author", source_label=None, done_label="ai-actor-done")
     post_run("run-2", task, _make_result(), outcome="success")
 
     edits = _edit_cmds(mock_run)

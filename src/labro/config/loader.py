@@ -10,7 +10,13 @@ import os
 import tomllib
 from pathlib import Path
 
-from labro.config.schema import GhLabelSource, GrafanaAlertsSource, LabroConfig, parse_slug
+from labro.config.schema import (
+    GhAuthorSource,
+    GhLabelSource,
+    GrafanaAlertsSource,
+    LabroConfig,
+    parse_slug,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +43,8 @@ def referenced_agents(config: LabroConfig) -> set[str]:
                 for lr in source.label_rules:
                     if lr.model is not None:
                         slugs.append(lr.model)
-                for ar in source.actor_rules:
+            elif isinstance(source, GhAuthorSource):
+                for ar in source.author_rules:
                     if ar.model is not None:
                         slugs.append(ar.model)
 

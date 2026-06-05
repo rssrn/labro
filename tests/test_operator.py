@@ -25,7 +25,8 @@ from labro.cli import (
     _collect_labels_for_project,
 )
 from labro.config.schema import (
-    ActorRule,
+    AuthorRule,
+    GhAuthorSource,
     GhLabelSource,
     LabelRule,
     LabroConfig,
@@ -41,18 +42,25 @@ def _make_label_rule(label: str = "ai-dev", done_label: str = "ai-dev-done") -> 
     return LabelRule(label=label, done_label=done_label)
 
 
-def _make_actor_rule(done_label: str = "ai-actor-done") -> ActorRule:
-    return ActorRule(actor="dependabot[bot]", done_label=done_label)
+def _make_author_rule(done_label: str = "ai-actor-done") -> AuthorRule:
+    return AuthorRule(actor="dependabot[bot]", done_label=done_label)
 
 
 def _make_gh_label_source(
     label_rules: list[LabelRule] | None = None,
-    actor_rules: list[ActorRule] | None = None,
 ) -> GhLabelSource:
     return GhLabelSource(
         type="gh-label",
         label_rules=label_rules or [_make_label_rule()],
-        actor_rules=actor_rules or [],
+    )
+
+
+def _make_gh_author_source(
+    author_rules: list[AuthorRule] | None = None,
+) -> GhAuthorSource:
+    return GhAuthorSource(
+        type="gh-author",
+        author_rules=author_rules or [_make_author_rule()],
     )
 
 
@@ -123,12 +131,10 @@ def test_collect_labels_from_label_rules() -> None:
     assert "ai-dev-done" in labels
 
 
-def test_collect_labels_from_actor_rules() -> None:
-    source = _make_gh_label_source(
-        label_rules=[_make_label_rule()],
-        actor_rules=[_make_actor_rule("ai-actor-done")],
-    )
-    project = _make_project(task_sources=[source])
+def test_collect_labels_from_author_rules() -> None:
+    gh_label = _make_gh_label_source(label_rules=[_make_label_rule()])
+    gh_author = _make_gh_author_source(author_rules=[_make_author_rule("ai-actor-done")])
+    project = _make_project(task_sources=[gh_label, gh_author])
     config = _make_config(projects=[project])
     labels = _collect_labels_for_project(project, config)
     assert "ai-actor-done" in labels

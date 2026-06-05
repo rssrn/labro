@@ -1,8 +1,8 @@
-"""GhLabelTaskSource — label_rules task source.
+"""GhAuthorTaskSource — author_rules task source.
 
-Fetches the oldest eligible open GitHub issue/PR carrying a configured label,
-excluding items with ``ai-failed`` and the done label.  All subprocess calls
-use list-form args with shell=False (ARCHITECTURE line 900; enforced by bandit B602).
+Fetches the oldest eligible open GitHub issue/PR created by a configured GitHub
+login (author_rules), excluding items with ``ai-failed`` and the done label.
+All subprocess calls use list-form args with shell=False (enforced by bandit B602).
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -16,13 +16,13 @@ from datetime import datetime
 from typing import Any
 
 from labro.config.schema import (
-    GhLabelSource as GhLabelSourceConfig,
-)
-from labro.config.schema import (
-    LabelRule,
+    AuthorRule,
     PermittedAction,
     PersonaConfig,
     ProjectConfig,
+)
+from labro.config.schema import (
+    GhAuthorSource as GhAuthorSourceConfig,
 )
 from labro.models import AgentConfig, Task, make_task_id
 from labro.task_sources.base import TaskSource
@@ -34,16 +34,7 @@ _AI_HANDOVER_LABEL = "ai-handover"
 
 
 def _run_gh_api(url: str) -> Any:
-    """Run ``gh api --paginate <url>`` (list-form, shell=False) and return parsed JSON.
-
-    The URL must include any query parameters inline (e.g.
-    ``repos/owner/repo/issues?state=open&labels=ai-dev``) so that ``gh api``
-    treats the request as a GET rather than inferring POST from ``-f`` flags.
-
-    Raises:
-        subprocess.CalledProcessError: if gh exits non-zero.
-        json.JSONDecodeError: if stdout is not valid JSON.
-    """
+    """Run ``gh api --paginate <url>`` (list-form, shell=False) and return parsed JSON."""
     result = subprocess.run(  # — list-form args, shell=False
         ["gh", "api", "--paginate", url],
         capture_output=True,
@@ -55,26 +46,19 @@ def _run_gh_api(url: str) -> Any:
 
 
 def _label_names(item: dict[str, Any]) -> set[str]:
-    """Return the set of label name strings on a GitHub API item."""
     return {lbl["name"] for lbl in item.get("labels", [])}
 
 
 def _item_type(item: dict[str, Any]) -> str:
-    """Return ``"pr"`` if *item* is a pull request, else ``"issue"``."""
     return "pr" if "pull_request" in item else "issue"
 
 
 def _resolve_permitted_actions(
-    rule: LabelRule,
-    source: GhLabelSourceConfig,
+    rule: AuthorRule,
+    source: GhAuthorSourceConfig,
     project: ProjectConfig,
 ) -> list[PermittedAction]:
-    """Resolve permitted_actions using the override chain.
-
-    Resolution order (most specific wins): rule → source → project.
-    Returns an empty list only when no level configures permitted_actions;
-    config validation should surface this condition at load time.
-    """
+    """Resolve permitted_actions: rule → source → project."""
     if rule.permitted_actions is not None:
         return rule.permitted_actions
     if source.permitted_actions is not None:
@@ -85,8 +69,8 @@ def _resolve_permitted_actions(
 
 
 def _resolve_model_slug(
-    rule: LabelRule,
-    source: GhLabelSourceConfig,
+    rule: AuthorRule,
+    source: GhAuthorSourceConfig,
     project: ProjectConfig,
     defaults_model: str,
 ) -> str:
@@ -134,24 +118,23 @@ def _fetch_comments_section(repo: str, number: int, max_comments: int) -> str:
     parts = [header]
     for c in tail:
         author: str = c.get("user", {}).get("login", "unknown")
-        created: str = c.get("created_at", "")[:10]  # YYYY-MM-DD
+        created: str = c.get("created_at", "")[:10]
         body: str = (c.get("body") or "").strip()
         parts.append(f"\n**@{author}** ({created}):\n{body}")
 
     return "\n".join(parts)
 
 
-class GhLabelTaskSource(TaskSource):
-    """Task source that monitors GitHub items via the ``gh`` CLI.
+class GhAuthorTaskSource(TaskSource):
+    """Task source that monitors GitHub items opened by configured authors.
 
-    Selects the oldest open item carrying a configured label (``label_rules``).
-    Candidates from all rules are merged and sorted by ``created_at``; the
-    globally oldest eligible item is returned.
+    Fetches all open issues/PRs, filters by author login (``author_rules``),
+    and returns the oldest eligible item.
     """
 
     def __init__(
         self,
-        source_config: GhLabelSourceConfig,
+        source_config: GhAuthorSourceConfig,
         personas: dict[str, PersonaConfig] | None = None,
     ) -> None:
         self._cfg = source_config
@@ -165,14 +148,19 @@ class GhLabelTaskSource(TaskSource):
         defaults_timeout_s: int,
         defaults_max_comments: int,
     ) -> tuple[Task, AgentConfig] | None:
-        """Return the oldest eligible labelled item across all label_rules, or None."""
-        candidates: list[tuple[datetime, dict[str, Any], LabelRule]] = []
+        """Return the oldest eligible item across all author_rules, or None."""
+        candidates: list[tuple[datetime, dict[str, Any], AuthorRule]] = []
 
-        for rule in self._cfg.label_rules:
-            items = _run_gh_api(
-                f"repos/{project.repo}/issues?state=open&labels={rule.label}&per_page=100"
-            )
-            for item in items:
+        # Fetch all open items once; filter per-rule client-side.
+        all_open: list[dict[str, Any]] | None = None
+
+        for rule in self._cfg.author_rules:
+            if all_open is None:
+                all_open = _run_gh_api(f"repos/{project.repo}/issues?state=open&per_page=100")
+            for item in all_open:
+                author_login: str = (item.get("user") or {}).get("login", "")
+                if author_login != rule.actor:
+                    continue
                 labels = _label_names(item)
                 if _AI_FAILED_LABEL in labels:
                     continue
@@ -184,19 +172,18 @@ class GhLabelTaskSource(TaskSource):
                 candidates.append((created_at, item, rule))
 
         if not candidates:
-            logger.debug("gh-label: no eligible candidates in %s", project.repo)
+            logger.debug("gh-author: no eligible candidates in %s", project.repo)
             return None
 
-        # Pick oldest by created_at (stable: ties broken by insertion order)
         candidates.sort(key=lambda t: t[0])
         _ts, item, winning_rule = candidates[0]
 
         logger.info(
-            "gh-label: picked %s #%d %r via label_rule label=%r (%d candidate%s)",
+            "gh-author: picked %s #%d %r via author_rule actor=%r (%d candidate%s)",
             _item_type(item),
             item["number"],
             item.get("title", ""),
-            winning_rule.label,
+            winning_rule.actor,
             len(candidates),
             "s" if len(candidates) != 1 else "",
         )
@@ -227,14 +214,14 @@ class GhLabelTaskSource(TaskSource):
 
         task = Task(
             task_id=make_task_id(),
-            source="gh-label",
+            source="gh-author",
             description=description,
             permitted_actions=permitted_actions,
             repo=project.repo,
             item_type=itype,
             item_number=number,
             item_url=url,
-            source_label=winning_rule.label,
+            source_label=None,
             done_label=done_label,
             grafana_rule_uid=None,
             assignees=assignees,

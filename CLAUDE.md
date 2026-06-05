@@ -41,7 +41,7 @@ src/labro/
   post_run.py         # label transitions, items_touched writes
   assignee.py         # assignee resolution helpers
   config/             # schema.py (Pydantic), loader.py
-  task_sources/       # base.py, gh_label.py, proactive_improvement.py
+  task_sources/       # base.py, gh_label.py, gh_author.py, proactive_improvement.py
   agents/             # base.py, claude_code.py, codex.py, opencode.py, registry.py, _schema.py, _subprocess.py
 tests/
 docs/                 # PRD, ARCHITECTURE, ROADMAP, ADRs

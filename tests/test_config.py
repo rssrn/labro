@@ -223,7 +223,7 @@ def test_unknown_permitted_action_is_hard_error(
 
 
 def test_gh_label_no_rules_is_hard_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """gh-label with neither label_rules nor actor_rules raises ConfigError."""
+    """gh-label with no label_rules raises ConfigError."""
     monkeypatch.setenv("GH_TOKEN", "x")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
 
@@ -242,7 +242,64 @@ def test_gh_label_no_rules_is_hard_error(tmp_path: Path, monkeypatch: pytest.Mon
         type = "gh-label"
         """,
     )
-    with pytest.raises(ConfigError, match="at least one label_rule or actor_rule"):
+    with pytest.raises(ConfigError, match="at least one label_rule"):
+        load_config(p)
+
+
+def test_gh_author_source_loads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A well-formed gh-author source with an author_rule loads without error."""
+    monkeypatch.setenv("GH_TOKEN", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+
+    p = write_toml(
+        tmp_path,
+        """\
+        [digest]
+        enabled = false
+
+        [[projects]]
+        name = "svc"
+        repo = "org/svc"
+        cron = "0 * * * *"
+
+        [[projects.task_sources]]
+        type = "gh-author"
+
+        [[projects.task_sources.author_rules]]
+        actor      = "dependabot[bot]"
+        done_label = "dependencies-merged"
+        permitted_actions = ["comment_on_pr"]
+        """,
+    )
+    config = load_config(p)
+    from labro.config.schema import GhAuthorSource
+
+    src = config.projects[0].task_sources[0]
+    assert isinstance(src, GhAuthorSource)
+    assert src.author_rules[0].actor == "dependabot[bot]"
+
+
+def test_gh_author_no_rules_is_hard_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """gh-author with no author_rules raises ConfigError."""
+    monkeypatch.setenv("GH_TOKEN", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+
+    p = write_toml(
+        tmp_path,
+        """\
+        [digest]
+        enabled = false
+
+        [[projects]]
+        name    = "svc"
+        repo    = "org/svc"
+        cron    = "0 * * * *"
+
+        [[projects.task_sources]]
+        type = "gh-author"
+        """,
+    )
+    with pytest.raises(ConfigError, match="at least one author_rule"):
         load_config(p)
 
 

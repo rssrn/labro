@@ -30,7 +30,7 @@ The operator configures which projects to monitor, what tasks to prioritise, whi
 **Why cron and not event-driven?** It would be trivial to trigger a run on every new issue or PR via GitHub webhooks — but that creates a different problem. AI agents are fast: if every incoming item fires a run, you quickly accumulate a wall of AI-generated output that all needs human review. The bottleneck shifts from *doing the work* to *reviewing the output*, and nothing has actually been saved. A cron schedule naturally throttles throughput to a human-reviewable rate — one task at a time, at a cadence you control by adjusting a single `cron` field. Each run works through your configured task sources in priority order, so the most important work gets attention first rather than whatever arrived most recently. It also preserves your subscription credits: a measured schedule means each allocated pool lasts the billing cycle rather than being exhausted in an event burst.
 
 - **Scheduled, unattended runs** — cron-driven via GitHub Actions or a VPS; no one needs to be at the keyboard
-- **Priority-based task picking** — configurable label rules and actor rules determine what gets worked on first
+- **Priority-based task picking** — configurable label rules and author rules determine what gets worked on first
 - **Flexible deployment** — run as a long-lived VPS container with crond, or as a one-shot container per scheduled GitHub Actions job; both patterns are documented with ready-to-use config
 - **Per-project daily spend cap** — set `daily_budget_usd` to hard-stop spending once the limit is reached; the skipped run is recorded so accounting stays accurate
 - **Turn-limit handover** — when the agent exhausts its turn budget mid-task, Labro commits any in-progress edits to a `labro-wip/<run-id>` branch, posts a handover comment on the issue with the WIP branch link, and parks the item under `ai-handover` until a human re-queues it — no code is lost and no credits are silently wasted on a retry
@@ -376,7 +376,7 @@ After each live run, Labro updates the GitHub labels on the acted-on item automa
 | partial (turn limit) | `ai-handover`, `ai-contributed` | _(none — source label kept)_ |
 | failure | `ai-failed`, `ai-contributed` | _(none — source label kept)_ |
 
-#### `actor_rule` path (polling-based tasks, no source label)
+#### `gh-author` path (author-triggered tasks, no source label)
 
 | Outcome | Labels added | Labels removed |
 |---|---|---|
