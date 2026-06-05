@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.5.0 — 2026-06-05
+
+### Features
+- **`requires_dependabot_alert` on `AuthorRule`** — cross-references the repo's open Dependabot security alerts to identify security-update PRs and prioritise them above routine version bumps
+
+### Fixed
+- Log line prefix order: logger name now appears after the run context bracket, with ` - ` separator — `INFO [project abc12345] logger.name - msg`
+
 ## v0.4.0 — 2026-06-05
 
 ### Features
