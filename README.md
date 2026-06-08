@@ -13,21 +13,11 @@
 [![OpenCode](https://img.shields.io/badge/agent-OpenCode-6366f1)](https://opencode.ai)
 [![GitHub](https://img.shields.io/badge/platform-GitHub-181717?logo=github&logoColor=white)](https://github.com)
 
-AI coding agents like Claude Code deliver real productivity gains — but they still demand attention. You have to decide what to work on next, queue the task, watch the run, and review the output. That supervisory overhead is the bottleneck, not the agent.
+AI coding agents like Claude Code deliver real productivity gains — but they still demand attention. Labro removes the supervisory overhead: it runs your agent on a cron schedule, picks the highest-priority task from your configured backlog, and records the result — no one needs to be at the keyboard.
 
-Labro is designed to reduce it. It runs Claude Code on a schedule, picks the next task according to your configured priorities, and records the result — without you having to be present. Maintenance work that would otherwise pile up happens in the background: issues get triaged, PRs get reviewed, and alerts get investigated while you focus on something else.
+**A natural fit for Claude subscribers:** from June 2026, Pro/Max/Team/Enterprise plans include a [monthly pool of headless Agent SDK credits](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) that expire unused. Labro gives you a concrete, low-risk way to put them to work on your own repos. The harness is deterministic and auditable — it selects a task, constructs a prompt, invokes the agent, records the result, and gets out of the way.
 
-**A natural fit for Claude subscribers with headless credits to use.** From June 2026 Anthropic allocates a [monthly pool of Agent SDK credits](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) to Pro, Max, Team, and Enterprise plan holders for headless/programmatic use — separate from interactive chat usage. Unused credits don't roll over at the end of each billing cycle. Labro gives you a concrete, low-risk way to put them to work on your own repos rather than letting them expire.
-
-**Going on holiday? Heads-down on a deadline?** Leave the backlog to Labro before you disconnect — issues get triaged, PRs get reviewed, and alerts get investigated while you're away. Your subscription keeps earning its keep, even when you're not at the keyboard.
-
-Named after cleaner wrasse fish stations on coral reefs (_Labroides dimidiatus_), which provide a designated, high-value, symbiotic service to reef inhabitants, Labro acts as an always-available autonomous worker that keeps your projects healthy with minimal human supervision.
-
-The operator configures which projects to monitor, what tasks to prioritise, which agent and model to use per task type, and what actions the agent is permitted to take. The harness is deterministic and auditable — it selects a task, constructs a prompt, invokes the agent, records the result, and gets out of the way.
-
-**Human-in-the-loop by default, autonomous when you're ready.** Out of the box Labro is conservative: the agent opens PRs and posts comments, but merges and deployments are left for a human to approve. The autonomy dial is yours to turn — widen the `permitted_actions` list and adjust the system prompt in `labro.toml`, and Labro can merge approved PRs, push to a staging environment, or deploy to production on a schedule. The configuration is the only gatekeeper; there is no separate mode to enable.
-
-**Why cron and not event-driven?** It would be trivial to trigger a run on every new issue or PR via GitHub webhooks — but that creates a different problem. AI agents are fast: if every incoming item fires a run, you quickly accumulate a wall of AI-generated output that all needs human review. The bottleneck shifts from *doing the work* to *reviewing the output*, and nothing has actually been saved. A cron schedule naturally throttles throughput to a human-reviewable rate — one task at a time, at a cadence you control by adjusting a single `cron` field. Each run works through your configured task sources in priority order, so the most important work gets attention first rather than whatever arrived most recently. It also preserves your subscription credits: a measured schedule means each allocated pool lasts the billing cycle rather than being exhausted in an event burst.
+For the full design rationale — why cron instead of webhooks, the autonomy model, and the project philosophy — see [Why Labro](docs/WHY.md).
 
 - **Scheduled, unattended runs** — cron-driven via GitHub Actions or a VPS; no one needs to be at the keyboard
 - **Priority-based task picking** — configurable label rules and author rules determine what gets worked on first
@@ -52,91 +42,10 @@ The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and 
 ### Prerequisites
 
 - **[Docker](https://docs.docker.com/get-docker/)** (or a compatible runtime such as Podman)
-- **GitHub access** for the repos you want to monitor — either a **GitHub App** (recommended; bot identity, no `GH_TOKEN` needed) or a **PAT** (`GH_TOKEN`) — see [GitHub token setup](#github-token-setup) below
-- A **claude CLI auth credential** — needed for live agent runs (M2+), not for `--dry-run`. Two options:
+- **GitHub access** — either a **GitHub App** (recommended; bot identity) or a **PAT** (`GH_TOKEN`). See [GitHub Token Setup](docs/DEPLOYMENT.md#github-token-setup) for the full setup guide.
+- A **claude CLI auth credential** for live agent runs (not needed for `--dry-run`):
   - **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended) — OAuth token tied to your Claude subscription (Pro/Max). Generate once with `claude setup-token` on your dev machine.
   - **`ANTHROPIC_API_KEY`** (untested) — standard Anthropic API key; bills your API account. If both vars are set, this takes precedence over the OAuth token.
-
-### GitHub token setup
-
-There are two ways to give Labro access to your GitHub repos. **GitHub App** (recommended) uses a proper bot identity; a **PAT** is simpler to set up but attaches activity to your personal account.
-
-#### Option A — GitHub App (recommended)
-
-A GitHub App gives Labro a proper bot identity (`your-app[bot]`) with scoped permissions and no user account needed. Labro generates a short-lived installation token automatically at the start of each run — no `GH_TOKEN` env var required.
-
-**1. Create the app:**
-
-- Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub App**
-- **App name**: something unique like `labro-yourusername` (GitHub names are global)
-- **Homepage URL**: your repo URL (required by GitHub, not used by Labro)
-- **Webhook**: uncheck *Active* — Labro doesn't receive webhooks
-- **Permissions** — set these under *Repository permissions*:
-
-| Permission | Level | Why |
-|---|---|---|
-| Contents | Read & write | Push WIP branches |
-| Issues | Read & write | Comment, add/remove labels |
-| Metadata | Read-only | Repo lookup (required by GitHub) |
-| Pull requests | Read & write | Open PRs |
-
-- **Identifying and authorizing users**: leave everything blank/unchecked — Labro uses installation tokens, not user OAuth
-- **Where can this be installed**: *Only on this account*
-- Click **Create GitHub App**
-
-**2. Get your credentials:**
-
-- Note the **App ID** shown on the app's settings page
-- Scroll to the bottom and click **Generate a private key** — save the downloaded `.pem` file securely
-
-**3. Install the app on your repos:**
-
-- On the app settings page, click **Install App** → select your account → choose the repos Labro monitors
-
-**4. Configure `labro.toml`:**
-
-```toml
-github_app_id   = 12345                    # your App ID
-github_app_name = "labro-yourusername"     # your app slug (without [bot])
-
-# Set claude_assignee to the bot's GitHub username
-claude_assignee = "labro-yourusername[bot]"
-```
-
-**5. Pass the private key as an environment variable:**
-
-The private key PEM goes in `GH_APP_PRIVATE_KEY` — not in `labro.toml`, which keeps secrets out of your config file.
-
-```bash
-export GH_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)"
-```
-
-For Docker:
-
-```bash
-docker run --rm \
-  -e GH_APP_PRIVATE_KEY="$(cat labro-yourusername.pem)" \
-  -e CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
-  -v "$PWD/labro.toml:/data/labro.toml:ro" \
-  labro:latest run my-project
-```
-
-> **Multi-line keys in env files:** GitHub App private keys are multi-line PEM. If you use a `.env` file or `--env-file`, you'll need to quote the key or use a secrets manager that handles multi-line values (GitHub Actions secrets, Docker secrets, and Vault all work natively).
-
-#### Option B — Personal access token (PAT)
-
-`GH_TOKEN` must belong to an account that has **collaborator access** (or ownership) of every repo in your `labro.toml`. The token needs the following permissions:
-
-| Permission | Level | Why |
-|---|---|---|
-| Contents | Read & write | Push branches for PRs |
-| Issues | Read & write | Comment on issues, add/remove labels |
-| Metadata | Read-only | List issues, repo lookup (required by GitHub) |
-| Pull requests | Read & write | Open PRs |
-
-**Fine-grained PAT:** create it under the account that owns the repos. Fine-grained PATs can only access repos owned by the issuing account — select "Only select repositories" and add each repo explicitly.
-
-**Classic PAT:** use `repo` scope. Simpler, but broader than necessary.
 
 ### 1. Clone and build
 
@@ -146,10 +55,7 @@ cd labro
 docker build --target base -t labro:latest .
 ```
 
-> **Build targets:** the Dockerfile has two stages. `--target base` (production) omits the
-> test suite and dev extras. The default target (`dev`, built without `--target`) includes
-> `tests/` and dev extras — useful for contributors and CI, but slightly larger. The
-> `labro:latest` tag is conventionally the production image.
+> **Build targets:** `--target base` (production) omits the test suite and dev extras. Omit `--target` for the `dev` stage, which includes `tests/` — useful for CI and contributors. `labro:latest` is the production tag by convention.
 
 **ARM64 / Oracle Cloud Ampere A1:** the image is arch-aware. Build natively on the instance, or cross-build from an amd64 host with:
 
@@ -218,11 +124,7 @@ This creates every label referenced in `labro.toml` across all configured repos 
 
 ### 5. Validate the `claude` CLI (before live runs)
 
-Before running Labro with a live agent (M2+), confirm `claude -p` works inside the container. Use whichever auth route applies to you:
-
-**Option A — Claude subscription OAuth token (Pro/Max; recommended):**
-
-Generate the token once on your dev machine with `claude setup-token`, then:
+Before running Labro with a live agent, confirm `claude -p` works inside the container:
 
 ```bash
 docker run --rm \
@@ -232,19 +134,11 @@ docker run --rm \
   -c 'echo "hello" | claude -p --output-format json'
 ```
 
-**Option B — Anthropic API key (untested):**
-
-```bash
-docker run --rm \
-  --entrypoint sh \
-  -e ANTHROPIC_API_KEY=<your-key> \
-  labro:latest \
-  -c 'echo "hello" | claude -p --output-format json'
-```
+The response should contain top-level `type`, `is_error`, and `result` fields. If it fails with an auth error requiring interactive login, resolve the container auth strategy before proceeding to live runs.
 
 > **Note:** if both `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are set, `ANTHROPIC_API_KEY` takes precedence and bills your API account.
 
-The response should contain top-level `type`, `is_error`, and `result` fields. If it fails with an auth error requiring interactive login, resolve the container auth strategy before proceeding to M2 — this is the day-one blocker for live agent runs.
+For production deployment options (GitHub Actions, VPS with crond, config repo), see the [Deployment Guide](docs/DEPLOYMENT.md).
 
 ---
 
@@ -302,122 +196,7 @@ Labro will print the resolved task, agent config, and full four-section prompt t
 
 ---
 
-## Live Run Loop
-
-When you run `labro run <project>` without `--dry-run`, the harness executes the following steps in order:
-
-1. **Load config** — parse and validate `labro.toml` (or `$LABRO_CONFIG`)
-2. **Check `LABRO_DISABLED`** — if `/data/LABRO_DISABLED` exists, print `skipped: harness disabled` and exit immediately; no lock is acquired and no SQLite record is written
-3. **Acquire run lock** — INSERT into `project_locks`; if a non-stale lock already exists, print `skipped: run in progress` and exit
-4. **Budget check** — if `daily_budget_usd` is configured, query today's spend from `runs`; if the limit is reached, write a skipped record to SQLite and exit
-5. **Pick task** — run the picker over all configured task sources; if nothing is found, write a skipped record and exit
-6. **Prepare repo** — clone or pull the target repo into `/repos/<slug>`; if the working copy is dirty (agent was interrupted mid-edit), log a warning then `git reset --hard && git clean -fd`
-7. **Build prompt** — construct the four-section prompt from the resolved task and project context
-8. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload. If the agent hits its turn limit (`--max-turns`), the harness recovers gracefully — see [Turn limits and partial runs](#turn-limits-and-partial-runs) below
-9. **Preserve WIP** — on any non-success outcome, if the working copy is dirty the harness commits it to a `labro-wip/<run-id>` branch and pushes it, so no in-progress code edits are silently discarded
-10. **Post-run labels** — apply label transitions and post a comment to the GitHub item (see [Label transitions](#label-transitions))
-11. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list
-12. **Release lock** — DELETE from `project_locks` (always; in a `finally` block)
-
-### Required environment variables
-
-| Variable | Required | Notes |
-|---|---|---|
-| `GH_TOKEN` | Unless using GitHub App | GitHub PAT — see [GitHub token setup](#github-token-setup) |
-| `GH_APP_PRIVATE_KEY` | If using GitHub App (local/plain) | Raw PEM private key for the GitHub App; replaces `GH_TOKEN` |
-| `GH_APP_PRIVATE_KEY_BASE64` | If using GitHub App (container/CI) | `base64 -w 0 your-app.pem`; takes precedence over `GH_APP_PRIVATE_KEY` if both are set |
-| `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent | OAuth token from `claude setup-token`; tied to your Pro/Max subscription |
-| `ANTHROPIC_API_KEY` | Alternative to OAuth token | Bills your API account. If **both** are set, this takes precedence over the OAuth token |
-| `OPENROUTER_API_KEY` | If using opencode with OpenRouter | |
-| `CODEX_API_KEY` | If using codex via OpenAI API | Pay-per-token billing |
-| `LABRO_CONFIG` | Optional | Path to `labro.toml` inside the container (default: `./labro.toml`) |
-| `LABRO_REPOS_DIR` | Optional | Where repos are cloned (default: `/repos`; set to `/data/repos` with single-mount layout) |
-| `LABRO_DB_PATH` | Optional | SQLite path (default: `/data/labro.db`) |
-| `LABRO_LOG_PATH` | Optional | Log file path (default: `/data/labro.log`) |
-| `R2_ACCESS_KEY_ID` | If `[dashboard] enabled = true` | Cloudflare R2 S3 API access key |
-| `R2_SECRET_ACCESS_KEY` | If `[dashboard] enabled = true` | Cloudflare R2 S3 API secret key |
-| `R2_ACCOUNT_ID` | If `[dashboard] enabled = true` | Cloudflare account ID (endpoint derived automatically) |
-| `R2_BUCKET` | If using `dashboard-publish.yml` | R2 bucket name — used by the CI workflow to upload SPA assets; the harness reads the bucket from `[dashboard] bucket` in `labro.toml` |
-
-### Emergency pause — `LABRO_DISABLED`
-
-To stop Labro from picking up new tasks without restarting containers:
-
-```bash
-# Pause — create the flag file in the /data volume:
-touch /data/LABRO_DISABLED
-
-# Resume — remove it:
-rm /data/LABRO_DISABLED
-```
-
-The check happens before lock acquisition. Any run already in progress finishes normally; only new runs are blocked.
-
-### Turn limits and partial runs
-
-Labro is designed for budget-conscious use. Low `max_turns` values keep costs predictable, but they mean the agent will sometimes hit its limit mid-task — especially on larger issues. This is expected and handled as a first-class outcome rather than a hard error.
-
-When the agent exhausts its turn budget:
-
-1. **Cost is recorded** — `total_cost_usd` and token counts are salvaged from the CLI response and written to the `runs` table as normal, so daily-budget accounting stays accurate even for incomplete runs.
-2. **Code is preserved** — if the agent made any file edits before being cut off, the harness commits them to a `labro-wip/<run-id>` branch and pushes it to the remote. The branch URL appears in the handover comment.
-3. **Handover comment posted** — Labro comments on the issue/PR with the agent's last message, a link to the WIP branch (if any), and the instruction to remove `ai-handover` to re-queue.
-4. **Item is parked** — the `ai-handover` label is applied. The picker will not re-attempt the item until a human reviews the comment and removes the label — intentional friction to avoid burning the turn budget again without a config change.
-
-> **Tuning tip:** if an item is repeatedly hitting the turn limit, either raise `max_turns` for that project/rule in `labro.toml`, or break the issue into smaller scoped tasks before re-queuing.
-
-The prompt also asks the agent to post an early progress comment on the item and update it in place as work proceeds (`gh issue comment --edit-last`). This way analysis work is visible on the ticket even if the session ends before the agent can fill in `structured_output`.
-
-### Label transitions
-
-After each live run, Labro updates the GitHub labels on the acted-on item automatically. The exact transitions depend on the task source rule type and the run outcome.
-
-#### `label_rule` path (label-triggered tasks)
-
-| Outcome | Labels added | Labels removed |
-|---|---|---|
-| success | `<done_label>` (e.g. `ai-dev-done`), `ai-contributed` | `<source_label>` (e.g. `ai-dev`) |
-| partial (turn limit) | `ai-handover`, `ai-contributed` | _(none — source label kept)_ |
-| failure | `ai-failed`, `ai-contributed` | _(none — source label kept)_ |
-
-#### `gh-author` path (author-triggered tasks, no source label)
-
-| Outcome | Labels added | Labels removed |
-|---|---|---|
-| success | `<done_label>`, `ai-contributed` | _(none)_ |
-| partial (turn limit) | `ai-handover`, `ai-contributed` | _(none)_ |
-| failure | `ai-failed`, `ai-contributed` | _(none)_ |
-
-#### Re-queueing items
-
-**After a partial run (`ai-handover`):** review the handover comment (and WIP branch if present), then remove `ai-handover` to re-queue:
-
-```bash
-gh issue edit <number> --remove-label "ai-handover" --repo <owner/repo>
-```
-
-**After a failure (`ai-failed`):** remove `ai-failed` to re-queue (`ai-contributed` can stay — it's informational and never blocks re-pickup):
-
-```bash
-gh issue edit <number> --remove-label "ai-failed" --repo <owner/repo>
-```
-
-If the task was label-triggered, also ensure the source label (e.g. `ai-dev`) is still present.
-
-#### `proactive-improvement` path
-
-Labro creates the GitHub issue before the agent runs, applying `ai-proactive-suggestion` at creation time. The agent's task is to investigate and post findings as a comment.
-
-| Outcome | Labels added to created issue | Notes |
-|---|---|---|
-| success | `ai-contributed` | `ai-proactive-suggestion` already applied at creation |
-| failure | `ai-failed`, `ai-contributed` | Failure reason posted as a comment |
-
-The `ai-proactive-suggestion` label counts toward the open-suggestion cap (`max_open_suggestions`, default 3). Close or relabel an issue to make room for a new proactive run.
-
----
-
-## Proactive improvement
+## Proactive Improvement
 
 The `proactive-improvement` task source triggers when the picker reaches it in the configured priority list. Labro creates a tracking issue, then asks the agent to investigate and post findings as a comment.
 
@@ -443,115 +222,17 @@ model                = "claude-code:anthropic/claude-sonnet-4-6@high"
 
 ### Perspectives
 
-A **perspective** is a prompt lens that shapes the agent's approach for a single proactive run. Labro picks one at random from `perspectives.toml` (adjacent to `labro.toml`) each time the source fires.
+A **perspective** is a prompt lens that shapes the agent's approach for a single proactive run. Copy `perspectives.toml` from the repo root alongside your `labro.toml` and edit it to suit your project. Labro picks one at random each time the source fires, and records the chosen perspective in the `runs` table for auditability.
 
-**Setup:**
-1. Copy `perspectives.toml` from the repo root into the same directory as your `labro.toml`.
-2. Edit the perspective prompts to suit your project.
-3. Restart Labro (or let it pick up the file on the next cron tick — it reads it fresh each run).
-
-If `perspectives.toml` is absent, Labro logs a notice and runs without a perspective (agent has free rein).
-
-**Restricting perspectives per project:** list the names you want:
-
-```toml
-[[projects.task_sources]]
-type         = "proactive-improvement"
-perspectives = ["red-team", "pre-mortem"]   # only these two, picked randomly
-```
-
-Omit `perspectives` (or set it to `[]`) to pick from all perspectives defined in the file.
-
-**Adding custom perspectives** — append to `perspectives.toml`:
-
-```toml
-[perspectives.dependency-audit]
-prompt = """
-Review all third-party dependencies. Identify any that are outdated, unmaintained,
-or have known vulnerabilities. Propose a concrete upgrade or replacement plan.
-"""
-```
-
-**The chosen perspective** is written to the `runs` table (`chosen_perspective` column) and appears in the issue header, so every suggestion is auditable.
-
----
-
-#### `items_touched` table
-
-Labro writes a row to the `items_touched` SQLite table **before** the agent runs, as soon as the task is selected. This means the row exists even if the agent times out or crashes — it records which item was attempted, not whether the attempt succeeded.
-
-```sql
-SELECT repo, item_type, item_number FROM items_touched;
-```
-
----
-
-### Daily budget cap — `daily_budget_usd`
-
-Add to your project stanza in `labro.toml` to cap per-project spending per calendar day (UTC):
-
-```toml
-[[projects]]
-name             = "my-project"
-repo             = "my-org/my-repo"
-daily_budget_usd = 2.00    # skip if today's spend already >= $2.00
-```
-
-Omit the field (or set it to `0`) to disable the cap. When the budget is exceeded, Labro writes a `skipped` record to SQLite with the reason `skipped: daily budget exceeded ($X.XX of $Y.YY used)` and exits without invoking the agent.
-
----
-
-## Inspecting run records
-
-### `labro review` (recommended)
-
-`labro review` prints a formatted table of recent runs directly from the SQLite database:
-
-```bash
-docker exec labro labro review --limit 10
-docker exec labro labro review --project my-project --outcome failure
-```
-
-Flags:
-
-| Flag | Default | Description |
-|---|---|---|
-| `--limit N` | 20 | Maximum runs to show |
-| `--project NAME` | _(all)_ | Filter to one project |
-| `--outcome` | _(all)_ | One of `success`, `failure`, `partial`, `skipped` |
-| `--db-path PATH` | `/data/labro.db` | Override DB path |
-
-The footer shows total runs, total cost, and total token usage across the displayed rows.
-
-### Raw SQLite (advanced)
-
-The database is at `/data/labro.db` inside the container, bind-mounted to wherever you point `--volume` on the host.
-
-**Everything for one run:**
-
-```bash
-sqlite3 -column -header /data/labro.db "
-  SELECT * FROM runs          WHERE run_id = '<run_id>';
-  SELECT * FROM items_touched WHERE run_id = '<run_id>';
-"
-```
-
-**Items touched in a specific run:**
-
-```bash
-sqlite3 -column -header /data/labro.db \
-  "SELECT * FROM items_touched WHERE run_id = '<run_id>';"
-```
-
-> **Tip:** `-column -header` formats output as aligned columns with a header row. Add `-json` instead for JSON output, or `-csv` for CSV.
+See [Proactive Improvement — Perspectives](docs/OPERATIONS.md#proactive-improvement--perspectives) for the full configuration reference.
 
 ---
 
 ## Metrics Dashboard
 
-> **⚠️ Data sensitivity:** the published snapshot contains private-repo prose — task descriptions, summaries, failure reasons, and item URLs from your monitored repositories. M9.1 ships **no built-in access control**. The bucket URL is the only barrier. Keep it private: do not share it, embed it in public pages, or link to it from anywhere indexable. See [ADR-0007](docs/adr/0007-metrics-dashboard.md) for the accepted risk posture and the deferred Cloudflare Access / column-redaction options.
+> **⚠️ Data sensitivity:** the published snapshot contains private-repo prose — task descriptions, summaries, failure reasons, and item URLs from your monitored repositories. The dashboard ships **no built-in access control**. The bucket URL is the only barrier. Keep it private: do not share it, embed it in public pages, or link to it from anywhere indexable. See [ADR-0007](docs/adr/0007-metrics-dashboard.md) for the accepted risk posture and the deferred Cloudflare Access / column-redaction options.
 
-The dashboard is a read-only static SPA (React + Vite + sql.js) served from Cloudflare R2. It loads a published snapshot of `labro.db` client-side and renders a runs list and per-project stats. It has no runtime link to the harness and cannot affect runs.
+The dashboard is a read-only static SPA (React + Vite + sql.js) served from Cloudflare R2. It loads a published snapshot of `labro.db` client-side and renders a runs list, per-project stats, and charts. It has no runtime link to the harness and cannot affect runs.
 
 ### 1. Create an R2 bucket and bind a custom domain
 
@@ -574,7 +255,7 @@ When `enabled = true`, `labro gen-crontab` emits a `labro publish-db` cron line 
 ### 3. Set R2 credentials
 
 Add `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ACCOUNT_ID` to:
-- the VPS `.env` file (see [Config repo](#config-repo))
+- the VPS `.env` file (see [Config Repo](docs/DEPLOYMENT.md#config-repo))
 - your config-repo GitHub Secrets (for the `dashboard-publish.yml` workflow)
 
 ### 4. Publish the first snapshot
@@ -584,7 +265,7 @@ labro publish-db --dry-run   # prints hashed db_key + manifest JSON; no upload, 
 labro publish-db             # uploads snapshot to R2 (db first, then manifest)
 ```
 
-After the first successful upload, `manifest.json` and `db/labro-<hash>.db` appear in the R2 bucket. The DB is uploaded before the manifest so the manifest never points at a missing file.
+After the first successful upload, `manifest.json` and `db/labro-<hash>.db` appear in the R2 bucket.
 
 ### 5. Deploy the SPA
 
@@ -592,364 +273,58 @@ Copy `docs/config-repo-scaffold/dashboard-publish.yml` into `.github/workflows/`
 
 The SPA rebuilds automatically when `dashboard/**` changes on labro `main` (dispatched via `dashboard-dispatch.yml`). Snapshot publishing runs independently on the cron in `[dashboard]`.
 
-### 6. Dashboard — charts
-
-M9.2 adds a "charts" tab alongside the existing runs and stats views:
-
-**Shared filter bar** — sits above the tab bar. Dropdowns for timespan (All time / 90d / 30d / 7d), project, model, and task source. All three tabs (runs, stats, charts) respond to the active filter.
-
-**Chart sections** (all rendered with ECharts, matching the dark monospace theme):
-
-- **Cost & Token Trends** — daily cost line chart + stacked area chart of input, output, cache-read, and cache-write tokens.
-- **Outcomes** — stacked bar of daily success / failure / partial / skipped counts (colour-coded to match the runs table palette).
-- **Breakdowns** — three horizontal bar charts (model, task source, perspective). The perspective chart is hidden automatically when no runs have a `chosen_perspective` value.
-- **Engagement** — bar chart of `items_touched` outcome states (merged, closed_completed, closed_not_planned, closed_unmerged, open) plus a summary row of thumbs-up, thumbs-down, and follow-up commits. Shows "no engagement data" when `items_touched` is empty.
-
 ---
 
-## Signal Collection
-
-Labro records which items (issues/PRs) were touched during each run in the `items_touched` table. The signal columns — `outcome_state`, `follow_up_commits`, `thumbs_up`, `thumbs_down` — are left NULL when the row is first inserted. The `labro collect-signals` command back-fills these columns by querying the GitHub API after the fact.
-
-### Signal columns
-
-| Column | Type | Meaning |
-|---|---|---|
-| `outcome_state` | string | One of `merged` (PR), `closed_completed`, `closed_not_planned`, `closed_unmerged` (PR), or `open` |
-| `follow_up_commits` | integer | Commits pushed to a PR *after* the run started (PRs only; `NULL` for issues) |
-| `thumbs_up` | integer | Count of +1 reactions on the item |
-| `thumbs_down` | integer | Count of -1 reactions on the item |
-| `signals_collected_at` | timestamp | When the row was last refreshed (UTC) |
-
-### Usage
-
-```bash
-labro collect-signals                              # default: stale-days=7
-labro collect-signals --dry-run                    # print what would be written
-labro collect-signals --stale-days 0               # only uncollected items
-labro collect-signals --stale-days 14              # re-collect after 14 days
-```
-
-- **First run** collects every row that has never been touched, regardless of age.
-- **Subsequent runs** skip rows that have already been collected, *unless* the outcome was `open` and the collection is older than `--stale-days` (default 7). This catches state transitions like issue closures or PR merges that happened after the initial collection.
-- Partial success is normal: if one API call fails (e.g. the repo was deleted), the command logs a warning, increments the error counter, and continues with the next item.
-
-### Scheduling
-
-Add a `[signals]` section to `labro.toml` to control the cron schedule:
-
-```toml
-[signals]
-enabled = true
-cron    = "0 6 * * *"
-```
-
-The `labro gen-crontab` command emits the signal-collection cron line automatically from this config. The defaults (`--stale-days 7`) mean a weekly refresh of open items is sufficient, but running daily is harmless — already-collected closed items are skipped on subsequent passes.
-
----
-
-All subcommands read `--config` (default: `$LABRO_CONFIG` or `./labro.toml`) from the global flag.
-
-### `labro init [--project NAME]`
-
-Creates all GitHub labels referenced in `labro.toml` across every enabled project. Uses `gh label create --force` — idempotent, safe to re-run. Exits 1 if any label creation fails (but continues to attempt the rest).
-
-```bash
-labro init                        # all enabled projects
-labro init --project my-project   # one project only
-```
-
-Run this once when onboarding a new project, or after adding new label rules to `labro.toml`.
-
-### `labro check [--project NAME]`
-
-Pre-flight health check — validates config, environment variables, GitHub connectivity, label presence, and (optionally) collaborator access. Read-only, no side effects.
-
-```bash
-labro check
-labro check --project my-project
-```
-
-Each line is prefixed with `OK  `, `WARN`, or `FAIL`. Exits 1 if any `FAIL` is present.
-
-- **`ANTHROPIC_API_KEY`** — validated by calling `GET /v1/models` (no tokens spent)
-- **`CLAUDE_CODE_OAUTH_TOKEN`** — presence only; value cannot be validated without a live API call
-- **`gh auth status`** — confirms the GitHub token is authenticated
-- **Labels** — checks that every label referenced in config exists on each repo
-- **`claude_assignee`** — if set in config, verifies the user is a collaborator on each repo
-
-### `labro review [--limit N] [--project NAME] [--outcome OUTCOME] [--db-path PATH]`
-
-Prints a formatted table of recent runs from SQLite. See [Inspecting run records](#inspecting-run-records) for full flag details.
-
-### `labro list-locks [--db-path PATH]`
-
-Shows currently held project locks with their age. Locks older than `timeout_s + 60` seconds are marked `[STALE]`.
-
-```bash
-labro list-locks
-```
-
-If a lock appears stale (the run that acquired it has clearly finished or crashed), use `labro unlock` to release it.
-
-### `labro unlock <project> [--db-path PATH]`
-
-Manually releases a stale project lock so the next scheduled run can proceed.
-
-```bash
-labro unlock my-project
-```
-
-This is a last-resort recovery tool. Under normal operation locks are released automatically in a `finally` block at the end of every run. A lock only gets stuck if the container was killed mid-run before the `finally` block executed.
-
-### `labro publish-db [--dry-run] [--db-path PATH] [--snapshot-path PATH]`
-
-Publishes a consistent snapshot of `labro.db` to R2 for the metrics dashboard.
-
-```bash
-labro publish-db                             # upload snapshot + manifest to R2
-labro publish-db --dry-run                   # print hashed db_key + manifest; no upload
-labro publish-db --db-path /data/labro.db    # override DB path
-labro publish-db --snapshot-path /tmp/snap.db  # keep snapshot file after upload
-```
-
-Requires `[dashboard] enabled = true` and the three `R2_*` env vars. If the dashboard is disabled, the command prints a notice and exits 0. If creds are missing or the upload fails, it exits 1.
-
-The snapshot is taken via `VACUUM INTO` (collapses WAL; never copies the live file while it may be open). The hashed filename (`db/labro-<sha256[:16]>.db`) means every new snapshot is a new URL and CDN caches never go stale without a purge. The DB is always uploaded before the manifest.
-
-See [Metrics Dashboard](#metrics-dashboard) for full setup.
-
----
-
-## Docker Deployment
-
-### Deployment modes
-
-Labro supports two production deployment modes:
-
-**GitHub Actions (recommended)** — run Labro as a scheduled workflow in your config repo. No VPS required. Each workflow invocation is a one-shot container run; the agent handles one task and exits. Use this pattern for low-frequency schedules (daily/hourly) or when you already have GitHub Actions available.
-
-**VPS with crond (always-on)** — run Labro as a long-lived container on a server. The container generates a crontab at startup from `labro.toml` and runs `crond` as PID 1. Use this for sub-hourly schedules or when you want a persistent process.
-
-> **Entrypoint behaviour:** the two modes are driven by whether you pass a command to `docker run`.
-> - **No command** (VPS crond mode): `docker run labro:latest` — `entrypoint.sh` runs `labro gen-crontab`, writes `/etc/cron.d/labro`, and execs `crond -f` as PID 1.
-> - **With a command** (one-shot / GitHub Actions): `docker run labro:latest labro run my-project` — the entrypoint skips cron entirely and execs the given command directly.
->
-> No cron job is installed until the no-command path runs; the one-shot path never touches cron at all.
->
-> **Local testing — persistent container, no cron:** pass `sleep infinity` as the command to keep the container alive without installing a crontab, then invoke runs manually with `docker exec`:
-> ```bash
-> docker run -d --name labro-test \
->   -e GH_TOKEN=<token> \
->   -e CLAUDE_CODE_OAUTH_TOKEN=<token> \
->   -v "$PWD/labro.toml:/data/labro.toml:ro" \
->   labro:latest sleep infinity
->
-> docker exec labro-test labro run my-project --dry-run
-> ```
-
-### GHCR image
-
-Pre-built images are published to GHCR on every version tag. Both the versioned tag and `:latest` are pushed:
-
-```
-ghcr.io/rssrn/labro:<tag>
-ghcr.io/rssrn/labro:latest
-```
-
-```bash
-docker pull ghcr.io/rssrn/labro:latest
-# or pin to a specific version:
-docker pull ghcr.io/rssrn/labro:v0.4.0
-```
-
-### Bind-mount layout
-
-The recommended layout uses a **single volume mount** — all persistent state lives under one host directory:
-
-| Host path | Container path | Purpose |
-|---|---|---|
-| `/your/data/dir/` | `/data/` | Config, SQLite DB, logs, repos, `LABRO_DISABLED` flag |
-
-Inside the mounted directory:
-
-```
-/your/data/dir/
-  labro.toml        ← LABRO_CONFIG=/data/labro.toml
-  labro.db          ← SQLite run records
-  labro.log         ← structured run log
-  repos/            ← LABRO_REPOS_DIR=/data/repos (cloned repos)
-  codex/
-    auth.json       ← codex CLI auth (symlinked to ~/.codex/auth.json by entrypoint)
-```
-
-Set `LABRO_CONFIG` and `LABRO_REPOS_DIR` to point inside `/data`:
-
-```bash
-docker run \
-  -e LABRO_CONFIG=/data/labro.toml \
-  -e LABRO_REPOS_DIR=/data/repos \
-  -v /your/data/dir:/data \
-  ...
-```
-
-### GitHub Actions one-shot (recommended)
-
-Add this workflow to your config repo's `.github/workflows/`:
-
-```yaml
-# .github/workflows/labro-run.yml
-on:
-  schedule:
-    - cron: '0 9 * * *'   # match the cron in your labro.toml
-  workflow_dispatch:
-
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run labro
-        run: |
-          docker run --rm \
-            -e GH_TOKEN=${{ secrets.GH_TOKEN }} \
-            -e CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} \
-            -v $PWD/labro.toml:/data/labro.toml:ro \
-            ghcr.io/rssrn/labro:v0.4.0 labro run my-project
-```
-
-### VPS crond mode
-
-Start the container once; it generates `/etc/cron.d/labro` from `labro.toml` and execs `crond -f`:
-
-```bash
-docker run -d --name labro \
-  --restart unless-stopped \
-  --env-file /your/secrets/.env \
-  -v /your/data/dir:/data \
-  ghcr.io/rssrn/labro:latest
-```
-
-Where `/your/secrets/.env` contains (at minimum):
-
-```
-LABRO_CONFIG=/data/labro.toml
-LABRO_REPOS_DIR=/data/repos
-GH_APP_PRIVATE_KEY_BASE64=<base64 -w 0 your-app.pem>
-CLAUDE_CODE_OAUTH_TOKEN=<token>
-```
-
-Verify the crontab was generated correctly:
-
-```bash
-docker exec labro cat /etc/cron.d/labro
-```
-
-### Graceful restart procedure
-
-When updating the config or rotating secrets, drain in-flight runs before restarting:
-
-```bash
-# 1. Signal no new runs
-docker exec labro touch /data/LABRO_DISABLED
-
-# 2. Wait for any run in progress to finish
-while [ "$(docker exec labro sqlite3 /data/labro.db 'SELECT COUNT(*) FROM project_locks')" != "0" ]; do
-  echo "waiting…"; sleep 5
-done
-
-# 3. Restart (entrypoint regenerates crontab on start)
-docker restart labro
-
-# 4. Re-enable
-docker exec labro rm -f /data/LABRO_DISABLED
-```
-
-### Config repo
-
-The recommended production setup separates the harness (this repo) from your operator configuration. Keep your `labro.toml`, API keys, and deployment workflows in a **private config repo** — nothing sensitive ever touches the harness codebase.
-
-**[rssrn/labro-rssrn](https://github.com/rssrn/labro-rssrn)** is a working example of this pattern. Fork it or use it as a reference when setting up your own.
-
-#### What goes in the config repo
-
-```
-my-labro-config/
-  labro.toml                        ← your operator config (checked in)
-  .gitignore                        ← excludes *.pem, *.key, .env
-  .github/workflows/
-    labro-deploy.yml                ← auto-triggered on labro.toml changes
-    labro-update.yml                ← manual: pull latest image and redeploy
-    labro-restart.yml               ← manual: refresh secrets and restart
-    dashboard-publish.yml           ← auto-triggered on dashboard/** changes; builds + uploads SPA to R2
-```
-
-Scaffold copies of all three workflows are in [`docs/config-repo-scaffold/`](docs/config-repo-scaffold/). Copy them into your config repo and adjust the host paths and image name to match your setup:
-
-```bash
-cp docs/config-repo-scaffold/*.yml <your-config-repo>/.github/workflows/
-```
-
-#### How the workflows connect
-
-The workflows SSH to your server (the scaffolds use [Tailscale](https://tailscale.com) for private networking, but any SSH-reachable host works) and manage the container lifecycle:
-
-| Workflow | Trigger | What it does |
-|---|---|---|
-| `labro-deploy.yml` | Push to `labro.toml` | Writes fresh secrets → copies config → recreates container |
-| `labro-update.yml` | Manual | Writes fresh secrets → pulls `:latest` → recreates container |
-| `labro-restart.yml` | Manual | Writes fresh secrets → recreates container (same image) |
-| `dashboard-publish.yml` | `dashboard-publish` dispatch or manual | Checks out labro repo → builds SPA → uploads assets to R2 |
-
-All three workflows write `/your/secrets/.env` on the server from GitHub repo secrets before recreating the container, so rotating any API key is just: update the secret in GitHub → run `labro-restart.yml`.
-
-#### GitHub repo secrets
-
-| Secret | Notes |
-|---|---|
-| `DEPLOY_HOST` | `user@hostname` — your server's SSH address |
-| `GH_APP_PRIVATE_KEY_BASE64` | `base64 -w 0 your-app.pem` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent |
-| `OPENROUTER_API_KEY` | If using opencode with OpenRouter |
-| `CODEX_API_KEY` | If using codex via OpenAI API billing |
-| `CODEX_AUTH_JSON_BASE64` | If using codex via CLI subscription billing — `base64 -w 0 ~/.codex/auth.json`; bind-mounted so headless token refresh persists across container recreations |
-| `R2_ACCESS_KEY_ID` | If `[dashboard] enabled = true` — used by `dashboard-publish.yml` to upload the SPA, and by the deploy workflows to write the VPS `.env` |
-| `R2_SECRET_ACCESS_KEY` | If `[dashboard] enabled = true` |
-| `R2_ACCOUNT_ID` | If `[dashboard] enabled = true` |
-| `R2_BUCKET` | If `[dashboard] enabled = true` — bucket name used by both `dashboard-publish.yml` and `labro publish-db` |
-
-#### Codex CLI auth in containers
-
-The codex CLI supports two auth modes:
-
-- **`CODEX_API_KEY`** — OpenAI API key; pay-per-token. Pass it in the `.env` file.
-- **`~/.codex/auth.json`** — CLI subscription billing (includes free credits tier); supports headless auto-refresh. Store the file contents as `CODEX_AUTH_JSON_BASE64` in GitHub secrets. The scaffold workflows decode it and write it to your data directory; `entrypoint.sh` symlinks it to `~/.codex/auth.json` so the codex CLI finds it and can refresh it in place.
-
-  > If the auth.json tokens go stale (the container hasn't run in several weeks), run `codex auth login` locally, re-encode the refreshed file, update the GitHub secret, and trigger `labro-restart.yml`.
-
-#### Server host layout
-
-```
-/your/secrets/.env          ← written by workflow; read by docker at run time (not mounted)
-/your/data/dir/             ← single volume mount (-v /your/data/dir:/data)
-  labro.toml                ← LABRO_CONFIG=/data/labro.toml
-  labro.db                  ← SQLite run records
-  labro.log
-  repos/                    ← LABRO_REPOS_DIR=/data/repos
-  codex/
-    auth.json               ← symlinked to ~/.codex/auth.json by entrypoint
-```
-
----
-
-## Project Initiation
-
-The following documents define the product and architecture:
-
-- **[Product Requirements Document](docs/PRD.md)** — problem statement, design principles, functional requirements, and success metrics.
-- **[Architecture](docs/ARCHITECTURE.md)** — system context, component design, runtime flow, and architectural decisions.
-- **[Roadmap](docs/ROADMAP.md)** — delivery milestones and per-file completion tracking.
+## Documentation
+
+- **[Why Labro](docs/WHY.md)** — design rationale: why cron not webhooks, the autonomy model, and the project philosophy.
+- **[Deployment Guide](docs/DEPLOYMENT.md)** — GitHub token setup, Docker deployment modes (GitHub Actions and VPS), graceful restart procedure, and config-repo workflow.
+- **[Operations Reference](docs/OPERATIONS.md)** — live run loop internals, environment variables, label transitions, turn-limit handling, daily budget cap, signal collection, and CLI reference.
 - **[Model Selection Guide](docs/MODEL-SELECTION.md)** — advice on choosing agents and models per task type, with cost-shaping strategies and caveats.
+- **[Architecture](docs/ARCHITECTURE.md)** — system context, component design, runtime flow, and architectural decisions.
+- **[Product Requirements Document](docs/PRD.md)** — problem statement, design principles, functional requirements, and success metrics.
+- **[Roadmap](docs/ROADMAP.md)** — delivery milestones and per-file completion tracking.
+- **[Architectural Decision Records](docs/adr/)** — record of significant design decisions.
 - **[Domain Glossary](CONTEXT.md)** — canonical definitions for terms used across all Labro documents and code.
 
-### [Architectural Decision Records](docs/adr/)
+---
+
+## Development
+
+The full quality-gate toolchain is installed with `uv pip install -e '.[dev]'`:
+
+| Tool | Purpose |
+|---|---|
+| `ruff` | Linting and formatting — `uv run ruff check .` / `uv run ruff format .` |
+| `mypy` | Type checking in strict mode — `uv run mypy src/` |
+| `bandit` | Security linting — `uv run bandit -r src/` |
+| `pytest` | Test suite with 80% coverage floor — `uv run pytest` |
+| `pre-commit` | Hooks: ruff, mypy, bandit, shellcheck, pytest on commit; pip-audit on push |
+
+**Before every commit:** run `uv run ruff format .` — the pre-commit hook aborts and reformats if you skip it, requiring a second commit attempt.
+
+## Testing
+
+```bash
+uv run pytest            # full test suite
+uv run pytest -x         # stop on first failure
+uv run pytest -k name    # run tests matching a name
+```
+
+Tests live in `tests/`. The coverage floor is 80% — new code should be covered.
+
+## Contributing
+
+1. Fork the repo and create a feature branch.
+2. Follow the quality gates: ruff, mypy strict, bandit (no `shell=True` — B602 must not be skipped), and 80% test coverage.
+3. Open a PR against `main` with a clear description of what and why.
+
+The harness is deliberately dumb — if you're adding intelligence, it probably belongs in a prompt, not the codebase. Read [Architecture](docs/ARCHITECTURE.md) and the [ADRs](docs/adr/) before adding abstractions.
+
+## Security
+
+The `bandit` B602 rule (`shell=True`) must never be skipped — all subprocess calls use list form. Report security vulnerabilities privately via [GitHub Security Advisories](https://github.com/rssrn/labro/security/advisories/new).
+
+## License
+
+GPL-3.0 — see [LICENSE](LICENSE).
