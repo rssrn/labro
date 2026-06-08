@@ -91,8 +91,12 @@ export default function App() {
       }}
     >
       <h1 style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '0.25rem' }}>
-        Labro Dashboard
+        {state.status === 'ready' && state.manifest.title ? state.manifest.title : 'Labro Dashboard'}
       </h1>
+      <p style={{ color: '#666', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+        Autonomous agent harness for unattended project tasks.{' '}
+        Details: <a href="https://github.com/rssrn/labro" style={{ color: '#888' }}>github.com/rssrn/labro</a>
+      </p>
 
       {state.status === 'loading' && (
         <p style={{ color: '#888' }}>Loading {state.step}…</p>

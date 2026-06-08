@@ -250,6 +250,7 @@ enabled    = true
 bucket     = "my-labro-dashboard"   # R2 bucket name
 key_prefix = ""                     # optional path prefix inside the bucket
 cron       = "17 * * * *"           # snapshot publish frequency
+title      = "Labro Dashboard for My Projects"  # optional; customises the dashboard header
 ```
 
 When `enabled = true`, `labro gen-crontab` emits a `labro publish-db` cron line automatically and `labro check` validates the three `R2_*` env vars.

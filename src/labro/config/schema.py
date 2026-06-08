@@ -272,6 +272,7 @@ class DashboardConfig(BaseModel):
     enabled: bool = False
     cron: str = "17 * * * *"
     key_prefix: str = ""
+    title: str | None = None
     # Override endpoint (for testing); derived from R2_ACCOUNT_ID if None.
     endpoint: str | None = None
     redact: bool = False  # reserved, no-op in M9.1

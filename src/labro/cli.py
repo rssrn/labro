@@ -1088,7 +1088,7 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
         finally:
             snap_conn.close()
 
-        manifest_dict = {
+        manifest_dict: dict[str, object] = {
             "schema_version": 1,
             "db_filename": f"db/{db_filename}",
             "content_hash": content_hash,
@@ -1096,6 +1096,8 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
             "size_bytes": size_bytes,
             "row_count": row_count,
         }
+        if config.dashboard.title is not None:
+            manifest_dict["title"] = config.dashboard.title
         manifest_bytes = json.dumps(manifest_dict, indent=2).encode()
 
         if dry_run:

@@ -5,6 +5,7 @@ export interface Manifest {
   generated_at: string;
   size_bytes: number;
   row_count: number;
+  title?: string;
 }
 
 export async function fetchManifest(): Promise<Manifest> {
