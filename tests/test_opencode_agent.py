@@ -201,6 +201,34 @@ def test_parse_result_empty_output() -> None:
     assert result.failure_reason is not None
 
 
+def _error_event(message: str, name: str = "UnknownError") -> dict[str, Any]:
+    return {"type": "error", "error": {"name": name, "data": {"message": message}}}
+
+
+def test_parse_result_error_event_surfaced_as_failure_reason() -> None:
+    model_not_found = (
+        "Model not found: opencode/nemotron-3-super-free. Did you mean: nemotron-3-ultra-free?"
+    )
+    stream = _make_event_stream(
+        _error_event(model_not_found),
+        _error_event("Unexpected server error. Check server logs for details."),
+    )
+    result = _parse_result(stream, b"")
+    assert result.outcome == "failure"
+    assert result.failure_reason == model_not_found
+
+
+def test_parse_result_error_event_preferred_over_json_parse_error() -> None:
+    # When both an error event and unparseable text are present, the error message wins.
+    stream = _make_event_stream(
+        _error_event("Provider rate limit exceeded"),
+        _text_event("some garbage output"),
+    )
+    result = _parse_result(stream, b"")
+    assert result.outcome == "failure"
+    assert result.failure_reason == "Provider rate limit exceeded"
+
+
 def test_parse_result_cache_tokens() -> None:
     stream = _make_event_stream(
         _text_event(json.dumps(_FULL_SO)),

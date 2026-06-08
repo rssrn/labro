@@ -230,6 +230,7 @@ def _extract_json_object(text: str) -> Any:
 def _parse_result(stdout: bytes, stderr: bytes) -> AgentResult:
     """Parse the opencode --format json event stream into an AgentResult."""
     text_parts: list[str] = []
+    error_messages: list[str] = []
     input_tokens = 0
     output_tokens = 0
     cache_read_tokens = 0
@@ -251,7 +252,13 @@ def _parse_result(stdout: bytes, stderr: bytes) -> AgentResult:
         # Each top-level event wraps its data inside a "part" object.
         part: dict[str, Any] = event.get("part", {})
 
-        if evt_type == "text":
+        if evt_type == "error":
+            err = event.get("error", {})
+            msg = err.get("data", {}).get("message") or err.get("message", "")
+            if msg:
+                error_messages.append(str(msg))
+
+        elif evt_type == "text":
             # Collect all text including synthetic (reasoning) blocks.
             # The JSON extraction step below finds the schema-matching object
             # even when reasoning text precedes or follows it.
@@ -290,10 +297,11 @@ def _parse_result(stdout: bytes, stderr: bytes) -> AgentResult:
         meaningful_stderr = _filter_stderr(stderr)
         if meaningful_stderr:
             _log.warning("opencode stderr: %s", meaningful_stderr[:2000])
+        agent_error = error_messages[0] if error_messages else None
         return AgentResult(
             outcome="failure",
             summary=raw_text[:500] or "opencode returned no parseable output",
-            failure_reason=f"json_parse_error: {exc}",
+            failure_reason=agent_error or f"json_parse_error: {exc}",
             total_cost_usd=total_cost_usd,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
