@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.8.0 — 2026-06-08
+
+### Features
+- **Multi-select outcome filter** — dashboard outcome filter now supports multiple selections, defaulting to success+failure
+- **Dashboard hero text & GitHub link** — contextual hero text and a GitHub repository link added to the dashboard header
+- **Configurable dashboard title** — dashboard title is now driven by `labro.toml` (`[dashboard] title`)
+
+### Fixed
+- **OpenCode error messages** — error event messages from OpenCode are now surfaced in `failure_reason`
+
+### Docs
+- Licence switched to Apache-2.0
+- README restructured as a landing page; ops and deployment guides extracted to separate docs
+- Live dashboard example link added to README
+
 ## v0.7.0 — 2026-06-05
 
 ### Features
