@@ -45,9 +45,10 @@ export class SqlJsDataSource implements DataSource {
       conditions.push('r.task_source = ?');
       params.push(filter.task_source);
     }
-    if (filter.outcome) {
-      conditions.push('r.outcome = ?');
-      params.push(filter.outcome);
+    if (filter.outcomes && filter.outcomes.length > 0) {
+      const placeholders = filter.outcomes.map(() => '?').join(', ');
+      conditions.push(`r.outcome IN (${placeholders})`);
+      params.push(...filter.outcomes);
     }
 
     return {
@@ -77,9 +78,10 @@ export class SqlJsDataSource implements DataSource {
       conditions.push('task_source = ?');
       params.push(filter.task_source);
     }
-    if (filter.outcome) {
-      conditions.push('outcome = ?');
-      params.push(filter.outcome);
+    if (filter.outcomes && filter.outcomes.length > 0) {
+      const placeholders = filter.outcomes.map(() => '?').join(', ');
+      conditions.push(`outcome IN (${placeholders})`);
+      params.push(...filter.outcomes);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';

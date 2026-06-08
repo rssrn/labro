@@ -23,7 +23,7 @@ export default function App() {
   const [state, setState] = useState<State>({ status: 'loading', step: 'manifest' });
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [tab, setTab] = useState<Tab>('runs');
-  const [filter, setFilter] = useState<RunFilter>({});
+  const [filter, setFilter] = useState<RunFilter>({ outcomes: ['success', 'failure'] });
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({ projects: [], models: [], task_sources: [], outcomes: [] });
 
   const fetchData = useCallback(async (f: RunFilter) => {
@@ -47,7 +47,7 @@ export default function App() {
         const filterOptions = await ds.getFilterOptions();
 
         setState({ status: 'loading', step: 'data' });
-        const { runs, stats } = await fetchData({});
+        const { runs, stats } = await fetchData({ outcomes: ['success', 'failure'] });
         setFilterOptions(filterOptions);
         setState({ status: 'ready', runs, stats, manifest, filterOptions });
       } catch (err) {

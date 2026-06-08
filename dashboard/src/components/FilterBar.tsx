@@ -1,4 +1,5 @@
 // @author Claude Sonnet 4.6 Anthropic
+import { useState, useRef, useEffect } from 'react';
 import type { RunFilter, FilterOptions } from '../data/DataSource';
 
 interface Props {
@@ -25,6 +26,89 @@ const SELECT_STYLE: React.CSSProperties = {
   fontFamily: 'monospace',
   fontSize: '0.8rem',
 };
+
+function OutcomeMultiSelect({
+  outcomes,
+  selected,
+  onChange,
+}: {
+  outcomes: string[];
+  selected: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  const allSelected = selected.length === 0 || selected.length === outcomes.length;
+  const label = allSelected ? 'All outcomes' : selected.join('+');
+
+  function toggle(o: string) {
+    if (selected.includes(o)) {
+      onChange(selected.filter((x) => x !== o));
+    } else {
+      onChange([...selected, o]);
+    }
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        style={{ ...SELECT_STYLE, cursor: 'pointer' }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {label} ▾
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 2px)',
+            left: 0,
+            background: '#1a1a1a',
+            border: '1px solid #333',
+            borderRadius: '3px',
+            padding: '0.25rem 0',
+            zIndex: 100,
+            minWidth: '130px',
+          }}
+        >
+          {outcomes.map((o) => (
+            <label
+              key={o}
+              style={{
+                display: 'flex',
+                gap: '0.4rem',
+                alignItems: 'center',
+                padding: '0.2rem 0.6rem',
+                cursor: 'pointer',
+                color: '#ddd',
+                fontSize: '0.8rem',
+                fontFamily: 'monospace',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(o)}
+                onChange={() => toggle(o)}
+                style={{ accentColor: '#aaa' }}
+              />
+              {o}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function FilterBar({ options, value, onChange }: Props) {
   const timespan = !value.since ? 'all'
@@ -60,16 +144,11 @@ export default function FilterBar({ options, value, onChange }: Props) {
           <option key={p} value={p}>{p}</option>
         ))}
       </select>
-      <select
-        style={SELECT_STYLE}
-        value={value.outcome ?? ''}
-        onChange={(e) => set('outcome', e.target.value || undefined)}
-      >
-        <option value="">All outcomes</option>
-        {options.outcomes.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+      <OutcomeMultiSelect
+        outcomes={options.outcomes}
+        selected={value.outcomes ?? []}
+        onChange={(v) => set('outcomes', v.length === 0 ? undefined : v)}
+      />
       <select
         style={SELECT_STYLE}
         value={value.task_source ?? ''}

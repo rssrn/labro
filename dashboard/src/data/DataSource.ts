@@ -6,7 +6,7 @@ export interface RunFilter {
   limit?: number;
   model?: string;
   task_source?: string;
-  outcome?: string;
+  outcomes?: string[];
 }
 
 export interface Run {
