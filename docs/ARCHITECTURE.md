@@ -508,7 +508,7 @@ labro repo (public)          config repo (private, operator-owned)
         └── labro-restart.yml└── (GitHub Secrets — see below)
 ```
 
-**[rssrn/labro-rssrn](https://github.com/rssrn/labro-rssrn)** is a working example of this pattern.
+**[rssrn/labro-rssrn](https://github.com/rssrn/labro-rssrn)** is a working example of this pattern (your config repo would follow the same structure).
 
 **Secrets** are stored as GitHub repo secrets in the config repo and written to a `.env` file on the host by the deployment workflows — never baked into the image or checked into either repo.
 

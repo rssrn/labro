@@ -2,7 +2,7 @@
 
 ![Labro](docs/labro_logo.png)
 
-[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](pyproject.toml)
 [![Docker](https://img.shields.io/github/v/release/rssrn/labro?label=ghcr.io&logo=docker&logoColor=white)](https://github.com/rssrn/labro/pkgs/container/labro)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
@@ -327,4 +327,4 @@ The `bandit` B602 rule (`shell=True`) must never be skipped — all subprocess c
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).

@@ -235,7 +235,7 @@ docker exec labro rm -f /data/LABRO_DISABLED
 
 The recommended production setup separates the harness (this repo) from your operator configuration. Keep your `labro.toml`, API keys, and deployment workflows in a **private config repo** — nothing sensitive ever touches the harness codebase.
 
-**[rssrn/labro-rssrn](https://github.com/rssrn/labro-rssrn)** is a working example of this pattern. Fork it or use it as a reference when setting up your own.
+**[rssrn/labro-rssrn](https://github.com/rssrn/labro-rssrn)** is a working example of this pattern — fork it or use it as a reference when setting up your own config repo.
 
 ### What Goes in the Config Repo
 
