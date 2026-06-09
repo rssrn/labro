@@ -92,7 +92,8 @@ export class SqlJsDataSource implements DataSource {
              agent, provider, model, effort,
              outcome, failure_reason, duration_s, total_cost_usd, turns_used,
              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-             summary, actions_taken, wip_branch_url, chosen_perspective
+             summary, actions_taken, wip_branch_url, chosen_perspective,
+             fallback_attempts
       FROM runs
       ${where}
       ORDER BY started_at DESC
@@ -128,6 +129,7 @@ export class SqlJsDataSource implements DataSource {
       actions_taken:      row[22] as string | null,
       wip_branch_url:     row[23] as string | null,
       chosen_perspective: row[24] as string | null,
+      fallback_attempts:  row[25] as string | null,
     }));
   }
 

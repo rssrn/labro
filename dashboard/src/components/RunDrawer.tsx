@@ -252,6 +252,22 @@ export default function RunDrawer({ run, onClose }: Props) {
             {run.effort && <Cell label="effort" title="Agent reasoning depth. Higher effort = more thorough but slower and costlier.">{run.effort}</Cell>}
           </div>
 
+          {run.fallback_attempts && (() => {
+            let attempts: { slug: string; reason: string }[] = [];
+            try { attempts = JSON.parse(run.fallback_attempts); } catch { /* ignore */ }
+            return attempts.length > 0 ? (
+              <Block label="fallback attempts" subtitle="Earlier models in the chain failed; last successful model is shown above.">
+                <ul style={{ margin: 0, paddingLeft: '1.1em' }}>
+                  {attempts.map((a, i) => (
+                    <li key={i} style={{ marginBottom: '0.25rem', color: '#c80' }}>
+                      {a.slug}<span style={{ color: '#888' }}> — {a.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Block>
+            ) : null;
+          })()}
+
           {/* 4. Token tiles */}
           {(run.input_tokens != null || run.output_tokens != null) && (
             <div style={{ marginBottom: '0.5rem' }}>

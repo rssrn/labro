@@ -139,7 +139,10 @@ export default function RunsTable({ runs, onSelect }: Props) {
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>{run.project}</td>
               <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{run.task_source ?? '—'}</td>
-              <td className="col-desktop" style={TD_STYLE}>{fmtModel(run.provider, run.model)}</td>
+              <td className="col-desktop" style={TD_STYLE}>
+                {run.fallback_attempts ? <span style={{ color: '#c80' }}>⤳ </span> : null}
+                {fmtModel(run.provider, run.model)}
+              </td>
               <td style={TD_STYLE}>
                 <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }} title={run.outcome ? OUTCOME_TOOLTIP[run.outcome] : undefined}>
                   {run.outcome ?? '—'}

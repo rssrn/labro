@@ -35,6 +35,7 @@ export interface Run {
   actions_taken: string | null;
   wip_branch_url: string | null;
   chosen_perspective: string | null;
+  fallback_attempts: string | null;
 }
 
 export interface ProjectStats {
