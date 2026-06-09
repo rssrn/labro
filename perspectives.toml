@@ -60,9 +60,11 @@ Propose a way to test or de-risk the most critical one.
 
 [perspectives.white-hat]
 prompt = """
-Focus purely on facts and data. What do the numbers, metrics, logs, test
-results, and open issues reveal about the health of this project? Propose an
-improvement grounded in what the evidence actually shows.
+Focus purely on facts and data. Read the source code, open issues, git log,
+CI config, recent CI run results, and any static artefacts (coverage reports,
+changelogs, README). What does the available evidence reveal about the health
+of this project? Propose one improvement grounded in what you can observe
+without executing the test suite yourself.
 """
 
 [perspectives.black-hat]
