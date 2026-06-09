@@ -75,7 +75,3 @@ addopts = [
 
 [tool.coverage.run]
 source = ["src/labro"]
-omit = [
-    "src/labro/agents/*",   # agents/ excluded from coverage floor (M2 scope)
-    "src/labro/runner.py",  # runner.py excluded from coverage floor (M2 scope)
-]
