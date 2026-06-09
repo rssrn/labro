@@ -1,4 +1,4 @@
-"""Tests for labro.runner — structured_output validation and error paths.
+"""Tests for labro.agents.claude_code — structured_output validation and error paths.
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -12,15 +12,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from labro.config.schema import PermittedAction
-from labro.models import AgentConfig
-from labro.runner import (
+from labro.agents.base import AgentOutputError, AgentTimeoutError
+from labro.agents.claude_code import (
     _BASE_TOOLS,
-    RunnerOutputError,
-    RunnerTimeoutError,
     _build_allowed_tools,
     run_claude,
 )
+from labro.config.schema import PermittedAction
+from labro.models import AgentConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -247,7 +246,7 @@ def test_missing_so_non_max_turns_returns_failure() -> None:
 
 
 def test_malformed_structured_output_still_raises() -> None:
-    """A present-but-malformed structured_output still raises RunnerOutputError."""
+    """A present-but-malformed structured_output still raises AgentOutputError."""
     bad_so = {
         "outcome": "bad_value",
         "summary": "x",
@@ -256,7 +255,7 @@ def test_malformed_structured_output_still_raises() -> None:
     }
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(_make_response(structured_output=bad_so))
-        with pytest.raises(RunnerOutputError, match="outcome"):
+        with pytest.raises(AgentOutputError, match="outcome"):
             run_claude("prompt", _BASE_CONFIG)
 
 
@@ -278,7 +277,7 @@ def test_agent_partial_preserved_when_cli_success() -> None:
 
 
 def test_malformed_outcome_raises() -> None:
-    """structured_output.outcome with an invalid value must raise RunnerOutputError."""
+    """structured_output.outcome with an invalid value must raise AgentOutputError."""
     bad_so = {
         "outcome": "oops",
         "summary": "Something happened.",
@@ -287,12 +286,12 @@ def test_malformed_outcome_raises() -> None:
     }
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(_make_response(structured_output=bad_so))
-        with pytest.raises(RunnerOutputError, match="outcome"):
+        with pytest.raises(AgentOutputError, match="outcome"):
             run_claude("prompt", _BASE_CONFIG)
 
 
 def test_empty_summary_raises() -> None:
-    """structured_output.summary that is empty must raise RunnerOutputError."""
+    """structured_output.summary that is empty must raise AgentOutputError."""
     bad_so = {
         "outcome": "success",
         "summary": "   ",
@@ -301,12 +300,12 @@ def test_empty_summary_raises() -> None:
     }
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(_make_response(structured_output=bad_so))
-        with pytest.raises(RunnerOutputError, match="summary"):
+        with pytest.raises(AgentOutputError, match="summary"):
             run_claude("prompt", _BASE_CONFIG)
 
 
 def test_items_created_bad_item_type_raises() -> None:
-    """items_created with unknown item_type must raise RunnerOutputError."""
+    """items_created with unknown item_type must raise AgentOutputError."""
     bad_so = {
         "outcome": "success",
         "summary": "done",
@@ -315,12 +314,12 @@ def test_items_created_bad_item_type_raises() -> None:
     }
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(_make_response(structured_output=bad_so))
-        with pytest.raises(RunnerOutputError, match="item_type"):
+        with pytest.raises(AgentOutputError, match="item_type"):
             run_claude("prompt", _BASE_CONFIG)
 
 
 def test_timeout_raises() -> None:
-    """Subprocess timeout must raise RunnerTimeoutError and kill the process."""
+    """Subprocess timeout must raise AgentTimeoutError and kill the process."""
     mock_proc = MagicMock()
     # First call (with timeout kwarg) raises; second call (drain) returns empty bytes.
     mock_proc.communicate.side_effect = [
@@ -329,7 +328,7 @@ def test_timeout_raises() -> None:
     ]
 
     with patch("subprocess.Popen", return_value=mock_proc):
-        with pytest.raises(RunnerTimeoutError):
+        with pytest.raises(AgentTimeoutError):
             run_claude("prompt", _BASE_CONFIG)
 
     mock_proc.kill.assert_called_once()
@@ -406,10 +405,10 @@ def test_subtype_not_success_downgrades_success_to_failure() -> None:
 
 
 def test_malformed_json_raises() -> None:
-    """Non-JSON stdout must raise RunnerOutputError."""
+    """Non-JSON stdout must raise AgentOutputError."""
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(b"not valid json")
-        with pytest.raises(RunnerOutputError, match="parse"):
+        with pytest.raises(AgentOutputError, match="parse"):
             run_claude("prompt", _BASE_CONFIG)
 
 
