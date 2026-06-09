@@ -356,8 +356,8 @@ def test_partial_outcome_wip_preservation_attempted(tmp_path: Path) -> None:
 
 
 def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
-    """RunnerTimeoutError results in outcome='failure' with failure_reason='timeout'."""
-    from labro.runner import RunnerTimeoutError
+    """AgentTimeoutError results in outcome='failure' with failure_reason='timeout'."""
+    from labro.agents.base import AgentTimeoutError
 
     db_path = tmp_path / "labro.db"
     repos_dir = tmp_path / "repos"
@@ -379,7 +379,7 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.post_run_mod.pre_run"),
     ):
         mock_instance = MagicMock()
-        mock_instance.invoke.side_effect = RunnerTimeoutError("timed out")
+        mock_instance.invoke.side_effect = AgentTimeoutError("timed out")
         MockAgent.return_value = mock_instance
 
         result = _cmd_run_live(
