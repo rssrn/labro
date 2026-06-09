@@ -215,7 +215,6 @@ class GhLabelTaskSource(TaskSource):
         url: str = item["html_url"]
         title: str = item.get("title", "")
         body: str = item.get("body") or ""
-        assignees: list[str] = [a["login"] for a in item.get("assignees", [])]
         description = f"#{number}: {title}\n\n{body}".strip()
         description += _fetch_comments_section(project.repo, number, max_comments)
 
@@ -237,7 +236,6 @@ class GhLabelTaskSource(TaskSource):
             source_label=winning_rule.label,
             done_label=done_label,
             grafana_rule_uid=None,
-            assignees=assignees,
             persona_prompt=persona_prompt,
         )
         agent_cfg = AgentConfig.from_slug_list(
