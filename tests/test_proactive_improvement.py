@@ -36,7 +36,7 @@ def _project(repo: str = "org/repo") -> ProjectConfig:
         name="test-proj",
         repo=repo,
         cron="0 * * * *",
-        model="claude-code:anthropic/claude-sonnet-4-6",
+        model=["claude-code:anthropic/claude-sonnet-4-6"],
     )
 
 
@@ -77,7 +77,7 @@ def _gh_create_response(number: int = 99, repo: str = "org/repo") -> str:
 
 def _fetch_defaults() -> dict[str, object]:
     return {
-        "defaults_model": "claude-code:anthropic/claude-sonnet-4-6",
+        "defaults_model": ["claude-code:anthropic/claude-sonnet-4-6"],
         "defaults_max_turns": 20,
         "defaults_timeout_s": 600,
         "defaults_max_comments": 10,

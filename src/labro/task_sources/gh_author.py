@@ -122,9 +122,9 @@ def _resolve_model_slug(
     rule: AuthorRule,
     source: GhAuthorSourceConfig,
     project: ProjectConfig,
-    defaults_model: str,
-) -> str:
-    """Resolve model slug: rule → source → project → defaults."""
+    defaults_model: list[str],
+) -> list[str]:
+    """Resolve model slug list: rule → source → project → defaults."""
     if rule.model is not None:
         return rule.model
     if source.model is not None:
@@ -193,7 +193,7 @@ class GhAuthorTaskSource(TaskSource):
     def fetch_task(
         self,
         project: ProjectConfig,
-        defaults_model: str,
+        defaults_model: list[str],
         defaults_max_turns: int,
         defaults_timeout_s: int,
         defaults_max_comments: int,
@@ -286,7 +286,7 @@ class GhAuthorTaskSource(TaskSource):
             assignees=assignees,
             persona_prompt=persona_prompt,
         )
-        agent_cfg = AgentConfig.from_slug(
+        agent_cfg = AgentConfig.from_slug_list(
             model,
             max_turns=max_turns,
             timeout_s=timeout_s,

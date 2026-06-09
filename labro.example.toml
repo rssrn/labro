@@ -139,7 +139,7 @@ label             = "ai-dev"
 done_label        = "ai-dev-done"
 persona           = "senior-developer"
 permitted_actions = ["comment_on_issue", "open_pr"]
-model             = "claude-code:anthropic/claude-opus-4-7@max"  # dev work warrants maximum reasoning
+model             = "claude-code:anthropic/claude-opus-4-7@max"  # dev work warrants maximum reasoning; can also be an array for fallback
 
 [shared_rules.ba]
 label             = "ai-ba"
@@ -206,6 +206,7 @@ cron    = "0 8 * * *"
 
 [defaults]
 model        = "claude-code:anthropic/claude-opus-4-7@high"  # CLI-prefixed: <cli>[:<provider>/<model>][@<effort>]
+# model      = ["claude-code:anthropic/claude-opus-4-7@high", "claude-code:anthropic/claude-sonnet-4-6@high"]  # fallback if primary times out
 max_turns    = 20
 timeout_s    = 600
 max_comments = 10

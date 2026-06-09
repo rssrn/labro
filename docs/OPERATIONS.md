@@ -13,7 +13,7 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 5. **Pick task** — run the picker over all configured task sources; if nothing is found, write a skipped record and exit
 6. **Prepare repo** — clone or pull the target repo into `/repos/<slug>`; if the working copy is dirty (agent was interrupted mid-edit), log a warning then `git reset --hard && git clean -fd`
 7. **Build prompt** — construct the four-section prompt from the resolved task and project context
-8. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload. If the agent hits its turn limit (`--max-turns`), the harness recovers gracefully — see [Turn Limits and Partial Runs](#turn-limits-and-partial-runs) below
+8. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload. If the model slug is a list, each slug is tried in order on infrastructure failure; the first successful or non-infrastructure-failure outcome wins. Fallback attempts are recorded in `fallback_attempts` in the `runs` table. If the agent hits its turn limit (`--max-turns`), the harness recovers gracefully — see [Turn Limits and Partial Runs](#turn-limits-and-partial-runs) below
 9. **Preserve WIP** — on any non-success outcome, if the working copy is dirty the harness commits it to a `labro-wip/<run-id>` branch and pushes it, so no in-progress code edits are silently discarded
 10. **Post-run labels** — apply label transitions and post a comment to the GitHub item (see [Label Transitions](#label-transitions))
 11. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list

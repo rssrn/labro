@@ -70,7 +70,7 @@ _ACTOR_ITEM_AI_FAILED: dict[str, Any] = {
 def _author_rule(
     actor: str = _ACTOR,
     done_label: str = _DONE_LABEL,
-    model: str | None = None,
+    model: list[str] | None = None,
     permitted_actions: list[PermittedAction] | None = None,
     requires_dependabot_alert: bool = False,
 ) -> AuthorRule:
@@ -86,7 +86,7 @@ def _author_rule(
 def _source_config(
     author_rules: list[AuthorRule] | None = None,
     permitted_actions: list[PermittedAction] | None = None,
-    model: str | None = None,
+    model: list[str] | None = None,
 ) -> GhAuthorSourceConfig:
     return GhAuthorSourceConfig(
         type="gh-author",
@@ -99,7 +99,7 @@ def _source_config(
 def _project(
     source_cfg: GhAuthorSourceConfig | None = None,
     permitted_actions: list[PermittedAction] | None = None,
-    model: str | None = None,
+    model: list[str] | None = None,
 ) -> ProjectConfig:
     return ProjectConfig(
         name="test-project",
@@ -115,7 +115,7 @@ def _config(project: ProjectConfig | None = None) -> LabroConfig:
     return LabroConfig(
         digest=DigestConfig(enabled=False),
         defaults=DefaultsConfig(
-            model="claude-code:anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
+            model=["claude-code:anthropic/claude-opus-4-7"], max_turns=20, timeout_s=600
         ),
         projects=[project or _project()],
     )
@@ -227,8 +227,10 @@ def test_author_rule_source_label_is_none() -> None:
 
 def test_author_rule_model_override() -> None:
     """Author rule with its own model overrides source/project/defaults model."""
-    rule = _author_rule(model="claude-code:anthropic/claude-haiku-4-5")
-    src_cfg = _source_config(author_rules=[rule], model="claude-code:anthropic/claude-sonnet-4-6")
+    rule = _author_rule(model=["claude-code:anthropic/claude-haiku-4-5"])
+    src_cfg = _source_config(
+        author_rules=[rule], model=["claude-code:anthropic/claude-sonnet-4-6"]
+    )
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
     source = GhAuthorTaskSource(src_cfg)

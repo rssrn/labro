@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS runs (
     actions_taken       TEXT,
     failure_reason      TEXT,
     wip_branch_url      TEXT,
-    chosen_perspective  TEXT
+    chosen_perspective  TEXT,
+    fallback_attempts       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project    ON runs (project);
@@ -97,6 +98,12 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
     # Forward migration: add columns introduced after initial schema creation.
     try:
         conn.execute("ALTER TABLE runs ADD COLUMN chosen_perspective TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists on existing installs
+
+    try:
+        conn.execute("ALTER TABLE runs ADD COLUMN fallback_attempts TEXT")
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists on existing installs
@@ -381,7 +388,8 @@ def query_runs(
     sql = (
         f"SELECT started_at, project, outcome, task_source, item_url, duration_s, "  # noqa: S608
         f"total_cost_usd, turns_used, summary, input_tokens, output_tokens, "
-        f"cache_read_tokens, cache_write_tokens, provider, model "
+        f"cache_read_tokens, cache_write_tokens, provider, model, "
+        f"fallback_attempts "
         f"FROM runs {where} ORDER BY started_at DESC LIMIT ?"  # nosec B608
     )
     return conn.execute(sql, params).fetchall()

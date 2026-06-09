@@ -148,7 +148,7 @@ class ProactiveImprovementTaskSource(TaskSource):
     def fetch_task(
         self,
         project: ProjectConfig,
-        defaults_model: str,
+        defaults_model: list[str],
         defaults_max_turns: int,
         defaults_timeout_s: int,
         defaults_max_comments: int,
@@ -182,7 +182,7 @@ class ProactiveImprovementTaskSource(TaskSource):
                 perspective_prompt = self._perspectives[chosen_name].prompt
 
         # ── Resolve config overrides (source → project → defaults) ─────────────
-        model_slug = self._cfg.model or project.model or defaults_model
+        model_slugs: list[str] = self._cfg.model or project.model or defaults_model
         permitted_actions: list[PermittedAction] = (
             self._cfg.permitted_actions or project.permitted_actions or _DEFAULT_PERMITTED_ACTIONS
         )
@@ -194,8 +194,8 @@ class ProactiveImprovementTaskSource(TaskSource):
         timeout_s = defaults_timeout_s
 
         # ── Build agent config (needed for issue body slug) ────────────────────
-        agent_cfg = AgentConfig.from_slug(
-            model_slug,
+        agent_cfg = AgentConfig.from_slug_list(
+            model_slugs,
             max_turns=max_turns,
             timeout_s=timeout_s,
             permitted_actions=permitted_actions,

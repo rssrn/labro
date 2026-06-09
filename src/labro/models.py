@@ -99,6 +99,7 @@ class AgentConfig:
     timeout_s: int
     cwd: Path | None = None
     permitted_actions: list[PermittedAction] = field(default_factory=list)
+    fallback_slugs: list[str] = field(default_factory=list)
 
     @classmethod
     def from_slug(
@@ -122,3 +123,16 @@ class AgentConfig:
             timeout_s=timeout_s,
             permitted_actions=permitted_actions or [],
         )
+
+    @classmethod
+    def from_slug_list(
+        cls,
+        slugs: list[str],
+        max_turns: int,
+        timeout_s: int,
+        permitted_actions: list[PermittedAction] | None = None,
+    ) -> AgentConfig:
+        """Construct AgentConfig from a slug list; first is primary, rest fallbacks."""
+        cfg = cls.from_slug(slugs[0], max_turns, timeout_s, permitted_actions)
+        cfg.fallback_slugs = slugs[1:]
+        return cfg

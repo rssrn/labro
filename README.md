@@ -28,6 +28,7 @@ For the full design rationale — why cron instead of webhooks, the autonomy mod
 - **Full audit trail** — every run writes outcome, cost, token usage, and actions to a local SQLite database
 - **Emergency pause** — drop a `LABRO_DISABLED` flag file to stop new runs instantly without restarting containers; any run already in progress finishes normally
 - **Multi-provider support** — Claude Code, Codex, and OpenCode are all supported; spread scheduled work across providers or use OpenCode to access any model on [models.dev](https://models.dev) (OpenRouter, Anthropic, OpenAI, Mistral, and more). See [Model Selection Guide](docs/MODEL-SELECTION.md) for advice on picking the right model for each task type.
+- **Model fallback** — configure `model` as an array; if the first model times out or produces invalid output, labro retries with the next in the list
 
 ---
 
@@ -70,7 +71,7 @@ docker buildx build --target base --platform linux/arm64 -t labro:arm64 .
 enabled = false
 
 [defaults]
-model = "anthropic/claude-sonnet-4-6"
+model = "claude-code:anthropic/claude-sonnet-4-6"   # or an array for fallback: ["slug1", "slug2"]
 
 [[projects]]
 name       = "my-project"

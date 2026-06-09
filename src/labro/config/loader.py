@@ -27,26 +27,26 @@ class ConfigError(Exception):
 
 def referenced_agents(config: LabroConfig) -> set[str]:
     """Return the set of agent CLI ids referenced by any model slug in the config."""
-    slugs: list[str] = [config.defaults.model]
+    slugs: list[str] = list(config.defaults.model)
 
     for rule in config.shared_rules.values():
         if rule.model is not None:
-            slugs.append(rule.model)
+            slugs.extend(rule.model)
 
     for project in config.projects:
         if project.model is not None:
-            slugs.append(project.model)
+            slugs.extend(project.model)
         for source in project.task_sources:
             if source.model is not None:
-                slugs.append(source.model)
+                slugs.extend(source.model)
             if isinstance(source, GhLabelSource):
                 for lr in source.label_rules:
                     if lr.model is not None:
-                        slugs.append(lr.model)
+                        slugs.extend(lr.model)
             elif isinstance(source, GhAuthorSource):
                 for ar in source.author_rules:
                     if ar.model is not None:
-                        slugs.append(ar.model)
+                        slugs.extend(ar.model)
 
     return {parse_slug(s).agent for s in slugs}
 

@@ -47,7 +47,7 @@ from labro.config.schema import (
     PermittedAction,
     ProjectConfig,
 )
-from labro.models import AgentResult
+from labro.models import AgentConfig, AgentResult
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
 from labro.repo import prepare_repo, preserve_wip
@@ -219,6 +219,8 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
     print(f"  effort    : {agent_cfg.effort}")
     print(f"  max_turns : {agent_cfg.max_turns}")
     print(f"  timeout_s : {agent_cfg.timeout_s}")
+    if agent_cfg.fallback_slugs:
+        print(f"  fallbacks : {', '.join(agent_cfg.fallback_slugs)}")
 
     print()
     print("=" * 72)
@@ -417,31 +419,56 @@ def _cmd_run_live(
         # ── Pre-run comment ────────────────────────────────────────────────────
         post_run_mod.pre_run(task, agent_cfg)
 
-        # ── Invoke agent ───────────────────────────────────────────────────────
+        # ── Invoke agent (with model fallback) ─────────────────────────────────
+        _configs_to_try = [agent_cfg] + [
+            AgentConfig.from_slug(
+                s,
+                max_turns=agent_cfg.max_turns,
+                timeout_s=agent_cfg.timeout_s,
+                permitted_actions=agent_cfg.permitted_actions,
+            )
+            for s in agent_cfg.fallback_slugs
+        ]
+        failed_attempts: list[dict[str, str]] = []
+
         agent_result: AgentResult | None = None
         outcome = "failure"
         failure_reason: str | None = None
 
-        item_ref = (
-            f"{task.item_type} #{task.item_number}"
-            if task.item_number is not None
-            else "(no item)"
-        )
-        _log.info(
-            "invoking agent %s (slug=%s) on %s %s",
-            agent_cfg.agent,
-            agent_cfg.slug,
-            task.repo,
-            item_ref,
-        )
-        try:
-            agent_result = get_agent(agent_cfg.agent).invoke(prompt, agent_cfg)
-            outcome = agent_result.outcome
-            failure_reason = agent_result.failure_reason
-        except AgentTimeoutError:
-            failure_reason = "timeout"
-        except AgentOutputError as exc:
-            failure_reason = str(exc)
+        for _attempt_cfg in _configs_to_try:
+            _attempt_cfg.cwd = repo_path
+            item_ref = (
+                f"{task.item_type} #{task.item_number}"
+                if task.item_number is not None
+                else "(no item)"
+            )
+            _log.info(
+                "invoking agent %s (slug=%s) on %s %s",
+                _attempt_cfg.agent,
+                _attempt_cfg.slug,
+                task.repo,
+                item_ref,
+            )
+            try:
+                agent_result = get_agent(_attempt_cfg.agent).invoke(prompt, _attempt_cfg)
+                outcome = agent_result.outcome
+                failure_reason = agent_result.failure_reason
+                agent_cfg = _attempt_cfg  # winning attempt
+                break
+            except AgentTimeoutError:
+                failed_attempts.append({"slug": _attempt_cfg.slug, "reason": "timeout"})
+                _log.warning("agent %s timed out; trying next model", _attempt_cfg.slug)
+            except AgentOutputError as exc:
+                failed_attempts.append({"slug": _attempt_cfg.slug, "reason": str(exc)})
+                _log.warning("agent %s output error: %s; trying next", _attempt_cfg.slug, exc)
+
+        # If every attempt failed with an exception, update agent_cfg to the last
+        # attempt so the run record reflects the actual last model tried.
+        if agent_result is None and failed_attempts:
+            agent_cfg = _configs_to_try[-1]
+            failure_reason = failed_attempts[-1]["reason"]
+
+        fallback_attempts_json = json.dumps(failed_attempts) if failed_attempts else None
 
         # ── WIP preservation (non-success outcomes) ────────────────────────────
         wip_branch_url: str | None = None
@@ -485,6 +512,7 @@ def _cmd_run_live(
             started_at=started_at,
             ended_at=ended_at,
             wip_branch_url=wip_branch_url,
+            fallback_attempts=fallback_attempts_json,
         )
 
         dur_s = time.monotonic() - run_started

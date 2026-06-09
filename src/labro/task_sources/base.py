@@ -25,7 +25,7 @@ class TaskSource(ABC):
     def fetch_task(
         self,
         project: ProjectConfig,
-        defaults_model: str,
+        defaults_model: list[str],
         defaults_max_turns: int,
         defaults_timeout_s: int,
         defaults_max_comments: int,
@@ -34,7 +34,7 @@ class TaskSource(ABC):
 
         Args:
             project: The project configuration for this fetch.
-            defaults_model: Global ``[defaults].model`` fallback (slug format).
+            defaults_model: Global ``[defaults].model`` fallback (list of slug strings).
             defaults_max_turns: Global ``[defaults].max_turns`` fallback.
             defaults_timeout_s: Global ``[defaults].timeout_s`` fallback.
             defaults_max_comments: Global ``[defaults].max_comments`` fallback.

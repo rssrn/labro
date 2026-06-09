@@ -59,6 +59,46 @@ def test_load_valid_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert config.projects[0].repo == "my-org/my-api"
 
 
+# ── ModelSlugList tests ──────────────────────────────────────────────────────────
+
+
+def test_model_slug_list_coerces_string_to_list() -> None:
+    """A bare string in a model field is coerced to a single-element list."""
+    from labro.config.schema import DefaultsConfig
+
+    d = DefaultsConfig(model="claude-code:anthropic/claude-opus-4-7")  # type: ignore[arg-type]
+    assert d.model == ["claude-code:anthropic/claude-opus-4-7"]
+
+
+def test_model_slug_list_accepts_array() -> None:
+    """An array in a model field is accepted as-is."""
+    from labro.config.schema import DefaultsConfig
+
+    slugs = ["claude-code:anthropic/claude-opus-4-7", "claude-code:anthropic/claude-sonnet-4-6"]
+    d = DefaultsConfig(model=slugs)
+    assert d.model == slugs
+
+
+def test_defaults_config_default_is_list() -> None:
+    """DefaultsConfig.model default factory produces a list."""
+    from labro.config.schema import DefaultsConfig
+
+    d = DefaultsConfig()
+    assert isinstance(d.model, list)
+    assert len(d.model) == 1
+    assert d.model[0] == "claude-code:anthropic/claude-opus-4-7"
+
+
+def test_model_slug_list_rejects_empty_list() -> None:
+    """An empty model list raises a validation error."""
+    from pydantic import ValidationError
+
+    from labro.config.schema import DefaultsConfig
+
+    with pytest.raises(ValidationError, match="must not be empty"):
+        DefaultsConfig(model=[])
+
+
 def test_defaults_inherited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """[defaults] values are present in the parsed config."""
     monkeypatch.setenv("GH_TOKEN", "ghp_test")
@@ -89,7 +129,7 @@ def test_defaults_inherited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         """,
     )
     config = load_config(p)
-    assert config.defaults.model == "claude-code:anthropic/claude-sonnet-4-6"
+    assert config.defaults.model == ["claude-code:anthropic/claude-sonnet-4-6"]
     assert config.defaults.max_turns == 15
     assert config.defaults.timeout_s == 300
 

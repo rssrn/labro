@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
-from pydantic.functional_validators import AfterValidator
+from pydantic.functional_validators import AfterValidator, BeforeValidator
 
 
 class PermittedAction(StrEnum):
@@ -64,6 +64,19 @@ def _validate_model_slug(v: str) -> str:
 #           "claude-code:anthropic/claude-opus-4-7@high", "codex:openai/gpt-5-codex",
 #           "opencode:openrouter/openai/gpt-oss-120b:free"
 ModelSlug = Annotated[str, AfterValidator(_validate_model_slug)]
+
+
+def _validate_non_empty_slug_list(v: list[str]) -> list[str]:
+    if not v:
+        raise ValueError("model slug list must not be empty")
+    return v
+
+
+ModelSlugList = Annotated[
+    list[ModelSlug],
+    BeforeValidator(lambda v: [v] if isinstance(v, str) else v),
+    AfterValidator(_validate_non_empty_slug_list),
+]
 
 
 @dataclass
@@ -124,7 +137,7 @@ class SharedRuleConfig(BaseModel):
     done_label: str
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
 
 
 # ── Task source models ─────────────────────────────────────────────────────────
@@ -143,7 +156,7 @@ class LabelRule(BaseModel):
     done_label: str | None = None
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
 
     @model_validator(mode="after")
     def require_label_source(self) -> LabelRule:
@@ -161,7 +174,7 @@ class AuthorRule(BaseModel):
     actor: str
     done_label: str
     persona: str | None = None
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
     permitted_actions: list[PermittedAction] | None = None
     requires_dependabot_alert: bool = False
     """Only match PRs that fix an open Dependabot alert (security updates).
@@ -179,7 +192,7 @@ class GhLabelSource(BaseModel):
     type: Literal["gh-label"]
     label_rules: list[LabelRule] = Field(default_factory=list)
     permitted_actions: list[PermittedAction] | None = None
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
 
     @model_validator(mode="after")
     def require_at_least_one_rule(self) -> GhLabelSource:
@@ -195,7 +208,7 @@ class GhAuthorSource(BaseModel):
     type: Literal["gh-author"]
     author_rules: list[AuthorRule] = Field(default_factory=list)
     permitted_actions: list[PermittedAction] | None = None
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
 
     @model_validator(mode="after")
     def require_at_least_one_rule(self) -> GhAuthorSource:
@@ -212,7 +225,7 @@ class GrafanaAlertsSource(BaseModel):
     min_severity: Literal["info", "warning", "critical"] = "info"
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
 
 
 class ProactiveImprovementSource(BaseModel):
@@ -223,7 +236,7 @@ class ProactiveImprovementSource(BaseModel):
     perspectives: list[str] = Field(default_factory=list)  # empty = use all defined
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
 
 
 # Union discriminated on `type`.
@@ -243,7 +256,7 @@ class ProjectConfig(BaseModel):
     repo: str
     cron: str
     enabled: bool = True
-    model: ModelSlug | None = None
+    model: ModelSlugList | None = None
     max_turns: int | None = None
     timeout_s: int | None = None
     max_comments: int | None = None
@@ -291,7 +304,7 @@ class SignalsConfig(BaseModel):
 class DefaultsConfig(BaseModel):
     """Global defaults inherited by all projects."""
 
-    model: ModelSlug = "claude-code:anthropic/claude-opus-4-7"
+    model: ModelSlugList = Field(default_factory=lambda: ["claude-code:anthropic/claude-opus-4-7"])
     max_turns: int = 20
     timeout_s: int = 600
     max_comments: int = 10

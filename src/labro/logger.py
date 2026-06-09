@@ -27,6 +27,7 @@ def write_run(
     started_at: str,
     ended_at: str,
     wip_branch_url: str | None = None,
+    fallback_attempts: str | None = None,
 ) -> None:
     """Write a single run record to the ``runs`` table.
 
@@ -48,6 +49,7 @@ def write_run(
         started_at: ISO 8601 UTC timestamp for run start.
         ended_at: ISO 8601 UTC timestamp for run end.
         wip_branch_url: URL of the WIP branch preserved by ``preserve_wip``, if any.
+        fallback_attempts: JSON array of failed attempt info, or ``None`` if no fallback occurred.
     """
     # Derive duration_s from agent_result.duration_ms when available.
     duration_s: float | None = None
@@ -77,7 +79,8 @@ def write_run(
                 input_tokens, output_tokens,
                 cache_read_tokens, cache_write_tokens,
                 summary, actions_taken, failure_reason,
-                wip_branch_url, chosen_perspective
+                wip_branch_url, chosen_perspective,
+                fallback_attempts
             ) VALUES (
                 :run_id, :project,
                 :task_source, :task_description, :item_url, :trigger_label,
@@ -88,7 +91,8 @@ def write_run(
                 :input_tokens, :output_tokens,
                 :cache_read_tokens, :cache_write_tokens,
                 :summary, :actions_taken, :failure_reason,
-                :wip_branch_url, :chosen_perspective
+                :wip_branch_url, :chosen_perspective,
+                :fallback_attempts
             )
             """,
             {
@@ -117,5 +121,6 @@ def write_run(
                 "failure_reason": failure_reason,
                 "wip_branch_url": wip_branch_url,
                 "chosen_perspective": task.chosen_perspective if task is not None else None,
+                "fallback_attempts": fallback_attempts,
             },
         )

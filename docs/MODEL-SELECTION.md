@@ -11,6 +11,25 @@ Labro lets you configure which agent and model to use at multiple levels, from g
 
 ---
 
+## Model fallback
+
+Any `model` field accepts a list of slugs. If the first model fails due to an infrastructure reason (timeout or invalid/unparseable output), Labro automatically retries with the next slug in the list. An agent-reported `"failure"` outcome does **not** trigger fallback — the agent ran successfully but could not complete the task.
+
+When a fallback occurs, the database records which models were tried and why each failed in the `fallback_attempts` column of the `runs` table. The `model` / `agent` / `effort` columns always reflect the model that ultimately ran.
+
+```toml
+[defaults]
+model = ["claude-code:anthropic/claude-opus-4-7@high", "claude-code:anthropic/claude-sonnet-4-6@high"]
+```
+
+A bare string continues to work — every existing config is valid without changes:
+
+```toml
+model = "claude-code:anthropic/claude-opus-4-7@high"
+```
+
+---
+
 ## Model slug format
 
 ```
@@ -125,7 +144,13 @@ Not all agents support effort levels the same way. `claude-code` maps `@effort` 
 
 ### `gh-label` / `gh-author` — labelled issues and PRs
 
-Match model capability to the label's implied complexity:
+Match model capability to the label's implied complexity. For high-value runs (e.g. `ai-dev`), a fallback slug is a low-cost safety net — configure the primary as your best model and the fallback as a cheaper alternative:
+
+```toml
+model = ["claude-code:anthropic/claude-opus-4-7@max", "claude-code:anthropic/claude-sonnet-4-6@high"]
+```
+
+
 
 | Label type | Recommended model | Rationale |
 |------------|-------------------|-----------|

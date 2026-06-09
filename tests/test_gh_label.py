@@ -34,7 +34,7 @@ def _label_rule(
 def _source_config(
     label_rules: list[LabelRule] | None = None,
     permitted_actions: list[PermittedAction] | None = None,
-    model: str | None = None,
+    model: list[str] | None = None,
 ) -> GhLabelSourceConfig:
     return GhLabelSourceConfig(
         type="gh-label",
@@ -47,7 +47,7 @@ def _source_config(
 def _project(
     source_cfg: GhLabelSourceConfig | None = None,
     permitted_actions: list[PermittedAction] | None = None,
-    model: str | None = None,
+    model: list[str] | None = None,
 ) -> ProjectConfig:
     return ProjectConfig(
         name="test-project",
@@ -63,7 +63,7 @@ def _config(project: ProjectConfig | None = None) -> LabroConfig:
     return LabroConfig(
         digest=DigestConfig(enabled=False),
         defaults=DefaultsConfig(
-            model="claude-code:anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
+            model=["claude-code:anthropic/claude-opus-4-7"], max_turns=20, timeout_s=600
         ),
         projects=[project or _project()],
     )
@@ -230,9 +230,9 @@ def test_label_rule_model_override() -> None:
     rule = LabelRule(
         label="ai-dev",
         done_label="ai-dev-done",
-        model="claude-code:anthropic/claude-haiku-4-5",
+        model=["claude-code:anthropic/claude-haiku-4-5"],
     )
-    src_cfg = _source_config(label_rules=[rule], model="claude-code:anthropic/claude-sonnet-4-6")
+    src_cfg = _source_config(label_rules=[rule], model=["claude-code:anthropic/claude-sonnet-4-6"])
     proj = _project(source_cfg=src_cfg)
     cfg = _config(proj)
     source = GhLabelTaskSource(src_cfg)

@@ -9,7 +9,9 @@ check uses a real temp file via pytest's ``tmp_path`` fixture.
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -54,7 +56,7 @@ def _make_config(
     return LabroConfig(
         digest=DigestConfig(enabled=False),
         defaults=DefaultsConfig(
-            model="claude-code:anthropic/claude-opus-4-7", max_turns=20, timeout_s=600
+            model=["claude-code:anthropic/claude-opus-4-7"], max_turns=20, timeout_s=600
         ),
         projects=[project],
     )
@@ -184,7 +186,7 @@ def test_budget_exceeded_skips_after_lock(tmp_path: Path) -> None:
     mock_release.assert_called_once()
     # Skipped run record must be written
     mock_write.assert_called_once()
-    call_kwargs: dict[str, Any] = mock_write.call_args.kwargs
+    call_kwargs: Mapping[str, Any] = mock_write.call_args.kwargs
     assert call_kwargs["outcome"] == "skipped"
     assert call_kwargs["failure_reason"] is not None
     assert "budget" in call_kwargs["failure_reason"]
@@ -390,8 +392,11 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
     assert result == 1
     call_kwargs = mock_write.call_args.kwargs
     assert call_kwargs["outcome"] == "failure"
-    assert call_kwargs["failure_reason"] == "timeout"
     assert call_kwargs["agent_result"] is None
+    assert call_kwargs["failure_reason"] == "timeout"
+    assert call_kwargs["fallback_attempts"] == json.dumps(
+        [{"slug": "claude-code:anthropic/claude-opus-4-7", "reason": "timeout"}]
+    )
 
     conn.close()
 
@@ -628,6 +633,153 @@ def test_session_limit_with_output_tokens_and_push_perm_preserves_wip(tmp_path: 
         )
 
     mock_preserve.assert_called_once()
+    conn.close()
+
+
+# ── Model fallback tests ──────────────────────────────────────────────────────
+
+
+def test_agent_fallback_on_timeout(tmp_path: Path) -> None:
+    """Primary agent times out; fallback model succeeds."""
+    from labro.agents.base import AgentTimeoutError
+
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    agent_cfg.fallback_slugs = ["claude-code:anthropic/claude-sonnet-4-6"]
+    agent_result = _make_agent_result(outcome="success")
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
+        patch("labro.cli.get_agent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run") as mock_write,
+        patch("labro.cli.post_run_mod.pre_run"),
+        patch("labro.cli.post_run_mod.post_run"),
+    ):
+        mock_instance = MagicMock()
+        mock_instance.invoke.side_effect = [AgentTimeoutError("timeout"), agent_result]
+        MockAgent.return_value = mock_instance
+
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 0
+    mock_write.assert_called_once()
+    call_kwargs = mock_write.call_args.kwargs
+    assert call_kwargs["outcome"] == "success"
+    assert call_kwargs["agent_cfg"].slug == "claude-code:anthropic/claude-sonnet-4-6"
+    assert call_kwargs["fallback_attempts"] == json.dumps(
+        [{"slug": "claude-code:anthropic/claude-opus-4-7", "reason": "timeout"}]
+    )
+    conn.close()
+
+
+def test_agent_failure_does_not_trigger_fallback(tmp_path: Path) -> None:
+    """Agent-reported failure outcome does NOT trigger fallback to next model."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    agent_cfg.fallback_slugs = ["claude-code:anthropic/claude-sonnet-4-6"]
+    from labro.models import AgentResult
+
+    agent_result = AgentResult(
+        outcome="failure", summary="Task failed.", failure_reason="agent_error"
+    )
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
+        patch("labro.cli.get_agent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run") as mock_write,
+        patch("labro.cli.post_run_mod.pre_run"),
+        patch("labro.cli.post_run_mod.post_run"),
+    ):
+        MockAgent.return_value.invoke.return_value = agent_result
+
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 1
+    mock_write.assert_called_once()
+    call_kwargs = mock_write.call_args.kwargs
+    # Primary slug, NOT the fallback
+    assert call_kwargs["agent_cfg"].slug == "claude-code:anthropic/claude-opus-4-7"
+    # No fallback_attempts because fallback is not triggered
+    assert call_kwargs["fallback_attempts"] is None
+    conn.close()
+
+
+def test_all_fallbacks_fail(tmp_path: Path) -> None:
+    """All models in fallback chain time out; outcome is failure with fallback_attempts."""
+    from labro.agents.base import AgentTimeoutError
+
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    agent_cfg.fallback_slugs = ["claude-code:anthropic/claude-sonnet-4-6"]
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
+        patch("labro.cli.preserve_wip", return_value=None),
+        patch("labro.cli.get_agent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run") as mock_write,
+        patch("labro.cli.post_run_mod.pre_run"),
+        patch("labro.cli.post_run_mod.post_run"),
+    ):
+        mock_instance = MagicMock()
+        mock_instance.invoke.side_effect = AgentTimeoutError("timeout")
+        MockAgent.return_value = mock_instance
+
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 1
+    call_kwargs = mock_write.call_args.kwargs
+    assert call_kwargs["outcome"] == "failure"
+    assert call_kwargs["agent_result"] is None
+    assert call_kwargs["failure_reason"] == "timeout"
+    assert call_kwargs["agent_cfg"].slug == "claude-code:anthropic/claude-sonnet-4-6"
+    assert call_kwargs["fallback_attempts"] == json.dumps(
+        [
+            {"slug": "claude-code:anthropic/claude-opus-4-7", "reason": "timeout"},
+            {"slug": "claude-code:anthropic/claude-sonnet-4-6", "reason": "timeout"},
+        ]
+    )
     conn.close()
 
 

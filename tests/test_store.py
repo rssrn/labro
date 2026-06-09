@@ -79,6 +79,7 @@ def test_runs_table_has_expected_columns() -> None:
         "failure_reason",
         "wip_branch_url",
         "chosen_perspective",
+        "fallback_attempts",
     }
     assert expected == cols
 
