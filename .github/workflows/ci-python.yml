@@ -1,0 +1,45 @@
+# .github/workflows/ci-python.yml
+# Runs Python quality checks on PRs and pushes to main.
+# Skips when only dashboard/ files change.
+# @author Claude Sonnet 4.6 Anthropic
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'dashboard/**'
+  pull_request:
+    paths-ignore:
+      - 'dashboard/**'
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy src/
+
+      - name: Security lint (bandit)
+        run: uv run bandit -r src/
+
+      - name: Dependency audit (pip-audit)
+        run: uv run pip-audit
+
+      - name: Test (pytest)
+        run: uv run pytest

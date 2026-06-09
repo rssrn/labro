@@ -9,3 +9,22 @@ updates:
       python-deps:
         patterns:
           - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    groups:
+      dashboard-deps:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      actions:
+        patterns:
+          - "*"
