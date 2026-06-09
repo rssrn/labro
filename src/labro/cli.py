@@ -201,8 +201,6 @@ def _cmd_run_dryrun(config_path: Path, project_name: str) -> int:
         print(f"  grafana_rule_uid : {task.grafana_rule_uid}")
     actions_str = ", ".join(a.value for a in task.permitted_actions) or "(none)"
     print(f"  permitted_actions: {actions_str}")
-    if task.assignees:
-        print(f"  assignees        : {', '.join(task.assignees)}")
     print()
     print("  description:")
     for line in task.description.splitlines():
