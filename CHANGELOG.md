@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.0 — 2026-06-09
+
+### Added
+- **Model fallback support** — configure a list of model slugs per project; if the primary model times out or is unavailable, Labro automatically retries with the next slug in the list. The number of fallback attempts is recorded in the `runs` table (`fallback_attempts` column).
+
 ## v0.8.0 — 2026-06-08
 
 ### Features
