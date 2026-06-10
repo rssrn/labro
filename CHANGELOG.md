@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.10.1 — 2026-06-10
+
+### Fixed
+- `collect-signals` now generates a GitHub App installation token before calling
+  `gh api`, fixing 100% error rate on GitHub App-authenticated deployments
+
 ## v0.10.0 — 2026-06-10
 
 ### Added
