@@ -119,18 +119,8 @@ class CodexAgent(Agent):
                 _log.warning("codex stdout: %s", stdout.decode(errors="replace")[:2000])
             if stderr:
                 _log.warning("codex stderr: %s", stderr.decode(errors="replace")[:2000])
-            failure_summary = error_event or (
-                stderr.decode(errors="replace").strip() or "Codex agent failed."
-            )
-            return AgentResult(
-                outcome="failure",
-                summary=failure_summary[:500],
-                failure_reason=error_event or f"exit_code_{rc}",
-                total_cost_usd=None,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cache_read_tokens=cache_read_tokens,
-            )
+            reason = error_event or f"exit_code_{rc}"
+            raise AgentOutputError(reason)
 
         try:
             validate_structured_output(so)

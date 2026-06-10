@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from labro.agents.base import AgentOutputError
 from labro.agents.opencode import (
     OpenCodeAgent,
     _build_config,
@@ -190,15 +191,13 @@ def test_parse_result_only_synthetic_containing_json() -> None:
 
 def test_parse_result_json_parse_failure() -> None:
     stream = _make_event_stream(_text_event("not valid json at all"))
-    result = _parse_result(stream, b"")
-    assert result.outcome == "failure"
-    assert "json_parse_error" in (result.failure_reason or "")
+    with pytest.raises(AgentOutputError, match="json_parse_error"):
+        _parse_result(stream, b"")
 
 
 def test_parse_result_empty_output() -> None:
-    result = _parse_result(b"", b"")
-    assert result.outcome == "failure"
-    assert result.failure_reason is not None
+    with pytest.raises(AgentOutputError):
+        _parse_result(b"", b"")
 
 
 def _error_event(message: str, name: str = "UnknownError") -> dict[str, Any]:
@@ -213,9 +212,8 @@ def test_parse_result_error_event_surfaced_as_failure_reason() -> None:
         _error_event(model_not_found),
         _error_event("Unexpected server error. Check server logs for details."),
     )
-    result = _parse_result(stream, b"")
-    assert result.outcome == "failure"
-    assert result.failure_reason == model_not_found
+    with pytest.raises(AgentOutputError, match="Model not found"):
+        _parse_result(stream, b"")
 
 
 def test_parse_result_error_event_preferred_over_json_parse_error() -> None:
@@ -224,9 +222,8 @@ def test_parse_result_error_event_preferred_over_json_parse_error() -> None:
         _error_event("Provider rate limit exceeded"),
         _text_event("some garbage output"),
     )
-    result = _parse_result(stream, b"")
-    assert result.outcome == "failure"
-    assert result.failure_reason == "Provider rate limit exceeded"
+    with pytest.raises(AgentOutputError, match="Provider rate limit exceeded"):
+        _parse_result(stream, b"")
 
 
 def test_parse_result_cache_tokens() -> None:

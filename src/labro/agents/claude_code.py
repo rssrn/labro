@@ -140,9 +140,7 @@ def run_claude(prompt: str, config: AgentConfig) -> AgentResult:
             so_summary = result_text or "Agent reached the turn limit before completing the task."
             so_failure_reason = subtype
         else:
-            so_outcome = "failure"
-            so_summary = result_text or "Agent terminated without a structured result."
-            so_failure_reason = subtype or None
+            raise AgentOutputError(subtype or "claude terminated without a structured result")
         return AgentResult(
             outcome=so_outcome,
             summary=so_summary,

@@ -77,8 +77,8 @@ def _mock_popen(stdout: bytes, *, returncode: int = 0) -> MagicMock:
     return mock_proc
 
 
-def test_missing_structured_output_returns_failure() -> None:
-    """Response without 'structured_output' key returns AgentResult(outcome='failure')."""
+def test_missing_structured_output_raises() -> None:
+    """Response without 'structured_output' key raises AgentOutputError for fallback."""
     payload = json.dumps(
         {
             "type": "result",
@@ -95,15 +95,12 @@ def test_missing_structured_output_returns_failure() -> None:
 
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(payload)
-        result = run_claude("prompt", _BASE_CONFIG)
-
-    assert result.outcome == "failure"
-    assert result.total_cost_usd == pytest.approx(0.005)
-    assert result.summary == "some last message"
+        with pytest.raises(AgentOutputError):
+            run_claude("prompt", _BASE_CONFIG)
 
 
-def test_structured_output_none_returns_failure() -> None:
-    """Response with structured_output=null returns AgentResult(outcome='failure')."""
+def test_structured_output_none_raises() -> None:
+    """Response with structured_output=null raises AgentOutputError for fallback."""
     payload = json.dumps(
         {
             "type": "result",
@@ -120,10 +117,8 @@ def test_structured_output_none_returns_failure() -> None:
 
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(payload)
-        result = run_claude("prompt", _BASE_CONFIG)
-
-    assert result.outcome == "failure"
-    assert result.total_cost_usd == pytest.approx(0.003)
+        with pytest.raises(AgentOutputError):
+            run_claude("prompt", _BASE_CONFIG)
 
 
 def test_error_max_turns_returns_partial() -> None:
@@ -221,8 +216,8 @@ def test_session_limit_mid_run_preserves_token_counts() -> None:
     assert result.total_cost_usd == pytest.approx(0.091)
 
 
-def test_missing_so_non_max_turns_returns_failure() -> None:
-    """Non-max-turns subtype with no structured_output returns outcome='failure'."""
+def test_missing_so_non_max_turns_raises() -> None:
+    """Non-semantic subtype with no structured_output raises AgentOutputError for fallback."""
     payload = json.dumps(
         {
             "type": "result",
@@ -238,11 +233,8 @@ def test_missing_so_non_max_turns_returns_failure() -> None:
 
     with patch("subprocess.Popen") as mock_popen_cls:
         mock_popen_cls.return_value = _mock_popen(payload)
-        result = run_claude("prompt", _BASE_CONFIG)
-
-    assert result.outcome == "failure"
-    assert result.failure_reason == "error_other"
-    assert result.total_cost_usd == pytest.approx(0.007)
+        with pytest.raises(AgentOutputError, match="error_other"):
+            run_claude("prompt", _BASE_CONFIG)
 
 
 def test_malformed_structured_output_still_raises() -> None:

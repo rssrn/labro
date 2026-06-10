@@ -298,16 +298,7 @@ def _parse_result(stdout: bytes, stderr: bytes) -> AgentResult:
         if meaningful_stderr:
             _log.warning("opencode stderr: %s", meaningful_stderr[:2000])
         agent_error = error_messages[0] if error_messages else None
-        return AgentResult(
-            outcome="failure",
-            summary=raw_text[:500] or "opencode returned no parseable output",
-            failure_reason=agent_error or f"json_parse_error: {exc}",
-            total_cost_usd=total_cost_usd,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
-        )
+        raise AgentOutputError(agent_error or f"json_parse_error: {exc}") from None
 
     try:
         validate_structured_output(so)
