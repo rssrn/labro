@@ -47,7 +47,7 @@ repos:
       - id: pytest
         name: pytest
         # Exit 5 = "no tests collected" — treat as success during skeleton phase.
-        entry: bash -c 'uv run pytest; rc=$?; [ $rc -eq 5 ] && exit 0 || exit $rc'
+        entry: bash -c 'uv run --no-sync pytest; rc=$?; [ $rc -eq 5 ] && exit 0 || exit $rc'
         language: system
         pass_filenames: false
         files: ^(src|tests)/
