@@ -971,7 +971,6 @@ def _cmd_collect_signals(args: argparse.Namespace) -> int:
         item_type: str = row["item_type"]
         item_number: int = row["item_number"]
         started_at: str = row["started_at"]
-        item_id: int = row["id"]
 
         # Ensure GH_TOKEN is set for gh api calls; GitHub App installs have no
         # ambient token so we generate one per repo (cached for the run).
@@ -999,7 +998,9 @@ def _cmd_collect_signals(args: argparse.Namespace) -> int:
         if not dry_run:
             store_mod.update_item_signals(
                 conn,
-                item_id,
+                repo,
+                item_type,
+                item_number,
                 outcome_state=signals.outcome_state,
                 follow_up_commits=signals.follow_up_commits,
                 thumbs_up=signals.thumbs_up,

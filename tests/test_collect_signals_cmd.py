@@ -142,3 +142,67 @@ def test_error_on_one_item_continues(tmp_path: Path) -> None:
     assert exit_code == 0
     # Both items were processed (one failed, one succeeded)
     assert call_count == 2
+
+
+def test_duplicate_item_collected_once(tmp_path: Path) -> None:
+    """Same repo/item touched in two runs is processed once, both rows updated."""
+    db_path = tmp_path / "test.db"
+    conn = open_db(str(db_path))
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome)"
+        " VALUES ('run-1', 'proj', '2024-01-15T10:00:00Z', 'success')"
+    )
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome)"
+        " VALUES ('run-2', 'proj', '2024-01-16T10:00:00Z', 'success')"
+    )
+    # Same issue touched in both runs
+    conn.execute(
+        "INSERT INTO items_touched (run_id, repo, item_type, item_number)"
+        " VALUES ('run-1', 'org/repo', 'issue', 1)"
+    )
+    conn.execute(
+        "INSERT INTO items_touched (run_id, repo, item_type, item_number)"
+        " VALUES ('run-2', 'org/repo', 'issue', 1)"
+    )
+    conn.commit()
+    conn.close()
+
+    from labro.cli import _build_parser
+
+    parser = _build_parser()
+    collect_call_count = 0
+
+    def _collect_side_effect(
+        repo: str,
+        item_type: str,
+        item_number: int,
+        run_started_at: str,
+        bot_username: str | None = None,
+    ) -> ItemSignals:
+        nonlocal collect_call_count
+        collect_call_count += 1
+        return ItemSignals(
+            outcome_state="closed_completed",
+            follow_up_commits=None,
+            thumbs_up=1,
+            thumbs_down=0,
+        )
+
+    with patch("labro.cli.signals_mod.collect", side_effect=_collect_side_effect):
+        args = parser.parse_args(["collect-signals", "--db-path", str(db_path)])
+        exit_code = args.func(args)
+
+    assert exit_code == 0
+    # collect() called exactly once despite two rows
+    assert collect_call_count == 1
+
+    conn2 = open_db(str(db_path))
+    rows = conn2.execute(
+        "SELECT signals_collected_at, outcome_state FROM items_touched WHERE repo='org/repo'"
+    ).fetchall()
+    assert len(rows) == 2
+    # Both rows written (not just one)
+    assert all(r["signals_collected_at"] is not None for r in rows)
+    assert all(r["outcome_state"] == "closed_completed" for r in rows)
+    conn2.close()

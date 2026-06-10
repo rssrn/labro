@@ -274,19 +274,20 @@ def get_items_for_signal_collection(
     if stale_days is None:
         return conn.execute(
             """
-            SELECT it.id, it.repo, it.item_type, it.item_number, it.outcome_state,
-                   r.started_at
+            SELECT it.repo, it.item_type, it.item_number, it.outcome_state,
+                   MIN(r.started_at) AS started_at
             FROM items_touched it
             JOIN runs r ON it.run_id = r.run_id
             WHERE it.signals_collected_at IS NULL
-            ORDER BY r.started_at DESC
+            GROUP BY it.repo, it.item_type, it.item_number
+            ORDER BY MIN(r.started_at) DESC
             """,
         ).fetchall()
 
     return conn.execute(
         """
-        SELECT it.id, it.repo, it.item_type, it.item_number, it.outcome_state,
-               r.started_at
+        SELECT it.repo, it.item_type, it.item_number, it.outcome_state,
+               MIN(r.started_at) AS started_at
         FROM items_touched it
         JOIN runs r ON it.run_id = r.run_id
         WHERE it.signals_collected_at IS NULL
@@ -294,7 +295,8 @@ def get_items_for_signal_collection(
                it.outcome_state = 'open'
                AND it.signals_collected_at < datetime('now', ?)
            )
-        ORDER BY r.started_at DESC
+        GROUP BY it.repo, it.item_type, it.item_number
+        ORDER BY MIN(r.started_at) DESC
         """,
         (f"-{stale_days} days",),
     ).fetchall()
@@ -302,7 +304,9 @@ def get_items_for_signal_collection(
 
 def update_item_signals(
     conn: sqlite3.Connection,
-    item_id: int,
+    repo: str,
+    item_type: str,
+    item_number: int,
     *,
     outcome_state: str | None,
     follow_up_commits: int | None,
@@ -310,11 +314,16 @@ def update_item_signals(
     thumbs_down: int,
     collected_at: str,
 ) -> None:
-    """Back-fill the signal columns for a single items_touched row.
+    """Back-fill the signal columns for all items_touched rows for a given item.
+
+    Updates every row matching (repo, item_type, item_number) so that duplicate
+    rows from multiple runs on the same item all get marked as collected.
 
     Args:
         conn: Open database connection.
-        item_id: Primary key of the ``items_touched`` row.
+        repo: Repository slug (e.g. ``"org/repo"``).
+        item_type: ``"issue"`` or ``"pr"``.
+        item_number: Issue or PR number.
         outcome_state: The resolved outcome state (e.g. ``"merged"``, ``"open"``).
         follow_up_commits: Number of follow-up commits (PRs only; ``None`` for issues).
         thumbs_up: Count of +1 reactions.
@@ -326,9 +335,18 @@ def update_item_signals(
         UPDATE items_touched
         SET outcome_state=?, follow_up_commits=?, thumbs_up=?, thumbs_down=?,
             signals_collected_at=?
-        WHERE id=?
+        WHERE repo=? AND item_type=? AND item_number=?
         """,
-        (outcome_state, follow_up_commits, thumbs_up, thumbs_down, collected_at, item_id),
+        (
+            outcome_state,
+            follow_up_commits,
+            thumbs_up,
+            thumbs_down,
+            collected_at,
+            repo,
+            item_type,
+            item_number,
+        ),
     )
     conn.commit()
 
