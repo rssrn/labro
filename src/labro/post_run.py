@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from dataclasses import dataclass
 from urllib.parse import quote
 
 from labro.models import AgentConfig, AgentResult, Task
@@ -21,6 +22,18 @@ _GENERIC_FAILURE_MSG = (
 )
 
 _AI_HANDOVER_LABEL = "ai-handover"
+
+
+@dataclass
+class PreRunHandle:
+    """Opaque context returned by pre_run; passed to append_fallback_note.
+
+    Exactly one of comment_id or issue_number will be set depending on task source.
+    """
+
+    repo: str
+    comment_id: int | None = None  # gh-label/gh-author: comment body to edit
+    issue_number: int | None = None  # proactive-improvement: issue body to edit
 
 
 def _ensure_labels(repo: str, labels: list[str]) -> None:
@@ -124,21 +137,181 @@ def _gh_comment(item_type: str, item_number: int, repo: str, body: str) -> None:
         )
 
 
-def pre_run(task: Task, agent_cfg: AgentConfig) -> None:
-    """Post a comment on the task item when Labro picks it up for a run.
+def _gh_comment_create(item_number: int, repo: str, body: str) -> int | None:
+    """Post a comment via the REST API and return its comment ID, or None on failure."""
+    import json as _json
 
-    No-op if the task has no item_number. Soft-fail on gh errors.
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "--method",
+            "POST",
+            f"repos/{repo}/issues/{item_number}/comments",
+            "-f",
+            f"body={body}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "gh api create comment failed for #%d (rc=%d): %s",
+            item_number,
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return None
+    try:
+        return int(_json.loads(result.stdout)["id"])
+    except (KeyError, ValueError, _json.JSONDecodeError) as exc:
+        logger.warning("gh api create comment: could not parse comment id: %s", exc)
+        return None
+
+
+def _gh_comment_edit(comment_id: int, repo: str, body: str) -> None:
+    """Replace the body of an existing comment. Logs a warning on failure."""
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{repo}/issues/comments/{comment_id}",
+            "-f",
+            f"body={body}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "gh api edit comment %d failed (rc=%d): %s",
+            comment_id,
+            result.returncode,
+            result.stderr.strip(),
+        )
+
+
+def _gh_issue_fetch_body(issue_number: int, repo: str) -> str | None:
+    """Fetch an issue body via the REST API. Returns None on failure."""
+    import json as _json
+
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo}/issues/{issue_number}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "gh api fetch issue %d failed (rc=%d): %s",
+            issue_number,
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return None
+    try:
+        return str(_json.loads(result.stdout)["body"])
+    except (KeyError, ValueError, _json.JSONDecodeError) as exc:
+        logger.warning("gh api fetch issue %d: could not parse body: %s", issue_number, exc)
+        return None
+
+
+def _gh_issue_edit_body(issue_number: int, repo: str, body: str) -> None:
+    """Replace an issue body via the REST API. Logs a warning on failure."""
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{repo}/issues/{issue_number}",
+            "-f",
+            f"body={body}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "gh api edit issue %d failed (rc=%d): %s",
+            issue_number,
+            result.returncode,
+            result.stderr.strip(),
+        )
+
+
+def pre_run(task: Task, agent_cfg: AgentConfig) -> PreRunHandle | None:
+    """Post a pre-run marker and return a handle for appending fallback notes.
+
+    For gh-label/gh-author tasks: posts a 'Labro picking up' comment and
+    returns a handle containing the comment ID.
+    For proactive-improvement tasks: no comment is posted; returns a handle
+    containing the issue number so fallback notes can be appended to the body.
+    Returns None if the task has no item_number.
 
     @author Claude Sonnet 4.6 Anthropic
     """
-    if task.item_number is None or task.source == "proactive-improvement":
-        return
-    item_type = task.item_type or "issue"
+    if task.item_number is None:
+        return None
+    if task.source == "proactive-improvement":
+        return PreRunHandle(repo=task.repo, issue_number=task.item_number)
     parts = ["Labro picking up"]
     if task.source_label:
         parts.append(f", selected based on `#{task.source_label}` label")
     parts.append(f". Assigning to `{agent_cfg.slug}`.")
-    _gh_comment(item_type, task.item_number, task.repo, "".join(parts))
+    comment_id = _gh_comment_create(task.item_number, task.repo, "".join(parts))
+    if comment_id is None:
+        return None
+    return PreRunHandle(repo=task.repo, comment_id=comment_id)
+
+
+def append_fallback_note(
+    handle: PreRunHandle,
+    failed_slug: str,
+    reason: str,
+    next_slug: str,
+) -> None:
+    """Append a fallback note to the pre-run comment or proactive issue body.
+
+    For gh-label/gh-author: fetches the comment and PATCHes it with a new line.
+    For proactive-improvement: fetches the issue body and PATCHes it with a new line.
+    Soft-fail on any gh error.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    note = f"Model `{failed_slug}` failed: {reason}. Trying fallback with `{next_slug}`."
+
+    if handle.comment_id is not None:
+        import json as _json
+
+        fetch = subprocess.run(
+            ["gh", "api", f"repos/{handle.repo}/issues/comments/{handle.comment_id}"],
+            capture_output=True,
+            text=True,
+        )
+        if fetch.returncode != 0:
+            logger.warning(
+                "gh api fetch comment %d failed (rc=%d): %s",
+                handle.comment_id,
+                fetch.returncode,
+                fetch.stderr.strip(),
+            )
+            return
+        try:
+            current_body: str = _json.loads(fetch.stdout)["body"]
+        except (KeyError, ValueError, _json.JSONDecodeError) as exc:
+            logger.warning(
+                "gh api fetch comment %d: could not parse body: %s", handle.comment_id, exc
+            )
+            return
+        _gh_comment_edit(handle.comment_id, handle.repo, f"{current_body}\n{note}")
+
+    elif handle.issue_number is not None:
+        issue_body = _gh_issue_fetch_body(handle.issue_number, handle.repo)
+        if issue_body is None:
+            return
+        _gh_issue_edit_body(handle.issue_number, handle.repo, f"{issue_body}\n{note}")
 
 
 def post_run(

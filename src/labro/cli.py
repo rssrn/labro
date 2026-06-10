@@ -415,7 +415,7 @@ def _cmd_run_live(
         )
 
         # ── Pre-run comment ────────────────────────────────────────────────────
-        post_run_mod.pre_run(task, agent_cfg)
+        pre_run_handle = post_run_mod.pre_run(task, agent_cfg)
 
         # ── Invoke agent (with model fallback) ─────────────────────────────────
         _configs_to_try = [agent_cfg] + [
@@ -433,7 +433,7 @@ def _cmd_run_live(
         outcome = "failure"
         failure_reason: str | None = None
 
-        for _attempt_cfg in _configs_to_try:
+        for _i, _attempt_cfg in enumerate(_configs_to_try):
             _attempt_cfg.cwd = repo_path
             item_ref = (
                 f"{task.item_type} #{task.item_number}"
@@ -454,11 +454,29 @@ def _cmd_run_live(
                 agent_cfg = _attempt_cfg  # winning attempt
                 break
             except AgentTimeoutError:
-                failed_attempts.append({"slug": _attempt_cfg.slug, "reason": "timeout"})
+                reason = "timeout"
+                failed_attempts.append({"slug": _attempt_cfg.slug, "reason": reason})
                 _log.warning("agent %s timed out; trying next model", _attempt_cfg.slug)
+                _next_configs = _configs_to_try[_i + 1 :]
+                if pre_run_handle is not None and _next_configs:
+                    post_run_mod.append_fallback_note(
+                        pre_run_handle,
+                        failed_slug=_attempt_cfg.slug,
+                        reason=reason,
+                        next_slug=_next_configs[0].slug,
+                    )
             except AgentOutputError as exc:
-                failed_attempts.append({"slug": _attempt_cfg.slug, "reason": str(exc)})
+                reason = str(exc)
+                failed_attempts.append({"slug": _attempt_cfg.slug, "reason": reason})
                 _log.warning("agent %s output error: %s; trying next", _attempt_cfg.slug, exc)
+                _next_configs = _configs_to_try[_i + 1 :]
+                if pre_run_handle is not None and _next_configs:
+                    post_run_mod.append_fallback_note(
+                        pre_run_handle,
+                        failed_slug=_attempt_cfg.slug,
+                        reason=reason,
+                        next_slug=_next_configs[0].slug,
+                    )
 
         # If every attempt failed with an exception, update agent_cfg to the last
         # attempt so the run record reflects the actual last model tried.

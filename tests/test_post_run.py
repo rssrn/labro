@@ -5,13 +5,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from labro.models import AgentConfig, AgentResult, Task
-from labro.post_run import post_run, pre_run
+from labro.post_run import PreRunHandle, append_fallback_note, post_run, pre_run
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,8 +68,8 @@ def _edit_cmds(mock_run: MagicMock) -> list[list[str]]:
 
 
 def _comment_cmds(mock_run: MagicMock) -> list[list[str]]:
-    """Return all subprocess calls that contain 'comment'."""
-    return [c[0][0] for c in mock_run.call_args_list if "comment" in c[0][0]]
+    """Return all subprocess calls that post or edit a comment."""
+    return [c[0][0] for c in mock_run.call_args_list if any("comment" in a for a in c[0][0])]
 
 
 # ---------------------------------------------------------------------------
@@ -82,25 +83,92 @@ def _make_agent_cfg(slug: str = "claude-code:anthropic/claude-sonnet-4-6") -> Ag
 
 @patch("labro.post_run.subprocess.run")
 def test_pre_run_comment_includes_label_and_slug(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    mock_run.return_value = MagicMock(returncode=0, stderr="", stdout='{"id": 99}')
     task = _make_task(source_label="ai-dev")
-    pre_run(task, _make_agent_cfg())
+    handle = pre_run(task, _make_agent_cfg())
+    assert handle is not None
+    assert handle.comment_id == 99
     cmds = _comment_cmds(mock_run)
     assert len(cmds) == 1
-    body = cmds[0][cmds[0].index("--body") + 1]
-    assert "ai-dev" in body
-    assert "claude-code:anthropic/claude-sonnet-4-6" in body
+    body_arg = next(a for a in cmds[0] if a.startswith("body="))
+    assert "ai-dev" in body_arg
+    assert "claude-code:anthropic/claude-sonnet-4-6" in body_arg
 
 
 @patch("labro.post_run.subprocess.run")
 def test_pre_run_comment_no_source_label(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stderr="")
+    mock_run.return_value = MagicMock(returncode=0, stderr="", stdout='{"id": 100}')
     task = _make_task(source_label=None)
-    pre_run(task, _make_agent_cfg())
+    handle = pre_run(task, _make_agent_cfg())
+    assert handle is not None
+    assert handle.comment_id == 100
     cmds = _comment_cmds(mock_run)
     assert len(cmds) == 1
-    body = cmds[0][cmds[0].index("--body") + 1]
-    assert "claude-code:anthropic/claude-sonnet-4-6" in body
+    body_arg = next(a for a in cmds[0] if a.startswith("body="))
+    assert "claude-code:anthropic/claude-sonnet-4-6" in body_arg
+
+
+@patch("labro.post_run.subprocess.run")
+def test_pre_run_proactive_returns_issue_handle(mock_run: MagicMock) -> None:
+    """Proactive tasks return a handle with issue_number, no comment posted."""
+    task = _make_task(source="proactive-improvement", item_number=7)
+    handle = pre_run(task, _make_agent_cfg())
+    assert handle is not None
+    assert handle.issue_number == 7
+    assert handle.comment_id is None
+    mock_run.assert_not_called()
+
+
+@patch("labro.post_run.subprocess.run")
+def test_append_fallback_note_edits_comment(mock_run: MagicMock) -> None:
+    """append_fallback_note fetches the current body and PATCHes it with the note appended."""
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stderr="",
+        stdout=json.dumps({"id": 77, "body": "Labro picking up."}),
+    )
+    handle = PreRunHandle(repo="owner/repo", comment_id=77)
+    append_fallback_note(
+        handle,
+        failed_slug="opencode:opencode/bad-model",
+        reason="Model not found",
+        next_slug="opencode:opencode/good-model",
+    )
+    # Two calls: GET (fetch body) + PATCH (edit)
+    assert mock_run.call_count == 2
+    patch_cmd = mock_run.call_args_list[1][0][0]
+    assert "PATCH" in patch_cmd
+    body_arg = next(a for a in patch_cmd if a.startswith("body="))
+    assert "Labro picking up." in body_arg
+    assert "bad-model" in body_arg
+    assert "Model not found" in body_arg
+    assert "good-model" in body_arg
+
+
+@patch("labro.post_run.subprocess.run")
+def test_append_fallback_note_edits_issue_body(mock_run: MagicMock) -> None:
+    """Proactive handle: fetches the issue body and PATCHes it with the note appended."""
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stderr="",
+        stdout=json.dumps({"number": 5, "body": "**Agent:** `opencode:opencode/bad-model`"}),
+    )
+    handle = PreRunHandle(repo="owner/repo", issue_number=5)
+    append_fallback_note(
+        handle,
+        failed_slug="opencode:opencode/bad-model",
+        reason="Model not found",
+        next_slug="opencode:opencode/good-model",
+    )
+    # Two calls: GET issue + PATCH issue
+    assert mock_run.call_count == 2
+    patch_cmd = mock_run.call_args_list[1][0][0]
+    assert "PATCH" in patch_cmd
+    assert "/issues/5" in patch_cmd[-3]  # URL arg
+    body_arg = next(a for a in patch_cmd if a.startswith("body="))
+    assert "bad-model" in body_arg
+    assert "Model not found" in body_arg
+    assert "good-model" in body_arg
 
 
 @patch("labro.post_run.subprocess.run")

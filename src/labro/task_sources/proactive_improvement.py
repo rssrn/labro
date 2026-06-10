@@ -117,7 +117,6 @@ def _build_issue_body(
     lines: list[str] = [
         "<!-- Labro proactive suggestion — do not edit this header -->",
         "This is an autonomous proactive suggestion requested by Labro.",
-        f"**Agent:** `{agent_slug}`",
     ]
     if perspective_name:
         lines.append(f"**Perspective:** {perspective_name}")
@@ -128,6 +127,8 @@ def _build_issue_body(
         "---",
         "",
         "Agent findings will be posted as a comment below.",
+        "",
+        f"**Agent:** `{agent_slug}`",
     ]
     return "\n".join(lines)
 
