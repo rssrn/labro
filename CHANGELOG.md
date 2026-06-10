@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.10.2 — 2026-06-10
+
+### Fixed
+- Infrastructure failures (timeouts, rate limits, unsupported models) are now consistently detected as fallback conditions across all three agent implementations (Claude Code, Codex, OpenCode)
+- Proactive improvement issues now include fallback notes in the issue body when the primary model fails and a fallback model is used
+
 ## v0.10.1 — 2026-06-10
 
 ### Fixed
