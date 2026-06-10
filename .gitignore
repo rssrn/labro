@@ -44,3 +44,6 @@ htmlcov/
 
 # User-specific config (lives in a separate private repo — see labro.example.toml)
 labro.toml
+
+# Local SQLite database (runtime artifact; production path is /data/labro.db in container)
+*.db
