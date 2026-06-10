@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.10.0 — 2026-06-10
+
+### Added
+- Dashboard: `fallback_attempts` column now visible in the runs table and detail drawer
+- CI: Python and dashboard CI workflows; Dependabot coverage expanded to Actions and dashboard deps
+- CI: CI status badges added to README; GitHub Releases now auto-created on version tag push
+
+### Changed
+- Perspectives: white-hat prompt narrowed to static evidence only, reducing speculative findings
+
+### Fixed
+- Removed stale `assignees` field from `Task` model
+
 ## v0.9.0 — 2026-06-09
 
 ### Added
