@@ -36,7 +36,7 @@ jobs:
         run: uv run mypy src/
 
       - name: Security lint (bandit)
-        run: uv run bandit -r src/
+        run: uv run bandit -r src/ -c pyproject.toml
 
       - name: Dependency audit (pip-audit)
         run: uv run pip-audit
