@@ -224,6 +224,8 @@ class ProactiveImprovementTaskSource(TaskSource):
                 f"to this project. "
                 f"Use whatever tools and sources are useful — repo exploration, web searches, "
                 f"external docs — then post your findings as a comment on this issue. "
+                f"Limit your suggestions to the **1-5 highest-priority** items only; "
+                f"do not list every possible improvement. "
                 f"Once you know what your suggestion is, rename the issue to a specific, "
                 f'descriptive title using `gh issue edit {item_number} --title "..." '
                 f"--repo {project.repo}`."
@@ -233,6 +235,8 @@ class ProactiveImprovementTaskSource(TaskSource):
                 "Identify the most valuable improvement you can suggest for this project. "
                 "Use whatever tools and sources are useful — repo exploration, web searches, "
                 "external docs — then post your findings as a comment on this issue. "
+                "Limit your suggestions to the **1-5 highest-priority** items only; "
+                "do not list every possible improvement. "
                 f"Once you know what your suggestion is, rename the issue to a specific, "
                 f'descriptive title using `gh issue edit {item_number} --title "..." '
                 f"--repo {project.repo}`."
