@@ -916,14 +916,16 @@ def _cmd_collect_signals(args: argparse.Namespace) -> int:
     dry_run: bool = args.dry_run
     stale_days: int = args.stale_days
 
-    # Derive bot identity from config so thumbs are only counted on
-    # bot-authored content (issue body + comments).
+    # Derive bot identity and App credentials from config.
     bot_username: str | None = None
+    github_app_id: int | None = None
     config_path: Path = args.config
     try:
         config = load_config(config_path, check_env=False)
         if config.github_app_name is not None:
             bot_username = f"{config.github_app_name}[bot]"
+        if config.github_app_id is not None:
+            github_app_id = config.github_app_id
     except ConfigError:
         pass  # no config → no bot identity → legacy reaction counting
 
@@ -945,12 +947,26 @@ def _cmd_collect_signals(args: argparse.Namespace) -> int:
 
     updated = 0
     errors = 0
+    _token_cache: dict[str, str] = {}
     for row in rows:
         repo: str = row["repo"]
         item_type: str = row["item_type"]
         item_number: int = row["item_number"]
         started_at: str = row["started_at"]
         item_id: int = row["id"]
+
+        # Ensure GH_TOKEN is set for gh api calls; GitHub App installs have no
+        # ambient token so we generate one per repo (cached for the run).
+        if github_app_id is not None:
+            import labro.github_app as gh_app_mod
+
+            if repo not in _token_cache:
+                _token_cache[repo] = gh_app_mod.get_installation_token(
+                    github_app_id,
+                    gh_app_mod.resolve_private_key_pem(),
+                    repo,
+                )
+            os.environ["GH_TOKEN"] = _token_cache[repo]
 
         try:
             signals = signals_mod.collect(
