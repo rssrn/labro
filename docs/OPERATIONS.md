@@ -21,23 +21,40 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 
 ## Required Environment Variables
 
-| Variable | Required | Notes |
-|---|---|---|
-| `GH_TOKEN` | Unless using GitHub App | GitHub PAT — see [GitHub Token Setup](DEPLOYMENT.md#github-token-setup) |
-| `GH_APP_PRIVATE_KEY` | If using GitHub App (local/plain) | Raw PEM private key for the GitHub App; replaces `GH_TOKEN` |
-| `GH_APP_PRIVATE_KEY_BASE64` | If using GitHub App (container/CI) | `base64 -w 0 your-app.pem`; takes precedence over `GH_APP_PRIVATE_KEY` if both are set |
-| `CLAUDE_CODE_OAUTH_TOKEN` | If using claude-code agent | OAuth token from `claude setup-token`; tied to your Pro/Max subscription |
-| `ANTHROPIC_API_KEY` | Alternative to OAuth token | Bills your API account. If **both** are set, this takes precedence over the OAuth token |
-| `OPENROUTER_API_KEY` | If using opencode with OpenRouter | |
-| `CODEX_API_KEY` | If using codex via OpenAI API | Pay-per-token billing |
-| `LABRO_CONFIG` | Optional | Path to `labro.toml` inside the container (default: `./labro.toml`) |
-| `LABRO_REPOS_DIR` | Optional | Where repos are cloned (default: `/repos`; set to `/data/repos` with single-mount layout) |
-| `LABRO_DB_PATH` | Optional | SQLite path (default: `/data/labro.db`) |
-| `LABRO_LOG_PATH` | Optional | Log file path (default: `/data/labro.log`) |
-| `R2_ACCESS_KEY_ID` | If `[dashboard] enabled = true` | Cloudflare R2 S3 API access key |
-| `R2_SECRET_ACCESS_KEY` | If `[dashboard] enabled = true` | Cloudflare R2 S3 API secret key |
-| `R2_ACCOUNT_ID` | If `[dashboard] enabled = true` | Cloudflare account ID (endpoint derived automatically) |
-| `R2_BUCKET` | If using `dashboard-publish.yml` | R2 bucket name — used by the CI workflow to upload SPA assets; the harness reads the bucket from `[dashboard] bucket` in `labro.toml` |
+### GitHub Authentication
+
+Choose one method:
+
+- **`GH_TOKEN`** — GitHub PAT. See [GitHub Token Setup](DEPLOYMENT.md#github-token-setup).
+- **`GH_APP_PRIVATE_KEY`** — Raw PEM private key for a GitHub App (local/plain deployments). Replaces `GH_TOKEN`.
+- **`GH_APP_PRIVATE_KEY_BASE64`** — Base64-encoded PEM (`base64 -w 0 your-app.pem`). Takes precedence over `GH_APP_PRIVATE_KEY` if both are set; intended for container/CI environments.
+
+### Agent Authentication
+
+At least one agent provider must be configured:
+
+- **`CLAUDE_CODE_OAUTH_TOKEN`** — OAuth token from `claude setup-token` for the claude-code agent. Tied to your Pro/Max subscription.
+- **`ANTHROPIC_API_KEY`** — API key for the claude-code agent billed pay-per-token. If **both** this and the OAuth token are set, the API key takes precedence.
+- **`OPENROUTER_API_KEY`** — API key for the opencode agent when using OpenRouter.
+- **`CODEX_API_KEY`** — API key for the codex agent via OpenAI API (pay-per-token billing).
+
+### Labro Runtime
+
+All optional; sensible defaults for single-mount Docker layout:
+
+- **`LABRO_CONFIG`** — Path to `labro.toml` inside the container (default: `./labro.toml`).
+- **`LABRO_REPOS_DIR`** — Where repos are cloned (default: `/repos`; use `/data/repos` with single-mount layout).
+- **`LABRO_DB_PATH`** — SQLite database path (default: `/data/labro.db`).
+- **`LABRO_LOG_PATH`** — Log file path (default: `/data/labro.log`).
+
+### Dashboard (R2)
+
+Required only when `[dashboard] enabled = true` in `labro.toml`:
+
+- **`R2_ACCESS_KEY_ID`** — Cloudflare R2 S3 API access key.
+- **`R2_SECRET_ACCESS_KEY`** — Cloudflare R2 S3 API secret key.
+- **`R2_ACCOUNT_ID`** — Cloudflare account ID (endpoint derived automatically).
+- **`R2_BUCKET`** — R2 bucket name. Used by the CI workflow (`dashboard-publish.yml`) to upload SPA assets; the harness reads the bucket from `[dashboard] bucket` in `labro.toml`.
 
 ## Emergency Pause — `LABRO_DISABLED`
 
@@ -214,6 +231,8 @@ sqlite3 -column -header /data/labro.db \
 > **Tip:** `-column -header` formats output as aligned columns with a header row. Add `-json` instead for JSON output, or `-csv` for CSV.
 
 ## Signal Collection
+
+The agent self-reports its outcome as `success`, `failure`, or `partial` at the end of every run, but that's a subjective hint — you don't actually know whether the work was useful until you see what happened next on GitHub. Signals fill that gap by collecting objective, post-hoc outcomes: was the PR merged or closed unmerged? was the issue closed as completed or not planned? did anyone react to the work? Over time this lets you gauge real effectiveness — which projects, model slugs, perspectives, and task sources actually produce value — rather than relying on the agent's own assessment.
 
 Labro records which items (issues/PRs) were touched during each run in the `items_touched` table. The signal columns — `outcome_state`, `follow_up_commits`, `thumbs_up`, `thumbs_down` — are left NULL when the row is first inserted. The `labro collect-signals` command back-fills these columns by querying the GitHub API after the fact.
 
