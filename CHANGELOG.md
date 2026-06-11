@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.11.0 — 2026-06-11
+
+### Added
+- Thumbs up/down reaction signal now shown in the runs table outcome column on the dashboard
+- Model fallback now triggers on provider quota/credit exhaustion (`session_limit_hit`) in addition to timeouts, across all agent implementations (Claude Code, Codex, OpenCode)
+
+### Fixed
+- `collect-signals` no longer emits duplicate rows when the same item is touched in multiple runs
+- pytest pre-commit hook no longer runs `uv sync`, preventing `uv.lock` conflicts during test runs
+
+### Docs
+- Docker quickstart overhauled to cover all providers end-to-end
+- Codex fallback configuration examples added to `labro.example.toml`
+
 ## v0.10.2 — 2026-06-10
 
 ### Fixed
