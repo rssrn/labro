@@ -451,6 +451,24 @@ def _cmd_run_live(
                 agent_result = get_agent(_attempt_cfg.agent).invoke(prompt, _attempt_cfg)
                 outcome = agent_result.outcome
                 failure_reason = agent_result.failure_reason
+                if failure_reason == "session_limit_hit":
+                    _next_configs = _configs_to_try[_i + 1 :]
+                    if _next_configs:
+                        reason = "session_limit_hit"
+                        failed_attempts.append({"slug": _attempt_cfg.slug, "reason": reason})
+                        _log.warning(
+                            "agent %s hit session/quota limit; trying next model",
+                            _attempt_cfg.slug,
+                        )
+                        if pre_run_handle is not None:
+                            post_run_mod.append_fallback_note(
+                                pre_run_handle,
+                                failed_slug=_attempt_cfg.slug,
+                                reason=reason,
+                                next_slug=_next_configs[0].slug,
+                            )
+                        agent_result = None
+                        continue
                 agent_cfg = _attempt_cfg  # winning attempt
                 break
             except AgentTimeoutError:
