@@ -63,40 +63,49 @@ export class SqlJsDataSource implements DataSource {
     const params: (string | number)[] = [];
 
     if (filter.project) {
-      conditions.push('project = ?');
+      conditions.push('r.project = ?');
       params.push(filter.project);
     }
     if (filter.since) {
-      conditions.push('started_at >= ?');
+      conditions.push('r.started_at >= ?');
       params.push(filter.since);
     }
     if (filter.model) {
-      conditions.push('model = ?');
+      conditions.push('r.model = ?');
       params.push(filter.model);
     }
     if (filter.task_source) {
-      conditions.push('task_source = ?');
+      conditions.push('r.task_source = ?');
       params.push(filter.task_source);
     }
     if (filter.outcomes && filter.outcomes.length > 0) {
       const placeholders = filter.outcomes.map(() => '?').join(', ');
-      conditions.push(`outcome IN (${placeholders})`);
+      conditions.push(`r.outcome IN (${placeholders})`);
       params.push(...filter.outcomes);
     }
 
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const wherePrefix = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const limitClause = filter.limit != null ? `LIMIT ${filter.limit}` : 'LIMIT 200';
     const sql = `
-      SELECT run_id, project, started_at, ended_at,
-             task_source, task_description, item_url, trigger_label,
-             agent, provider, model, effort,
-             outcome, failure_reason, duration_s, total_cost_usd, turns_used,
-             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-             summary, actions_taken, wip_branch_url, chosen_perspective,
-             fallback_attempts
-      FROM runs
-      ${where}
-      ORDER BY started_at DESC
+      SELECT r.run_id, r.project, r.started_at, r.ended_at,
+             r.task_source, r.task_description, r.item_url, r.trigger_label,
+             r.agent, r.provider, r.model, r.effort,
+             r.outcome, r.failure_reason, r.duration_s, r.total_cost_usd, r.turns_used,
+             r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens,
+             r.summary, r.actions_taken, r.wip_branch_url, r.chosen_perspective,
+             r.fallback_attempts,
+             s.thumbs_up, s.thumbs_down
+      FROM runs r
+      LEFT JOIN (
+        SELECT run_id,
+               SUM(thumbs_up)   AS thumbs_up,
+               SUM(thumbs_down) AS thumbs_down
+        FROM items_touched
+        WHERE signals_collected_at IS NOT NULL
+        GROUP BY run_id
+      ) s ON s.run_id = r.run_id
+      ${wherePrefix}
+      ORDER BY r.started_at DESC
       ${limitClause}
     `;
 
@@ -130,6 +139,8 @@ export class SqlJsDataSource implements DataSource {
       wip_branch_url:     row[23] as string | null,
       chosen_perspective: row[24] as string | null,
       fallback_attempts:  row[25] as string | null,
+      thumbs_up:          row[26] as number | null,
+      thumbs_down:        row[27] as number | null,
     }));
   }
 

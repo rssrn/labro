@@ -147,6 +147,8 @@ export default function RunsTable({ runs, onSelect }: Props) {
                 <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }} title={run.outcome ? OUTCOME_TOOLTIP[run.outcome] : undefined}>
                   {run.outcome ?? '—'}
                 </span>
+                {(run.thumbs_up ?? 0) > 0 && <span title={`${run.thumbs_up} thumbs up`}> 👍</span>}
+                {(run.thumbs_down ?? 0) > 0 && <span title={`${run.thumbs_down} thumbs down`}> 👎</span>}
               </td>
               <td className="col-desktop" style={{ ...TD_STYLE, textAlign: 'right', color: '#aaa' }}>
                 {fmtCost(run.total_cost_usd)}
