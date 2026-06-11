@@ -125,7 +125,7 @@ export default function RunsTable({ runs, onSelect }: Props) {
             {th('project', 'project')}
             <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from.">source{arrow('task_source')}</th>
             <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('model')}>model{arrow('model')}</th>
-            <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run.">outcome{arrow('outcome')}</th>
+            <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run; updated by thumbs up/down reactions.">outcome{arrow('outcome')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('total_cost_usd')}>cost{arrow('total_cost_usd')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')} title="Number of agent conversation turns used. Capped by the configured max_turns; if turns = max and outcome = partial, the run was cut short.">turns{arrow('turns_used')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, cursor: 'default', minWidth: '180px' }}>
