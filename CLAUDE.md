@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Labro is a self-hosted harness that runs Claude Code as a subprocess to perform autonomous maintenance on GitHub repos (triage issues, review PRs, investigate alerts). The harness is deliberately dumb — deterministic, auditable orchestration. The agent is smart; Labro just selects a task, builds a prompt, and records the result.
+Labro is a self-hosted harness that runs Claude Code as a subprocess to perform autonomous maintenance on GitHub repos (triage issues, review PRs, investigate alerts). The harness is deliberately simple — deterministic, auditable orchestration. The agent is smart; Labro just selects a task, builds a prompt, and records the result.
 
 ## Tech Stack
 

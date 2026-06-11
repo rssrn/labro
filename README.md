@@ -15,22 +15,14 @@
 [![OpenCode](https://img.shields.io/badge/agent-OpenCode-6366f1)](https://opencode.ai)
 [![GitHub](https://img.shields.io/badge/platform-GitHub-181717?logo=github&logoColor=white)](https://github.com)
 
-AI coding agents like Claude Code deliver real productivity gains — but they still demand attention. Labro removes the supervisory overhead: it runs your agent on a cron schedule, picks the highest-priority task from your configured backlog, and records the result — no one needs to be at the keyboard.
+**Labro runs AI coding agents on a schedule so you don't have to watch them.**
 
-**A natural fit for Claude subscribers:** from June 2026, Pro/Max/Team/Enterprise plans include a [monthly pool of headless Agent SDK credits](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) that expire unused. Labro gives you a concrete, low-risk way to put them to work on your own repos. The harness is deterministic and auditable — it selects a task, constructs a prompt, invokes the agent, records the result, and gets out of the way.
+See [Why Labro](docs/WHY.md) for the design rationale: why supervision is the bottleneck, why scheduled complements event-driven, and why the harness stays simple.  [Live dashboard →](https://labro.rossarnold.uk/)
 
-For the full design rationale — why cron instead of webhooks, the autonomy model, and the project philosophy — see [Why Labro](docs/WHY.md).
-
-- **Scheduled, unattended runs** — cron-driven via GitHub Actions or a VPS; no one needs to be at the keyboard
-- **Priority-based task picking** — configurable label rules and author rules determine what gets worked on first
-- **Flexible deployment** — run as a long-lived VPS container with crond, or as a one-shot container per scheduled GitHub Actions job; both patterns are documented with ready-to-use config
-- **Per-project daily spend cap** — set `daily_budget_usd` to hard-stop spending once the limit is reached; the skipped run is recorded so accounting stays accurate
-- **Turn-limit handover** — when the agent exhausts its turn budget mid-task, Labro commits any in-progress edits to a `labro-wip/<run-id>` branch, posts a handover comment on the issue with the WIP branch link, and parks the item under `ai-handover` until a human re-queues it — no code is lost and no credits are silently wasted on a retry
-- **Graceful failure labelling** — success, partial, and failure outcomes each get distinct GitHub labels so the state of every item is visible at a glance without reading run logs
-- **Full audit trail** — every run writes outcome, cost, token usage, and actions to a local SQLite database
-- **Emergency pause** — drop a `LABRO_DISABLED` flag file to stop new runs instantly without restarting containers; any run already in progress finishes normally
-- **Multi-provider support** — Claude Code, Codex, and OpenCode are all supported; spread scheduled work across providers or use OpenCode to access any model on [models.dev](https://models.dev) (OpenRouter, Anthropic, OpenAI, Mistral, and more). See [Model Selection Guide](docs/MODEL-SELECTION.md) for advice on picking the right model for each task type.
-- **Model fallback** — configure `model` as an array; if the first model times out or produces invalid output, labro retries with the next in the list
+- **Runs on a schedule** — cron-driven via GitHub Actions or a dedicated server; no one needs to be at the keyboard
+- **Picks the right task from your GitHub Issues backlog** — you define label and author rules that determine priority
+- **Safeguards** — daily budget cap, model fallback on failure, and configurable tool-use restrictions
+- **Full audit trail** — every run records outcome, cost, tokens, and actions to a local SQLite database
 
 ---
 
@@ -41,6 +33,8 @@ There are two ways to run Labro: **Docker** (recommended for production and firs
 ## Quickstart — Docker
 
 The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and the `claude` and `opencode` CLIs. This is the recommended way to run Labro in production.
+
+> **💡 Tip for Claude subscribers:** from June 2026, Pro/Max/Team/Enterprise plans include a [monthly pool of headless Agent SDK credits](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) that expire unused. Labro gives you a concrete, low-risk way to put them to work on your own repos.
 
 ### Prerequisites
 
@@ -164,7 +158,7 @@ docker run --rm \
 
 The `-v labro-data:/data` named volume persists `labro.db` (the run audit trail) across invocations. Labro will pick the test issue, invoke the agent, post a comment or open a PR, and transition the label from `ai-dev` to `ai-dev-done`.
 
-**Next step — scheduling:** a one-shot `docker run` is enough for testing, but production use means running on a schedule. See the [Deployment Guide](docs/DEPLOYMENT.md) for GitHub Actions cron, VPS with crond, and config-repo patterns.
+**Next step — scheduling:** a one-shot `docker run` is enough for testing, but production use means running on a schedule. See the [Deployment Guide](docs/DEPLOYMENT.md) for GitHub Actions cron, a dedicated server with crond, and config-repo patterns.
 
 ---
 
@@ -258,59 +252,22 @@ See [Proactive Improvement — Perspectives](docs/OPERATIONS.md#proactive-improv
 
 **Live example:** [labro.rossarnold.uk](https://labro.rossarnold.uk/)
 
-> **⚠️ Data sensitivity:** the published snapshot contains private-repo prose — task descriptions, summaries, failure reasons, and item URLs from your monitored repositories. The dashboard ships **no built-in access control**. The bucket URL is the only barrier. Keep it private: do not share it, embed it in public pages, or link to it from anywhere indexable. See [ADR-0007](docs/adr/0007-metrics-dashboard.md) for the accepted risk posture and the deferred Cloudflare Access / column-redaction options.
+A read-only static SPA (React + Vite + sql.js) served from Cloudflare R2. It loads a published snapshot of `labro.db` client-side and renders a runs list, per-project stats, and charts — no runtime link to the harness.
 
-The dashboard is a read-only static SPA (React + Vite + sql.js) served from Cloudflare R2. It loads a published snapshot of `labro.db` client-side and renders a runs list, per-project stats, and charts. It has no runtime link to the harness and cannot affect runs.
+> **⚠️ Data sensitivity:** the published snapshot contains private-repo prose. The dashboard ships **no built-in access control**. The bucket URL is the only barrier. Keep it private. See [ADR-0007](docs/adr/0007-metrics-dashboard.md).
 
-### 1. Create an R2 bucket and bind a custom domain
-
-In the Cloudflare dashboard, create an R2 bucket, then generate an S3 API token scoped to it (Account → R2 → Manage R2 API tokens). Note the access key ID, secret key, and your Cloudflare account ID.
-
-Bind a **custom domain** to the bucket (bucket → Settings → Custom Domains). The SPA, `/manifest.json`, and `/db/*.db` must share the same origin so DB fetches are same-origin and no CORS headers are needed.
-
-### 2. Configure `[dashboard]` in `labro.toml`
-
-```toml
-[dashboard]
-enabled    = true
-bucket     = "my-labro-dashboard"   # R2 bucket name
-key_prefix = ""                     # optional path prefix inside the bucket
-cron       = "17 * * * *"           # snapshot publish frequency
-title      = "Labro Dashboard for My Projects"  # optional; customises the dashboard header
-```
-
-When `enabled = true`, `labro gen-crontab` emits a `labro publish-db` cron line automatically and `labro check` validates the three `R2_*` env vars.
-
-### 3. Set R2 credentials
-
-Add `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ACCOUNT_ID` to:
-- the VPS `.env` file (see [Config Repo](docs/DEPLOYMENT.md#config-repo))
-- your config-repo GitHub Secrets (for the `dashboard-publish.yml` workflow)
-
-### 4. Publish the first snapshot
-
-```bash
-labro publish-db --dry-run   # prints hashed db_key + manifest JSON; no upload, no creds required
-labro publish-db             # uploads snapshot to R2 (db first, then manifest)
-```
-
-After the first successful upload, `manifest.json` and `db/labro-<hash>.db` appear in the R2 bucket.
-
-### 5. Deploy the SPA
-
-Copy `docs/config-repo-scaffold/dashboard-publish.yml` into `.github/workflows/` in your config repo and add the four R2 secrets. Push to trigger the first build and upload. Once deployed, open your custom domain — the dashboard loads data from the published snapshot.
-
-The SPA rebuilds automatically when `dashboard/**` changes on labro `main` (dispatched via `dashboard-dispatch.yml`). Snapshot publishing runs independently on the cron in `[dashboard]`.
+Full setup guide: [Metrics Dashboard](docs/DASHBOARD.md)
 
 ---
 
 ## Documentation
 
 - **[Why Labro](docs/WHY.md)** — design rationale: why cron not webhooks, the autonomy model, and the project philosophy.
-- **[Deployment Guide](docs/DEPLOYMENT.md)** — GitHub token setup, Docker deployment modes (GitHub Actions and VPS), graceful restart procedure, and config-repo workflow.
+- **[Deployment Guide](docs/DEPLOYMENT.md)** — GitHub token setup, Docker deployment modes (GitHub Actions and a dedicated server), graceful restart procedure, and config-repo workflow.
 - **[Operations Reference](docs/OPERATIONS.md)** — live run loop internals, environment variables, label transitions, turn-limit handling, daily budget cap, signal collection, and CLI reference.
 - **[Model Selection Guide](docs/MODEL-SELECTION.md)** — advice on choosing agents and models per task type, with cost-shaping strategies and caveats.
 - **[Architecture](docs/ARCHITECTURE.md)** — system context, component design, runtime flow, and architectural decisions.
+- **[Metrics Dashboard](docs/DASHBOARD.md)** — R2 bucket setup, `[dashboard]` config, snapshot publishing, and SPA deployment.
 - **[Product Requirements Document](docs/PRD.md)** — problem statement, design principles, functional requirements, and success metrics.
 - **[Roadmap](docs/ROADMAP.md)** — delivery milestones and per-file completion tracking.
 - **[Architectural Decision Records](docs/adr/)** — record of significant design decisions.
@@ -348,7 +305,7 @@ Tests live in `tests/`. The coverage floor is 80% — new code should be covered
 2. Follow the quality gates: ruff, mypy strict, bandit (no `shell=True` — B602 must not be skipped), and 80% test coverage.
 3. Open a PR against `main` with a clear description of what and why.
 
-The harness is deliberately dumb — if you're adding intelligence, it probably belongs in a prompt, not the codebase. Read [Architecture](docs/ARCHITECTURE.md) and the [ADRs](docs/adr/) before adding abstractions.
+The harness is deliberately simple — if you're adding intelligence, it probably belongs in a prompt, not the codebase. Read [Architecture](docs/ARCHITECTURE.md) and the [ADRs](docs/adr/) before adding abstractions.
 
 ## Security
 

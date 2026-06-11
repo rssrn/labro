@@ -221,7 +221,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | Dashboard: runs list | Filterable/sortable table (project, outcome, model, task source, timespan) |
 | Dashboard: per-project stats | Run counts, success/failure/partial rates, total + avg cost, avg duration, avg turns |
 | Config-repo scaffold | A `dashboard-publish.yml` workflow (build SPA + upload to R2) for the operator's private config repo |
-| `README.md` | Document `labro publish-db`, the `[dashboard]` config block, and dashboard deployment to R2; **prominent warning** that the published snapshot contains private-repo prose and the bucket/URL must be kept private (no built-in access control) |
+| `docs/DASHBOARD.md` | Document `labro publish-db`, the `[dashboard]` config block, and dashboard deployment to R2; **prominent warning** that the published snapshot contains private-repo prose and the bucket/URL must be kept private (no built-in access control) |
 
 ### M9.2 — Charts
 
