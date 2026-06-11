@@ -20,6 +20,7 @@ from labro.models import AgentConfig, AgentResult, ItemRef
 _log = logging.getLogger(__name__)
 
 _AUTH_JSON_PATH = Path.home() / ".codex" / "auth.json"
+_QUOTA_EXCEEDED_MARKER = "quota exceeded"
 
 
 class CodexAgent(Agent):
@@ -117,8 +118,19 @@ class CodexAgent(Agent):
         if rc != 0 or so is None or error_event is not None:
             if stdout:
                 _log.warning("codex stdout: %s", stdout.decode(errors="replace")[:2000])
+            stderr_text = stderr.decode(errors="replace") if stderr else ""
             if stderr:
-                _log.warning("codex stderr: %s", stderr.decode(errors="replace")[:2000])
+                _log.warning("codex stderr: %s", stderr_text[:2000])
+            if _QUOTA_EXCEEDED_MARKER in stderr_text.lower():
+                _log.warning("codex quota exceeded")
+                return AgentResult(
+                    outcome="failure",
+                    summary=stderr_text.strip() or "Quota exceeded.",
+                    failure_reason="session_limit_hit",
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                )
             reason = error_event or f"exit_code_{rc}"
             raise AgentOutputError(reason)
 

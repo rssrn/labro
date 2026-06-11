@@ -200,8 +200,13 @@ def test_parse_result_empty_output() -> None:
         _parse_result(b"", b"")
 
 
-def _error_event(message: str, name: str = "UnknownError") -> dict[str, Any]:
-    return {"type": "error", "error": {"name": name, "data": {"message": message}}}
+def _error_event(
+    message: str, name: str = "UnknownError", status_code: int | None = None
+) -> dict[str, Any]:
+    data: dict[str, Any] = {"message": message}
+    if status_code is not None:
+        data["statusCode"] = status_code
+    return {"type": "error", "error": {"name": name, "data": data}}
 
 
 def test_parse_result_error_event_surfaced_as_failure_reason() -> None:
@@ -218,12 +223,31 @@ def test_parse_result_error_event_surfaced_as_failure_reason() -> None:
 
 def test_parse_result_error_event_preferred_over_json_parse_error() -> None:
     # When both an error event and unparseable text are present, the error message wins.
+    # No statusCode → hard failure (AgentOutputError), not a soft session_limit_hit.
     stream = _make_event_stream(
         _error_event("Provider rate limit exceeded"),
         _text_event("some garbage output"),
     )
     with pytest.raises(AgentOutputError, match="Provider rate limit exceeded"):
         _parse_result(stream, b"")
+
+
+def test_parse_result_402_returns_session_limit_hit() -> None:
+    # HTTP 402 from OpenRouter (insufficient credits) → soft failure, item stays re-queueable.
+    stream = _make_event_stream(
+        _error_event("mock quota exceeded", name="APIError", status_code=402),
+    )
+    result = _parse_result(stream, b"")
+    assert result.outcome == "failure"
+    assert result.failure_reason == "session_limit_hit"
+    assert "quota" in result.summary.lower()
+
+
+def test_parse_result_429_without_structured_exit_raises() -> None:
+    # HTTP 429 arrives without a statusCode field when opencode retries indefinitely
+    # and is killed by timeout — in that case stdout is empty, which raises as before.
+    with pytest.raises(AgentOutputError):
+        _parse_result(b"", b"")
 
 
 def test_parse_result_cache_tokens() -> None:

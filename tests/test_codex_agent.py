@@ -101,6 +101,24 @@ def test_missing_output_file_raises(tmp_path: pytest.TempPathFactory) -> None:
         )
 
 
+# ── quota exceeded ───────────────────────────────────────────────────────────
+
+
+def test_quota_exceeded_returns_session_limit_hit(tmp_path: pytest.TempPathFactory) -> None:
+    stderr = (
+        b"OpenAI Codex v0.139.0\nERROR: Quota exceeded. Check your plan and billing details.\n"
+    )
+    result = _call_parse_result(
+        _AGENT,
+        stdout=b"",
+        stderr=stderr,
+        rc=1,
+        out_path=str(tmp_path / "out.json"),  # type: ignore[operator]
+    )
+    assert result.outcome == "failure"
+    assert result.failure_reason == "session_limit_hit"
+
+
 # ── success path ──────────────────────────────────────────────────────────────
 
 

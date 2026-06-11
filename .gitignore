@@ -47,3 +47,6 @@ labro.toml
 
 # Local SQLite database (runtime artifact; production path is /data/labro.db in container)
 *.db
+
+# Local scratch dir for manual tests / experiments
+tmp/

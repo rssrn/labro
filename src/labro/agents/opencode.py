@@ -231,6 +231,7 @@ def _parse_result(stdout: bytes, stderr: bytes) -> AgentResult:
     """Parse the opencode --format json event stream into an AgentResult."""
     text_parts: list[str] = []
     error_messages: list[str] = []
+    error_status_codes: list[int] = []
     input_tokens = 0
     output_tokens = 0
     cache_read_tokens = 0
@@ -254,9 +255,15 @@ def _parse_result(stdout: bytes, stderr: bytes) -> AgentResult:
 
         if evt_type == "error":
             err = event.get("error", {})
-            msg = err.get("data", {}).get("message") or err.get("message", "")
+            data = err.get("data", {})
+            msg = data.get("message") or err.get("message", "")
             if msg:
                 error_messages.append(str(msg))
+            # Capture HTTP status codes for quota/billing error detection.
+            raw_code = data.get("statusCode")
+            if raw_code is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    error_status_codes.append(int(raw_code))
 
         elif evt_type == "text":
             # Collect all text including synthetic (reasoning) blocks.
@@ -297,6 +304,22 @@ def _parse_result(stdout: bytes, stderr: bytes) -> AgentResult:
         meaningful_stderr = _filter_stderr(stderr)
         if meaningful_stderr:
             _log.warning("opencode stderr: %s", meaningful_stderr[:2000])
+        # HTTP 402: provider rejected the request due to insufficient credits.
+        # Return a soft failure so the item stays re-queueable rather than
+        # being labelled ai-failed.
+        if 402 in error_status_codes:
+            summary = error_messages[0] if error_messages else "Insufficient credits."
+            _log.warning("opencode: provider returned 402 (insufficient credits): %s", summary)
+            return AgentResult(
+                outcome="failure",
+                summary=summary,
+                failure_reason="session_limit_hit",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
+                total_cost_usd=total_cost_usd,
+            )
         agent_error = error_messages[0] if error_messages else None
         raise AgentOutputError(agent_error or f"json_parse_error: {exc}") from None
 
