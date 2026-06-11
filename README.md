@@ -40,15 +40,18 @@ There are two ways to run Labro: **Docker** (recommended for production and firs
 
 ## Quickstart — Docker
 
-The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and a pinned `claude` CLI. This is the recommended way to run Labro in production.
+The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and the `claude` and `opencode` CLIs. This is the recommended way to run Labro in production.
 
 ### Prerequisites
 
 - **[Docker](https://docs.docker.com/get-docker/)** (or a compatible runtime such as Podman)
 - **GitHub access** — either a **GitHub App** (recommended; bot identity) or a **PAT** (`GH_TOKEN`). See [GitHub Token Setup](docs/DEPLOYMENT.md#github-token-setup) for the full setup guide.
-- A **claude CLI auth credential** for live agent runs (not needed for `--dry-run`):
-  - **`CLAUDE_CODE_OAUTH_TOKEN`** (recommended) — OAuth token tied to your Claude subscription (Pro/Max). Generate once with `claude setup-token` on your dev machine.
-  - **`ANTHROPIC_API_KEY`** (untested) — standard Anthropic API key; bills your API account. If both vars are set, this takes precedence over the OAuth token.
+- **An agent credential** for live runs (not needed for `--dry-run`) — pick one based on which provider you plan to use:
+  - **`CLAUDE_CODE_OAUTH_TOKEN`** — OAuth token for Claude Code (Pro/Max subscription). Generate once with `claude setup-token` on your dev machine.
+  - **`OPENAI_API_KEY`** — API key for OpenAI Codex (`codex:openai/...` models).
+  - **`OPENCODE_*` / provider key** — OpenCode supports any model on [models.dev](https://models.dev) (OpenRouter, Anthropic, Mistral, and more); see the [Model Selection Guide](docs/MODEL-SELECTION.md) for per-provider env vars.
+
+  See [Deployment Guide](docs/DEPLOYMENT.md#agent-credentials) for the full list of supported env vars and precedence rules.
 
 ### 1. Clone and build
 
@@ -69,16 +72,13 @@ docker buildx build --target base --platform linux/arm64 -t labro:arm64 .
 ### 2. Write a minimal `labro.toml`
 
 ```toml
-[digest]
-enabled = false
-
 [defaults]
 model = "claude-code:anthropic/claude-sonnet-4-6"   # or an array for fallback: ["slug1", "slug2"]
 
 [[projects]]
 name       = "my-project"
 repo       = "my-org/my-repo"
-cron       = "0 * * * *"
+cron       = "0 * * * *"             # hourly; consumed by `labro gen-crontab` for scheduling
 
 [[projects.task_sources]]
 type = "gh-label"
@@ -89,32 +89,11 @@ done_label        = "ai-dev-done"
 permitted_actions = ["comment_on_issue", "open_pr"]
 ```
 
-### 3. Dry-run
+The `cron` field tells `labro gen-crontab` how often to schedule each project. The container does not schedule itself — that's covered at the end of this section.
 
-Verify Labro resolves a task, agent config, and full prompt against your real repo — no tokens spent, no writes, no side effects:
+### 3. Create the labels and a test issue
 
-```bash
-docker run --rm \
-  -e GH_TOKEN=<your-github-token> \
-  -v "$PWD/labro.toml:/data/labro.toml:ro" \
-  labro:latest run my-project --dry-run
-```
-
-### 4. Pre-flight check and label setup
-
-Run `labro check` to validate your config, environment variables, GitHub token connectivity, and that all required labels exist:
-
-```bash
-docker run --rm \
-  -e GH_TOKEN=<your-github-token> \
-  -e CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
-  -v "$PWD/labro.toml:/data/labro.toml:ro" \
-  labro:latest check
-```
-
-Each line of output is prefixed with `OK  `, `WARN`, or `FAIL`. Fix any `FAIL` items before proceeding. `WARN` items (such as the OAuth token check) are informational — Labro will still run.
-
-If labels are missing, create them with `labro init`:
+Create the labels Labro expects in your repo:
 
 ```bash
 docker run --rm \
@@ -123,11 +102,40 @@ docker run --rm \
   labro:latest init
 ```
 
-This creates every label referenced in `labro.toml` across all configured repos using `gh label create --force` (idempotent — safe to re-run).
+This runs `gh label create --force` for every label in `labro.toml` (idempotent — safe to re-run).
 
-### 5. Validate the `claude` CLI (before live runs)
+Then open a real issue in `my-org/my-repo` and apply the `ai-dev` label to it. Labro picks tasks from live GitHub issues — without a labelled issue, the picker finds nothing and later steps will show "no task found."
 
-Before running Labro with a live agent, confirm `claude -p` works inside the container:
+### 4. Pre-flight check
+
+Run `labro check` to validate your config, environment variables, and GitHub token connectivity:
+
+```bash
+docker run --rm \
+  -e GH_TOKEN=<your-github-token> \
+  -e <YOUR_AGENT_CREDENTIAL>=<value> \
+  -v "$PWD/labro.toml:/data/labro.toml:ro" \
+  labro:latest check
+```
+
+Replace `<YOUR_AGENT_CREDENTIAL>` with whichever var your provider uses (e.g. `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`). Each output line is prefixed with `OK  `, `WARN`, or `FAIL` — fix any `FAIL` items before continuing.
+
+### 5. Dry-run
+
+Verify Labro resolves the test issue, builds the full prompt, and selects the right agent — no tokens spent, no writes, no side effects:
+
+```bash
+docker run --rm \
+  -e GH_TOKEN=<your-github-token> \
+  -v "$PWD/labro.toml:/data/labro.toml:ro" \
+  labro:latest run my-project --dry-run
+```
+
+You should see the resolved task, agent config, and four-section prompt printed to stdout.
+
+### 6. Validate your agent CLI
+
+Before the first live run, confirm the agent CLI authenticates correctly inside the container. Example for Claude Code:
 
 ```bash
 docker run --rm \
@@ -137,11 +145,26 @@ docker run --rm \
   -c 'echo "hello" | claude -p --output-format json'
 ```
 
-The response should contain top-level `type`, `is_error`, and `result` fields. If it fails with an auth error requiring interactive login, resolve the container auth strategy before proceeding to live runs.
+The response should contain top-level `type`, `is_error`, and `result` fields. If it fails with an auth error requiring interactive login, resolve the container auth strategy before proceeding.
 
-> **Note:** if both `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are set, `ANTHROPIC_API_KEY` takes precedence and bills your API account.
+For Codex or OpenCode validation steps, see [Deployment Guide — Agent Credentials](docs/DEPLOYMENT.md#agent-credentials).
 
-For production deployment options (GitHub Actions, VPS with crond, config repo), see the [Deployment Guide](docs/DEPLOYMENT.md).
+### 7. Live run
+
+Run Labro against the test issue:
+
+```bash
+docker run --rm \
+  -e GH_TOKEN=<your-github-token> \
+  -e <YOUR_AGENT_CREDENTIAL>=<value> \
+  -v "$PWD/labro.toml:/data/labro.toml:ro" \
+  -v labro-data:/data \
+  labro:latest run my-project
+```
+
+The `-v labro-data:/data` named volume persists `labro.db` (the run audit trail) across invocations. Labro will pick the test issue, invoke the agent, post a comment or open a PR, and transition the label from `ai-dev` to `ai-dev-done`.
+
+**Next step — scheduling:** a one-shot `docker run` is enough for testing, but production use means running on a schedule. See the [Deployment Guide](docs/DEPLOYMENT.md) for GitHub Actions cron, VPS with crond, and config-repo patterns.
 
 ---
 
