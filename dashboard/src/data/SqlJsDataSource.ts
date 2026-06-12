@@ -37,6 +37,10 @@ export class SqlJsDataSource implements DataSource {
       conditions.push('r.started_at >= ?');
       params.push(filter.since);
     }
+    if (filter.agent) {
+      conditions.push('r.agent = ?');
+      params.push(filter.agent);
+    }
     if (filter.model) {
       conditions.push('r.model = ?');
       params.push(filter.model);
@@ -69,6 +73,10 @@ export class SqlJsDataSource implements DataSource {
     if (filter.since) {
       conditions.push('r.started_at >= ?');
       params.push(filter.since);
+    }
+    if (filter.agent) {
+      conditions.push('r.agent = ?');
+      params.push(filter.agent);
     }
     if (filter.model) {
       conditions.push('r.model = ?');
@@ -185,6 +193,7 @@ export class SqlJsDataSource implements DataSource {
     const db = this._db();
 
     const projects = db.exec('SELECT DISTINCT project FROM runs ORDER BY project');
+    const agents = db.exec('SELECT DISTINCT agent FROM runs WHERE agent IS NOT NULL ORDER BY agent');
     const models = db.exec('SELECT DISTINCT model FROM runs WHERE model IS NOT NULL ORDER BY model');
     const taskSources = db.exec('SELECT DISTINCT task_source FROM runs WHERE task_source IS NOT NULL ORDER BY task_source');
     const outcomes = db.exec("SELECT DISTINCT outcome FROM runs WHERE outcome IS NOT NULL ORDER BY outcome");
@@ -194,6 +203,7 @@ export class SqlJsDataSource implements DataSource {
 
     return {
       projects: extract(projects),
+      agents: extract(agents),
       models: extract(models),
       task_sources: extract(taskSources),
       outcomes: extract(outcomes),

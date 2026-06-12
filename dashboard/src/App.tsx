@@ -24,7 +24,7 @@ export default function App() {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [tab, setTab] = useState<Tab>('runs');
   const [filter, setFilter] = useState<RunFilter>({ outcomes: ['success', 'failure'] });
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ projects: [], models: [], task_sources: [], outcomes: [] });
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ projects: [], agents: [], models: [], task_sources: [], outcomes: [] });
 
   const fetchData = useCallback(async (f: RunFilter) => {
     const [runs, stats] = await Promise.all([
@@ -83,7 +83,7 @@ export default function App() {
       style={{
         fontFamily: 'monospace',
         padding: '1.5rem',
-        maxWidth: '1100px',
+        maxWidth: '1600px',
         margin: '0 auto',
         background: '#111',
         minHeight: '100vh',

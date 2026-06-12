@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import type { Run } from '../data/DataSource';
 
-type SortKey = 'started_at' | 'project' | 'task_source' | 'model' | 'outcome' | 'total_cost_usd' | 'turns_used';
+type SortKey = 'started_at' | 'project' | 'task_source' | 'agent' | 'model' | 'outcome' | 'total_cost_usd' | 'turns_used';
 type SortDir = 'asc' | 'desc';
 
 interface Props {
@@ -43,7 +43,9 @@ function DateCell({ iso }: { iso: string }) {
 }
 
 function fmtModel(provider: string | null, model: string | null): string {
-  if (!model) return '—';
+  if (!model) {
+    return "[agent's internal default]";
+  }
   const short = model.replace(/^claude-/, '');
   return provider ? `${provider}/${short}` : short;
 }
@@ -53,6 +55,16 @@ function fmtCost(usd: number | null): string {
   if (usd <= 0) return '$0.00';
   if (usd < 0.01) return '<$0.01';
   return `$${usd.toFixed(2)}`;
+}
+
+function parseFallbacks(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const attempts: { slug: string }[] = JSON.parse(raw);
+    return attempts.map((a) => a.slug).join(', ');
+  } catch {
+    return null;
+  }
 }
 
 function truncate(s: string | null, n: number): string {
@@ -124,12 +136,13 @@ export default function RunsTable({ runs, onSelect }: Props) {
             {th('date', 'started_at')}
             {th('project', 'project')}
             <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from.">source{arrow('task_source')}</th>
+            <th style={TH_STYLE} onClick={() => handleSort('agent')}>agent{arrow('agent')}</th>
             <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('model')}>model{arrow('model')}</th>
             <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run; updated by thumbs up/down reactions.">outcome{arrow('outcome')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('total_cost_usd')}>cost{arrow('total_cost_usd')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')} title="Number of agent conversation turns used. Capped by the configured max_turns; if turns = max and outcome = partial, the run was cut short.">turns{arrow('turns_used')}</th>
-            <th className="col-desktop" style={{ ...TH_STYLE, cursor: 'default', minWidth: '180px' }}>
-              failure reason
+            <th className="col-desktop" style={{ ...TH_STYLE, cursor: 'default', minWidth: '120px' }}>
+              detail
             </th>
           </tr>
         </thead>
@@ -139,8 +152,11 @@ export default function RunsTable({ runs, onSelect }: Props) {
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>{run.project}</td>
               <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{run.task_source ?? '—'}</td>
+              <td style={TD_STYLE}>{run.agent ?? '—'}</td>
               <td className="col-desktop" style={TD_STYLE}>
-                {run.fallback_attempts ? <span style={{ color: '#c80' }}>⤳ </span> : null}
+                {run.fallback_attempts
+                  ? <span style={{ color: '#c80' }} title={`fallback from ${parseFallbacks(run.fallback_attempts) ?? '?'}`}>⤳ </span>
+                  : null}
                 {fmtModel(run.provider, run.model)}
               </td>
               <td style={TD_STYLE}>
@@ -154,16 +170,24 @@ export default function RunsTable({ runs, onSelect }: Props) {
                 {fmtCost(run.total_cost_usd)}
               </td>
               <td className="col-desktop" style={{ ...TD_STYLE, textAlign: 'right', color: '#aaa' }}>
-                {run.turns_used ?? '—'}
+                {run.turns_used == null || run.turns_used === 0 ? '—' : run.turns_used}
               </td>
-              <td className="col-desktop" style={{ ...TD_STYLE, whiteSpace: 'normal', color: '#888' }}>
-                {truncate(run.failure_reason, 60)}
+              <td className="col-desktop" style={{ ...TD_STYLE, whiteSpace: 'normal' }}>
+                {run.outcome === 'failure'
+                  ? <span style={{ color: '#c33' }}>{run.failure_reason ?? '—'}</span>
+                  : run.item_url
+                    ? <a href={run.item_url} target="_blank" rel="noreferrer"
+                        style={{ color: '#5af', textDecoration: 'none' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >{truncate(run.task_description ?? run.item_url, 45)}</a>
+                    : <span style={{ color: '#888' }}>—</span>
+                }
               </td>
             </tr>
           ))}
           {sorted.length === 0 && (
             <tr>
-              <td colSpan={8} style={{ ...TD_STYLE, color: '#666', textAlign: 'center' }}>
+              <td colSpan={9} style={{ ...TD_STYLE, color: '#666', textAlign: 'center' }}>
                 no runs
               </td>
             </tr>

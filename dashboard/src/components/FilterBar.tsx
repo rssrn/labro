@@ -161,6 +161,16 @@ export default function FilterBar({ options, value, onChange }: Props) {
       </select>
       <select
         style={SELECT_STYLE}
+        value={value.agent ?? ''}
+        onChange={(e) => set('agent', e.target.value || undefined)}
+      >
+        <option value="">All agents</option>
+        {options.agents.map((a) => (
+          <option key={a} value={a}>{a}</option>
+        ))}
+      </select>
+      <select
+        style={SELECT_STYLE}
         value={value.model ?? ''}
         onChange={(e) => set('model', e.target.value || undefined)}
       >

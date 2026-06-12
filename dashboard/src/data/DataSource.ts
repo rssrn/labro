@@ -4,6 +4,7 @@ export interface RunFilter {
   project?: string;
   since?: string;
   limit?: number;
+  agent?: string;
   model?: string;
   task_source?: string;
   outcomes?: string[];
@@ -87,6 +88,7 @@ export interface DurationPoint {
 
 export interface FilterOptions {
   projects: string[];
+  agents: string[];
   models: string[];
   task_sources: string[];
   outcomes: string[];
