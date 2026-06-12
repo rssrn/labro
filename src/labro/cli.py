@@ -679,7 +679,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
     @author Claude Sonnet 4.6 Anthropic
     """
     try:
-        config = load_config(args.config)
+        config = load_config(args.config, check_env=False)
     except ConfigError as exc:
         print(f"FAIL config: {exc}")
         return 1
