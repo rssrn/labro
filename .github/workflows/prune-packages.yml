@@ -1,0 +1,26 @@
+name: Prune old container versions
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete versions older than 7 days
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cutoff=$(date -d '7 days ago' -u +%Y-%m-%dT%H:%M:%SZ)
+          gh api /users/rssrn/packages/container/labro/versions --paginate \
+            | jq -r --arg cutoff "$cutoff" \
+              '.[] | select(.updated_at < $cutoff) | .id' \
+            | while read -r id; do
+                echo "Deleting version $id"
+                gh api --method DELETE /users/rssrn/packages/container/labro/versions/"$id"
+              done
