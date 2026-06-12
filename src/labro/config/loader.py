@@ -147,7 +147,9 @@ def load_config(
         if missing:
             raise ConfigError(f"Missing required environment variable(s): {', '.join(missing)}")
 
-        # Per-agent auth check (fast env/file check, not full HTTP validation)
+        # Per-agent auth check (fast env/file check, not full HTTP validation).
+        # Unknown agent IDs are a hard config error; missing credentials are only
+        # a warning — the runtime fallback loop handles auth failures gracefully.
         from labro.agents.registry import get_agent
 
         for agent_id in sorted(referenced_agents(config)):
@@ -157,9 +159,12 @@ def load_config(
                 raise ConfigError(str(exc)) from exc
             if not agent.has_auth():
                 auth_vars = ", ".join(agent.auth_env_vars)
-                raise ConfigError(
-                    f"Missing auth for agent '{agent_id}': set {auth_vars}"
-                    + (" or provide ~/.codex/auth.json" if agent_id == "codex" else "")
+                suffix = " or provide ~/.codex/auth.json" if agent_id == "codex" else ""
+                logger.warning(
+                    "Missing auth for agent '%s': set %s%s — runs using this agent will fail",
+                    agent_id,
+                    auth_vars,
+                    suffix,
                 )
 
     return config

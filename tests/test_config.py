@@ -356,15 +356,21 @@ def test_missing_gh_token_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         load_config(p)
 
 
-def test_missing_claude_auth_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """When neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set, ConfigError is raised."""
+def test_missing_claude_auth_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing agent credentials emit a warning but do not raise ConfigError."""
     monkeypatch.setenv("GH_TOKEN", "x")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
     p = write_toml(tmp_path, MINIMAL_VALID_TOML)
-    with pytest.raises(ConfigError, match="claude-code"):
-        load_config(p)
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="labro.config.loader"):
+        config = load_config(p)
+    assert isinstance(config, LabroConfig)
+    assert any("claude-code" in r.message for r in caplog.records)
 
 
 def test_oauth_token_satisfies_claude_auth(
