@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.11.1 — 2026-06-12
+
+### Fixed
+- Missing agent auth configuration is now a warning rather than a hard `ConfigError`, allowing the run to proceed with other configured providers
+
+### Docs
+- Environment variable reference split into subsections with signal collection rationale added
+- Quickstarts moved to `QUICKSTART.md`, `CONTRIBUTING.md` created, general README cleanup
+- README intro trimmed, `WHY.md` consolidated, `DASHBOARD.md` created
+
 ## v0.11.0 — 2026-06-11
 
 ### Added
