@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -283,21 +282,13 @@ def test_check_config_error_exits_1() -> None:
     assert result == 1
 
 
-def _check_gh_router(
-    label_json: str,
-    *,
-    auth_ok: bool = True,
-    label_list_ok: bool = True,
-) -> Any:
+def _check_gh_router(*, auth_ok: bool = True) -> Any:
     """Return a _run_gh side-effect that routes by command for _cmd_check tests."""
 
     def _route(cmd: list[str]) -> MagicMock:
         if "auth" in cmd:
             return _make_gh_result() if auth_ok else _make_gh_result(1, stderr="not authenticated")
-        # label list
-        if label_list_ok:
-            return _make_gh_result(stdout=label_json)
-        return _make_gh_result(returncode=1, stderr="gh error")
+        return _make_gh_result()
 
     return _route
 
@@ -318,14 +309,12 @@ def test_check_missing_env_var_reported_as_fail(
 ) -> None:
     monkeypatch.delenv("GH_TOKEN", raising=False)
     config = _make_config()
-    all_labels = _collect_labels_for_project(config.projects[0], config)
-    label_json = json.dumps([{"name": lbl} for lbl in all_labels])
     with (
         patch("labro.cli.load_config", return_value=config),
         patch("labro.cli.required_env_vars", return_value=["GH_TOKEN"]),
         patch("labro.cli.referenced_agents", return_value={"claude-code"}),
         patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_OK)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router(label_json)),
+        patch("labro.cli._run_gh", side_effect=_check_gh_router()),
     ):
         result = _cmd_check(_make_args())
     assert result == 1
@@ -338,15 +327,13 @@ def test_check_missing_claude_auth_fails(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = _make_config()
-    all_labels = _collect_labels_for_project(config.projects[0], config)
-    label_json = json.dumps([{"name": lbl} for lbl in all_labels])
     _auth_fail = ("FAIL", "no Claude auth — set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN")
     with (
         patch("labro.cli.load_config", return_value=config),
         patch("labro.cli.required_env_vars", return_value=[]),
         patch("labro.cli.referenced_agents", return_value={"claude-code"}),
         patch("labro.cli.get_agent", return_value=_mock_agent(_auth_fail)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router(label_json)),
+        patch("labro.cli._run_gh", side_effect=_check_gh_router()),
     ):
         result = _cmd_check(_make_args())
     assert result == 1
@@ -359,14 +346,12 @@ def test_check_anthropic_api_key_invalid_reported_as_fail(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = _make_config()
-    all_labels = _collect_labels_for_project(config.projects[0], config)
-    label_json = json.dumps([{"name": lbl} for lbl in all_labels])
     with (
         patch("labro.cli.load_config", return_value=config),
         patch("labro.cli.required_env_vars", return_value=[]),
         patch("labro.cli.referenced_agents", return_value={"claude-code"}),
         patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_FAIL)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router(label_json)),
+        patch("labro.cli._run_gh", side_effect=_check_gh_router()),
     ):
         result = _cmd_check(_make_args())
     assert result == 1
@@ -379,14 +364,12 @@ def test_check_gh_auth_failure_reported_as_fail(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = _make_config()
-    all_labels = _collect_labels_for_project(config.projects[0], config)
-    label_json = json.dumps([{"name": lbl} for lbl in all_labels])
     with (
         patch("labro.cli.load_config", return_value=config),
         patch("labro.cli.required_env_vars", return_value=[]),
         patch("labro.cli.referenced_agents", return_value={"claude-code"}),
         patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_OK)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router(label_json, auth_ok=False)),
+        patch("labro.cli._run_gh", side_effect=_check_gh_router(auth_ok=False)),
     ):
         result = _cmd_check(_make_args())
     assert result == 1
@@ -395,58 +378,21 @@ def test_check_gh_auth_failure_reported_as_fail(
     assert "gh auth status" in out
 
 
-def test_check_missing_label_reported_as_fail(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config = _make_config()
-    with (
-        patch("labro.cli.load_config", return_value=config),
-        patch("labro.cli.required_env_vars", return_value=[]),
-        patch("labro.cli.referenced_agents", return_value={"claude-code"}),
-        patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_OK)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router("[]")),
-    ):
-        result = _cmd_check(_make_args())
-    assert result == 1
-    out = capsys.readouterr().out
-    assert "FAIL" in out
-    assert "label missing" in out
-
-
 def test_check_all_ok_exits_0(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = _make_config()
-    all_labels = _collect_labels_for_project(config.projects[0], config)
-    label_json = json.dumps([{"name": lbl} for lbl in all_labels])
     with (
         patch("labro.cli.load_config", return_value=config),
         patch("labro.cli.required_env_vars", return_value=[]),
         patch("labro.cli.referenced_agents", return_value={"claude-code"}),
         patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_OK)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router(label_json)),
+        patch("labro.cli._run_gh", side_effect=_check_gh_router()),
     ):
         result = _cmd_check(_make_args())
     assert result == 0
     out = capsys.readouterr().out
     assert "FAIL" not in out
-
-
-def test_check_gh_label_list_failure_is_fail(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config = _make_config()
-    with (
-        patch("labro.cli.load_config", return_value=config),
-        patch("labro.cli.required_env_vars", return_value=[]),
-        patch("labro.cli.referenced_agents", return_value={"claude-code"}),
-        patch("labro.cli.get_agent", return_value=_mock_agent(_API_KEY_OK)),
-        patch("labro.cli._run_gh", side_effect=_check_gh_router("[]", label_list_ok=False)),
-    ):
-        result = _cmd_check(_make_args())
-    assert result == 1
-    out = capsys.readouterr().out
-    assert "FAIL" in out
 
 
 # ---------------------------------------------------------------------------

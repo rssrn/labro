@@ -740,28 +740,6 @@ def _cmd_check(args: argparse.Namespace) -> int:
             msg = gh_auth.stderr.strip() or "not authenticated"
             results.append(("FAIL", f"gh auth status: {msg}"))
 
-    # Per-project checks
-    projects = [p for p in config.projects if p.enabled]
-    if args.project:
-        projects = [p for p in projects if p.name == args.project]
-
-    for project in projects:
-        expected = set(_collect_labels_for_project(project, config))
-
-        gh_result = _run_gh(
-            ["gh", "label", "list", "--repo", project.repo, "--json", "name", "--limit", "200"]
-        )
-        if gh_result.returncode != 0:
-            results.append(
-                ("FAIL", f"[{project.name}] gh label list failed: {gh_result.stderr.strip()}")
-            )
-        else:
-            existing = {obj["name"] for obj in json.loads(gh_result.stdout)}
-            for label in sorted(expected - existing):
-                results.append(("FAIL", f"[{project.name}] label missing: {label!r}"))
-            if not (expected - existing):
-                results.append(("OK  ", f"[{project.name}] all {len(expected)} labels present"))
-
     for status, message in results:
         print(f"{status} {message}")
 
