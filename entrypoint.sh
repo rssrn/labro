@@ -7,6 +7,10 @@ set -euo pipefail
 if [ -f /data/codex/auth.json ]; then
     mkdir -p /root/.codex
     ln -sf /data/codex/auth.json /root/.codex/auth.json
+elif [ -n "${CODEX_AUTH_JSON_BASE64:-}" ]; then
+    mkdir -p /root/.codex
+    echo "$CODEX_AUTH_JSON_BASE64" | base64 -d > /root/.codex/auth.json
+    chmod 600 /root/.codex/auth.json
 fi
 
 # Export container env so crond jobs inherit secrets (GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, etc.)
