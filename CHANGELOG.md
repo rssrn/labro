@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.11.2 — 2026-06-12
+
+### Fixed
+- Container entrypoint now decodes `CODEX_AUTH_JSON_BASE64` env var into `~/.codex/auth.json` so Codex credentials injected as Docker secrets are picked up at startup
+
 ## v0.11.1 — 2026-06-12
 
 ### Fixed
