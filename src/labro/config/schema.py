@@ -135,6 +135,7 @@ class SharedRuleConfig(BaseModel):
 
     label: str
     done_label: str
+    description: str | None = None
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: ModelSlugList | None = None
@@ -154,6 +155,7 @@ class LabelRule(BaseModel):
     rule: str | None = None
     label: str | None = None
     done_label: str | None = None
+    description: str | None = None
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: ModelSlugList | None = None
@@ -173,6 +175,7 @@ class AuthorRule(BaseModel):
 
     actor: str
     done_label: str
+    description: str | None = None
     persona: str | None = None
     model: ModelSlugList | None = None
     permitted_actions: list[PermittedAction] | None = None
@@ -358,6 +361,8 @@ class LabroConfig(BaseModel):
                             rule.label = template.label
                         if rule.done_label is None:
                             rule.done_label = template.done_label
+                        if rule.description is None and template.description is not None:
+                            rule.description = template.description
                         if rule.persona is None and template.persona is not None:
                             rule.persona = template.persona
                         if (

@@ -283,6 +283,7 @@ class GhAuthorTaskSource(TaskSource):
             done_label=done_label,
             grafana_rule_uid=None,
             persona_prompt=persona_prompt,
+            source_description=winning_rule.description,
         )
         agent_cfg = AgentConfig.from_slug_list(
             model,

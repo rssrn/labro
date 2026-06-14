@@ -185,6 +185,48 @@ def test_label_rule_source_label_set() -> None:
     assert task.done_label == "ai-dev-done"
 
 
+def test_label_rule_source_description_populated() -> None:
+    """source_description is set on the Task when the label rule has a description."""
+    rule = _label_rule(label="ai-dev", done_label="ai-dev-done")
+    rule.description = "AI Dev"
+    src_cfg = _source_config(label_rules=[rule])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhLabelTaskSource(src_cfg)
+
+    def fake_gh_api(url: str) -> list[Any]:
+        if "comments" in url:
+            return []
+        return [_LABEL_ITEM]
+
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=fake_gh_api):
+        result = _fetch(source, proj, cfg)
+
+    assert result is not None
+    task, _ = result
+    assert task.source_description == "AI Dev"
+
+
+def test_label_rule_source_description_none_when_unset() -> None:
+    """source_description is None when the label rule has no description."""
+    src_cfg = _source_config(label_rules=[_label_rule()])
+    proj = _project(source_cfg=src_cfg)
+    cfg = _config(proj)
+    source = GhLabelTaskSource(src_cfg)
+
+    def fake_gh_api(url: str) -> list[Any]:
+        if "comments" in url:
+            return []
+        return [_LABEL_ITEM]
+
+    with patch("labro.task_sources.gh_label._run_gh_api", side_effect=fake_gh_api):
+        result = _fetch(source, proj, cfg)
+
+    assert result is not None
+    task, _ = result
+    assert task.source_description is None
+
+
 def test_label_rule_oldest_wins() -> None:
     """When multiple label_rules have candidates, the globally oldest item wins."""
     rule_a = _label_rule(label="ai-dev", done_label="ai-dev-done")

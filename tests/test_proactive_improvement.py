@@ -142,6 +142,38 @@ def test_perspective_set_when_perspectives_available() -> None:
     assert task.perspective_prompt == "Look for failures."
 
 
+def test_source_description_formatted_from_perspective() -> None:
+    """source_description is '💡 <Title Case perspective>' when a perspective is chosen."""
+    source = _make_source(
+        perspectives={"red-team": PerspectiveConfig(prompt="Look for failures.")}
+    )
+    responses = [
+        MagicMock(stdout=_gh_list_response(0), returncode=0),
+        MagicMock(returncode=0),
+        MagicMock(stdout=_gh_create_response(), returncode=0),
+    ]
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
+    task, _ = result
+    assert task.source_description == "💡 Red Team"
+
+
+def test_source_description_none_when_no_perspective() -> None:
+    """source_description is None when no perspective is selected."""
+    source = _make_source(perspectives={})
+    responses = [
+        MagicMock(stdout=_gh_list_response(0), returncode=0),
+        MagicMock(returncode=0),
+        MagicMock(stdout=_gh_create_response(), returncode=0),
+    ]
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
+    task, _ = result
+    assert task.source_description is None
+
+
 def test_no_perspective_when_no_perspectives_loaded() -> None:
     source = _make_source(perspectives={})
     responses = [

@@ -258,6 +258,9 @@ class ProactiveImprovementTaskSource(TaskSource):
             persona_prompt=persona_prompt,
             perspective_prompt=perspective_prompt,
             chosen_perspective=chosen_name,
+            source_description=(
+                f"💡 {chosen_name.replace('-', ' ').title()}" if chosen_name else None
+            ),
         )
 
         return task, agent_cfg

@@ -36,6 +36,11 @@ class Task:
     done_label: str | None  # label to apply on success (gh-label only)
     grafana_rule_uid: str | None  # rule UID for grafana-alerts tasks
 
+    # Human-readable label for the source queue, written to the runs table and shown in
+    # the dashboard source column (e.g. "AI Dev" for a gh-label rule, "💡 Red Team" for
+    # a proactive-improvement run with a named perspective).
+    source_description: str | None = None
+
     # Optional persona prompt prepended to the role section of the agent prompt.
     persona_prompt: str | None = None
 

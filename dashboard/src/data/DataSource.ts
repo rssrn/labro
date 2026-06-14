@@ -37,6 +37,7 @@ export interface Run {
   wip_branch_url: string | null;
   chosen_perspective: string | null;
   fallback_attempts: string | null;
+  source_description: string | null;
   thumbs_up: number | null;
   thumbs_down: number | null;
 }

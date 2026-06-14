@@ -137,6 +137,7 @@ Work through the following checks in order:
 [shared_rules.dev]
 label             = "ai-dev"
 done_label        = "ai-dev-done"
+description       = "AI Dev"          # shown in dashboard source column instead of "gh-label"
 persona           = "senior-developer"
 permitted_actions = ["comment_on_issue", "open_pr"]
 model             = ["claude-code:anthropic/claude-opus-4-7@max", "codex"]  # primary + codex fallback if quota/limit hit
@@ -144,12 +145,14 @@ model             = ["claude-code:anthropic/claude-opus-4-7@max", "codex"]  # pr
 [shared_rules.ba]
 label             = "ai-ba"
 done_label        = "ai-ba-done"
+description       = "BA Review"
 persona           = "business-analyst"
 permitted_actions = ["comment_on_issue"]
 
 [shared_rules.architect]
 label             = "ai-architect"
 done_label        = "ai-architect-done"
+description       = "Architecture"
 persona           = "architect"
 permitted_actions = ["comment_on_issue"]
 model             = "claude-code:anthropic/claude-sonnet-4-6@medium"  # design review; lower effort sufficient
@@ -237,6 +240,7 @@ type = "gh-author"
 [[projects.task_sources.author_rules]]
 actor                     = "dependabot[bot]"
 done_label                = "ai-maintainer-done"
+description               = "Dependabot Security"   # shown in dashboard source column instead of "gh-author"
 requires_dependabot_alert = true
 permitted_actions         = ["comment_on_pr"]
 

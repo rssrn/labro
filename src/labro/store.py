@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS runs (
     failure_reason      TEXT,
     wip_branch_url      TEXT,
     chosen_perspective  TEXT,
-    fallback_attempts       TEXT
+    fallback_attempts   TEXT,
+    source_description  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project    ON runs (project);
@@ -104,6 +105,12 @@ def open_db(db_path: str | Path) -> sqlite3.Connection:
 
     try:
         conn.execute("ALTER TABLE runs ADD COLUMN fallback_attempts TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists on existing installs
+
+    try:
+        conn.execute("ALTER TABLE runs ADD COLUMN source_description TEXT")
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists on existing installs

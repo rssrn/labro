@@ -46,8 +46,12 @@ export class SqlJsDataSource implements DataSource {
       params.push(filter.model);
     }
     if (filter.task_source) {
-      conditions.push('r.task_source = ?');
-      params.push(filter.task_source);
+      if (filter.task_source === '💡 Proactive Suggestions') {
+        conditions.push("r.task_source = 'proactive-improvement'");
+      } else {
+        conditions.push('COALESCE(r.source_description, r.task_source) = ?');
+        params.push(filter.task_source);
+      }
     }
     if (filter.outcomes && filter.outcomes.length > 0) {
       const placeholders = filter.outcomes.map(() => '?').join(', ');
@@ -83,8 +87,12 @@ export class SqlJsDataSource implements DataSource {
       params.push(filter.model);
     }
     if (filter.task_source) {
-      conditions.push('r.task_source = ?');
-      params.push(filter.task_source);
+      if (filter.task_source === '💡 Proactive Suggestions') {
+        conditions.push("r.task_source = 'proactive-improvement'");
+      } else {
+        conditions.push('COALESCE(r.source_description, r.task_source) = ?');
+        params.push(filter.task_source);
+      }
     }
     if (filter.outcomes && filter.outcomes.length > 0) {
       const placeholders = filter.outcomes.map(() => '?').join(', ');
@@ -101,7 +109,7 @@ export class SqlJsDataSource implements DataSource {
              r.outcome, r.failure_reason, r.duration_s, r.total_cost_usd, r.turns_used,
              r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens,
              r.summary, r.actions_taken, r.wip_branch_url, r.chosen_perspective,
-             r.fallback_attempts,
+             r.fallback_attempts, r.source_description,
              s.thumbs_up, s.thumbs_down
       FROM runs r
       LEFT JOIN (
@@ -146,9 +154,10 @@ export class SqlJsDataSource implements DataSource {
       actions_taken:      row[22] as string | null,
       wip_branch_url:     row[23] as string | null,
       chosen_perspective: row[24] as string | null,
-      fallback_attempts:  row[25] as string | null,
-      thumbs_up:          row[26] as number | null,
-      thumbs_down:        row[27] as number | null,
+      fallback_attempts:   row[25] as string | null,
+      source_description:  row[26] as string | null,
+      thumbs_up:           row[27] as number | null,
+      thumbs_down:         row[28] as number | null,
     }));
   }
 
@@ -195,7 +204,15 @@ export class SqlJsDataSource implements DataSource {
     const projects = db.exec('SELECT DISTINCT project FROM runs ORDER BY project');
     const agents = db.exec('SELECT DISTINCT agent FROM runs WHERE agent IS NOT NULL ORDER BY agent');
     const models = db.exec('SELECT DISTINCT model FROM runs WHERE model IS NOT NULL ORDER BY model');
-    const taskSources = db.exec('SELECT DISTINCT task_source FROM runs WHERE task_source IS NOT NULL ORDER BY task_source');
+    const taskSources = db.exec(`
+      SELECT DISTINCT
+        CASE
+          WHEN task_source = 'proactive-improvement' THEN '💡 Proactive Suggestions'
+          ELSE COALESCE(source_description, task_source)
+        END AS effective_source
+      FROM runs WHERE task_source IS NOT NULL
+      ORDER BY effective_source
+    `);
     const outcomes = db.exec("SELECT DISTINCT outcome FROM runs WHERE outcome IS NOT NULL ORDER BY outcome");
 
     const extract = (r: typeof projects) =>
@@ -265,10 +282,15 @@ export class SqlJsDataSource implements DataSource {
     const db = this._db();
     const { clause, params } = this._whereClause(filter);
     const sql = `
-      SELECT r.task_source AS label, COUNT(*) as count
+      SELECT
+        CASE
+          WHEN r.task_source = 'proactive-improvement' THEN '💡 Proactive Suggestions'
+          ELSE COALESCE(r.source_description, r.task_source)
+        END AS label,
+        COUNT(*) as count
       FROM runs r
       ${clause}
-      GROUP BY r.task_source
+      GROUP BY label
       ORDER BY count DESC
     `;
     const result = db.exec(sql, params);

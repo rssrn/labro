@@ -151,7 +151,7 @@ export default function RunsTable({ runs, onSelect }: Props) {
             <tr key={run.run_id} style={{ color: '#ddd' }} onClick={() => onSelect(run)}>
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>{run.project}</td>
-              <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{run.task_source ?? '—'}</td>
+              <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{run.source_description ?? run.task_source ?? '—'}</td>
               <td style={TD_STYLE}>{run.agent ?? '—'}</td>
               <td className="col-desktop" style={TD_STYLE}>
                 {run.fallback_attempts
