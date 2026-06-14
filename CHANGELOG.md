@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.12.0 — 2026-06-14
+
+### Added
+- Dashboard: agent column and filter, detail column, improved table layout
+- Dashboard: richer source column using `source_description` field from runs
+
+### Fixed
+- `labro check` now loads config without an env check, reporting each missing variable individually rather than failing on the first
+- `labro check` no longer runs a label pre-flight check — labels are auto-created at run time
+
+### CI
+- Daily prune of container versions older than 7 days
+
 ## v0.11.2 — 2026-06-12
 
 ### Fixed
