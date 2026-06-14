@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.13.0 — 2026-06-14
+
+### Changed
+- `proactive-improvement` runs now use the agent-updated issue title as the task description in the dashboard. On success the title is fetched via `gh api` after the agent returns (the agent is prompted to rename the issue); on failure it falls back to the tidied perspective name (e.g. `red-team` → "Red Team").
+
 ## v0.12.0 — 2026-06-14
 
 ### Added
