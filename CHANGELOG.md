@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.14.0 — 2026-06-14
+
+### Added
+- Perspectives pool expanded from 32 to 42 entries across 9 groups, giving the proactive-improvement task source a richer draw of angles
+
+### Changed
+- Dashboard: proactive suggestions now display the 🎭 icon; thumbs-up reactions swap to 💡
+
 ## v0.13.0 — 2026-06-14
 
 ### Changed
