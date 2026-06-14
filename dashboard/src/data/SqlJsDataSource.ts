@@ -46,7 +46,7 @@ export class SqlJsDataSource implements DataSource {
       params.push(filter.model);
     }
     if (filter.task_source) {
-      if (filter.task_source === '💡 Proactive Suggestions') {
+      if (filter.task_source === '🎭 Proactive Suggestions') {
         conditions.push("r.task_source = 'proactive-improvement'");
       } else {
         conditions.push('COALESCE(r.source_description, r.task_source) = ?');
@@ -87,7 +87,7 @@ export class SqlJsDataSource implements DataSource {
       params.push(filter.model);
     }
     if (filter.task_source) {
-      if (filter.task_source === '💡 Proactive Suggestions') {
+      if (filter.task_source === '🎭 Proactive Suggestions') {
         conditions.push("r.task_source = 'proactive-improvement'");
       } else {
         conditions.push('COALESCE(r.source_description, r.task_source) = ?');
@@ -207,7 +207,7 @@ export class SqlJsDataSource implements DataSource {
     const taskSources = db.exec(`
       SELECT DISTINCT
         CASE
-          WHEN task_source = 'proactive-improvement' THEN '💡 Proactive Suggestions'
+          WHEN task_source = 'proactive-improvement' THEN '🎭 Proactive Suggestions'
           ELSE COALESCE(source_description, task_source)
         END AS effective_source
       FROM runs WHERE task_source IS NOT NULL
@@ -284,7 +284,7 @@ export class SqlJsDataSource implements DataSource {
     const sql = `
       SELECT
         CASE
-          WHEN r.task_source = 'proactive-improvement' THEN '💡 Proactive Suggestions'
+          WHEN r.task_source = 'proactive-improvement' THEN '🎭 Proactive Suggestions'
           ELSE COALESCE(r.source_description, r.task_source)
         END AS label,
         COUNT(*) as count

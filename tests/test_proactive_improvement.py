@@ -143,7 +143,7 @@ def test_perspective_set_when_perspectives_available() -> None:
 
 
 def test_source_description_formatted_from_perspective() -> None:
-    """source_description is '💡 <Title Case perspective>' when a perspective is chosen."""
+    """source_description is '🎭 <Title Case perspective>' when a perspective is chosen."""
     source = _make_source(
         perspectives={"red-team": PerspectiveConfig(prompt="Look for failures.")}
     )
@@ -156,7 +156,7 @@ def test_source_description_formatted_from_perspective() -> None:
         result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
     assert result is not None
     task, _ = result
-    assert task.source_description == "💡 Red Team"
+    assert task.source_description == "🎭 Red Team"
 
 
 def test_source_description_none_when_no_perspective() -> None:

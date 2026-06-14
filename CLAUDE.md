@@ -64,6 +64,17 @@ docker build -t labro .                # build container image (VERSION defaults
 **Before every commit:** run `uv run ruff format .` — the pre-commit hook will reformat and abort
 if you skip it, requiring a second commit attempt.
 
+## Sample Live Database
+
+A copy of the live runs database is always available for dashboard development and testing:
+
+```bash
+# Fetch the current db URL from the manifest, then download it
+curl -s https://labro.rossarnold.uk/manifest.json | python3 -c "import sys,json; print('https://labro.rossarnold.uk/' + json.load(sys.stdin)['db_filename'])" | xargs curl -fL -o /tmp/labro-sample.db
+```
+
+The manifest at `https://labro.rossarnold.uk/manifest.json` contains a `db_filename` field (e.g. `db/labro-184682a1c74c86a7.db`); prepend the base URL to get the download link. The hash in the filename rotates when the DB is republished.
+
 ## Hard Rules
 
 - `bandit` B602 (`shell=True`) must **not** be skipped — subprocess calls use list form
