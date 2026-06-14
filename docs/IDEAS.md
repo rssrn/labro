@@ -43,7 +43,7 @@ painful when writing from scratch, not when reading or editing an existing file.
 
 # Surprise-Me Feature With Random Perspective
 
-> **Status: Implemented in M7.** Perspectives live in `perspectives.toml` (32 samples shipped); configured per task source via `perspectives = [...]` in `labro.toml`. The design below reflects the original proposal; the shipped implementation differs slightly (no `perspective_groups` — flat list per source instead).
+> **Status: Implemented in M7.** Perspectives live in `perspectives.toml` (42 shipped across 9 groups); configured per task source via `perspectives = [...]` in `labro.toml`. The design below reflects the original proposal; the shipped implementation differs slightly (no `perspective_groups` — flat list per source instead).
 
 ---
 

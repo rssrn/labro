@@ -55,6 +55,13 @@ architecture. Which assumptions are most load-bearing and least validated?
 Propose a way to test or de-risk the most critical one.
 """
 
+[perspectives.boring-technology]
+prompt = """
+Champion conservatism. Where has the project reached for novelty, cleverness, or
+a trend where a proven, dull, well-understood approach would be safer? Propose
+the swap that would most reduce long-term risk.
+"""
+
 
 # ── Six Thinking Hats ─────────────────────────────────────────────────────────
 
@@ -97,6 +104,30 @@ effort-to-impact ratio.
 # Blue hat (facilitator/process coordinator) intentionally omitted — it is a
 # meta-role for directing the thinking of others, which doesn't translate well
 # to a solo agent prompt.  The Belbin coordinator perspective covers similar ground.
+
+
+# ── Reasoning methods ─────────────────────────────────────────────────────────
+
+[perspectives.inversion]
+prompt = """
+Invert the goal. Instead of 'how do we make this better?', ask 'what would
+reliably make this worse or guarantee failure?' — then check whether the project
+is accidentally doing any of those things, and propose stopping the worst one.
+"""
+
+[perspectives.first-principles]
+prompt = """
+Strip the current solution back to the fundamental problem it exists to solve.
+If you rebuilt from scratch knowing only the core requirement, what would look
+different? Propose the highest-value divergence from today's design.
+"""
+
+[perspectives.constraint-injection]
+prompt = """
+Impose a hard constraint: you must halve the code, eliminate a core dependency,
+or ship the key value in a tenth of the current surface area. What does that
+force you to confront, and what genuinely good idea does it surface?
+"""
 
 
 # ── Temporal / horizon shifts ──────────────────────────────────────────────────
@@ -162,6 +193,13 @@ Treat tech debt as a loan. Identify the outstanding principal, the interest
 being paid each sprint, and which debts to pay off first.
 """
 
+[perspectives.cost-accountant]
+prompt = """
+Follow the money: compute, storage, third-party APIs, CI minutes, and human
+maintenance time. Where is spend growing fastest or least justified? Propose the
+change with the best cost-reduction-to-risk ratio.
+"""
+
 
 # ── External comparison ────────────────────────────────────────────────────────
 
@@ -175,6 +213,44 @@ differently, and should this project adopt any of it?
 prompt = """
 Map this project's dependencies and integrations. Where are the single points of
 external failure or abandonment risk?
+"""
+
+
+# ── Quality attributes / non-functional ───────────────────────────────────────
+
+[perspectives.performance-hawk]
+prompt = """
+Hunt for the dominant performance cost in this system — the hot path, the N+1,
+the unbounded allocation, the synchronous call that should be batched. Propose
+the single change with the best latency-or-throughput payoff per unit of effort.
+"""
+
+[perspectives.accessibility-advocate]
+prompt = """
+Evaluate the project for accessibility and inclusion — not just UI a11y, but
+whether docs, error messages, and interfaces work for people with different
+abilities, languages, and assistive tools. What excludes someone today?
+"""
+
+[perspectives.simplicity-surgeon]
+prompt = """
+Find what can be deleted. Which code, config, feature, dependency, or abstraction
+earns less than it costs? Propose the removal that would most reduce complexity
+without losing real value.
+"""
+
+[perspectives.reliability-engineer]
+prompt = """
+Assess failure handling: timeouts, retries, idempotency, partial failures, and
+recovery. Where does the system assume the happy path? Propose the most valuable
+robustness fix.
+"""
+
+[perspectives.privacy-steward]
+prompt = """
+Trace what data this system collects, stores, logs, and transmits. What is
+retained longer than needed, logged that shouldn't be, or exposed wider than
+necessary? Propose the most important data-handling fix.
 """
 
 
