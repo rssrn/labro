@@ -5,7 +5,7 @@ Labro lets you configure which agent and model to use at multiple levels, from g
 ## Caveats
 
 - **Models change fast.** A model that works well today may be deprecated, rate-limited, or replaced by a better/cheaper option tomorrow. This guide reflects the landscape at the time of writing — re-evaluate periodically.
-- **Labro is model-agnostic.** The harness does not prefer or endorse any specific provider or model. Examples are illustrative, not recommendations. Your choice is yours.
+- **Recommendations are a starting point.** The task-specific suggestions in this guide are based on typical use — your mileage will vary depending on project complexity, your configured prompts, and the models available to you. Treat them as a baseline to tune from, not a fixed prescription.
 - **Your data, your risk.** Models accessed via free/public endpoints (or any provider whose terms allow training on API inputs) may use your prompts and repo contents for model training. If your repository contains sensitive code, business logic, or credentials, factor this into your model choice. Paid API tiers typically offer stronger data privacy guarantees — check each provider's terms.
 - **Cost is not quality.** A more expensive model is not always better for every task. Matching model capability to task complexity is the skill this guide is meant to help with.
 
@@ -19,13 +19,13 @@ When a fallback occurs, the database records which models were tried and why eac
 
 ```toml
 [defaults]
-model = ["claude-code:anthropic/claude-opus-4-7@high", "claude-code:anthropic/claude-sonnet-4-6@high"]
+model = ["claude-code:anthropic/claude-opus-4-8@high", "claude-code:anthropic/claude-sonnet-4-6@high"]
 ```
 
 A bare string continues to work — every existing config is valid without changes:
 
 ```toml
-model = "claude-code:anthropic/claude-opus-4-7@high"
+model = "claude-code:anthropic/claude-opus-4-8@high"
 ```
 
 ---
@@ -40,7 +40,7 @@ model = "claude-code:anthropic/claude-opus-4-7@high"
 |------|----------|---------|
 | `<cli>` | yes | Agent CLI: `claude-code`, `codex`, or `opencode` |
 | `<provider>` | no | Vendor: `anthropic`, `openai`, `openrouter`, etc. |
-| `<model>` | no | Model name (e.g. `claude-opus-4-7`, `gpt-5-codex`) |
+| `<model>` | no | Model name (e.g. `claude-opus-4-8`, `gpt-5-codex`) |
 | `@<effort>` | no | Reasoning budget: `low`, `medium`, `high`, `max` |
 
 **Examples:**
@@ -48,7 +48,7 @@ model = "claude-code:anthropic/claude-opus-4-7@high"
 | Slug | CLI | Provider | Model | Effort |
 |------|-----|----------|-------|--------|
 | `claude-code` | claude-code | — | (CLI default) | — |
-| `claude-code:anthropic/claude-opus-4-7@max` | claude-code | anthropic | claude-opus-4-7 | max |
+| `claude-code:anthropic/claude-opus-4-8@max` | claude-code | anthropic | claude-opus-4-8 | max |
 | `codex:openai/gpt-5-codex` | codex | openai | gpt-5-codex | — |
 | `opencode:openrouter/openai/gpt-oss-120b:free` | opencode | openrouter | openai/gpt-oss-120b:free | — |
 | `opencode:opencode/big-pickle` | opencode | opencode | big-pickle | — |
@@ -84,7 +84,7 @@ model = "claude-code:anthropic/claude-sonnet-4-6@high"  # project-level upgrade
 
     [[projects.task_sources.label_rules]]
     rule  = "dev"
-    model = "claude-code:anthropic/claude-opus-4-7@max"  # override for complex work
+    model = "claude-code:anthropic/claude-opus-4-8@max"  # override for complex work
 
     [[projects.task_sources.label_rules]]
     rule  = "dependabot-routine"
@@ -92,7 +92,7 @@ model = "claude-code:anthropic/claude-sonnet-4-6@high"  # project-level upgrade
 
 [[projects.task_sources]]
 type         = "grafana-alerts"
-model        = "claude-code:anthropic/claude-opus-4-7@high"  # prod alerts
+model        = "claude-code:anthropic/claude-opus-4-8@high"  # prod alerts
 ```
 
 A model set at a lower level (e.g. on a label rule) completely replaces the inherited value — there is no deep merge of individual slug components. If you set `model = "codex:openai/gpt-5-codex"` on a rule, it uses Codex, not Claude Code.
@@ -103,7 +103,7 @@ A model set at a lower level (e.g. on a label rule) completely replaces the inhe
 
 ### `claude-code` (default)
 
-**Pros:** Native structured output via `--json-schema`, subcommand-level `--allowedTools` for fine-grained permissions, `--max-turns` support, reliable USD cost reporting, best model for complex reasoning.
+**Pros:** Native structured output via `--json-schema`, subcommand-level `--allowedTools` for fine-grained permissions, `--max-turns` support, reliable USD cost reporting, access to Anthropic's model tier which leads on complex reasoning.
 
 **Cons:** Requires Anthropic API key or Claude subscription OAuth token. Models: Opus (most capable/expensive), Sonnet (balanced), Haiku (fast/cheap).
 
@@ -135,7 +135,7 @@ Not all agents support effort levels the same way. `claude-code` maps `@effort` 
 |-------|-------------|---------------|
 | `low` | Trivial, deterministic work | Dependabot review comments, label-only triage |
 | `medium` | Routine tasks with clear scope | Bug triage, simple PR review, test coverage review |
-| `high` | Complex or open-ended reasoning | Feature implementation, architecture review, alert investigation |
+| `high` | Complex or open-ended reasoning | Feature implementation, architecture review, alert investigation, proactive improvement |
 | `max` | Maximum reasoning budget | Hard bugs, security review, architectural decisions |
 
 ---
@@ -147,44 +147,45 @@ Not all agents support effort levels the same way. `claude-code` maps `@effort` 
 Match model capability to the label's implied complexity. For high-value runs (e.g. `ai-dev`), a fallback slug is a low-cost safety net — configure the primary as your best model and the fallback as a cheaper alternative:
 
 ```toml
-model = ["claude-code:anthropic/claude-opus-4-7@max", "claude-code:anthropic/claude-sonnet-4-6@high"]
+model = ["claude-code:anthropic/claude-opus-4-8@max", "claude-code:anthropic/claude-sonnet-4-6@high"]
 ```
-
-
 
 | Label type | Recommended model | Rationale |
 |------------|-------------------|-----------|
-| Dev work (feature, bugfix) | `claude-code:anthropic/claude-opus-4-7@max` | Needs to write code; max reasoning pays for itself |
+| Dev work (feature, bugfix) | `claude-code:anthropic/claude-opus-4-8@max` | Needs to write code; max reasoning pays for itself |
 | Architecture review | `claude-code:anthropic/claude-sonnet-4-6@medium` | Design discussion, not implementation |
 | Business analysis | `opencode:opencode/big-pickle` | Comment-only; no need for expensive reasoning |
 | Dependabot security | `claude-code:anthropic/claude-sonnet-4-6@high` | Security matters, but scope is narrow |
 | Dependabot routine | `opencode:opencode/big-pickle` | Comment-only; cheapest option works |
-| Free-tier proactive | `opencode:opencode/nemotron-3-super-free` | Zero-cost exploration when nothing urgent is queued |
 
 ### `grafana-alerts` — production alert triage
 
 Production alerts warrant a capable model — cost is secondary to correctness. If you can't or don't want to use Claude Code, route through opencode to your provider of choice:
 
 ```toml
-model = "claude-code:anthropic/claude-opus-4-7@high"
+model = "claude-code:anthropic/claude-opus-4-8@high"
 # or
-model = "opencode:anthropic/claude-opus-4-7@high"
+model = "opencode:anthropic/claude-opus-4-8@high"
 ```
 
 If latency matters, keep effort at `high` rather than `max` — the marginal gain from max is small for triage and the extra thinking time delays the response.
 
 ### `proactive-improvement` — open-ended exploration
 
-Proactive suggestions are a good place to use free or cheap models since the work is optional and best-effort:
+Proactive improvement runs involve perspective-driven reasoning: the agent must genuinely adopt an unfamiliar angle of attack, synthesise observations across the codebase, and produce a non-obvious suggestion. This rewards higher reasoning capability — a weaker model tends to produce safe, generic output regardless of the perspective injected.
+
+**Recommended:**
+
+```toml
+model = "claude-code:anthropic/claude-opus-4-8@high"
+```
+
+`@high` balances depth against cost. Use `@max` if you find the suggestions are too shallow; use `@medium` to reduce cost on less critical projects.
+
+If you want zero-cost exploration (e.g. when nothing urgent is queued), a capable free model is a reasonable fallback — just expect shallower perspective adoption:
 
 ```toml
 model = "opencode:opencode/nemotron-3-super-free"
-```
-
-Or use a capable model for deeper analysis:
-
-```toml
-model = "claude-code:anthropic/claude-opus-4-7@high"
 ```
 
 ---
@@ -208,7 +209,7 @@ model = "opencode:opencode/big-pickle"
 
 ### 3. Use effort levels to cap reasoning spend on Claude Code
 
-A `claude-opus-4-7@low` run costs less than `claude-sonnet-4-6@high` while still having Opus-level knowledge.
+A `claude-opus-4-8@low` run costs less than `claude-sonnet-4-6@high` while still having Opus-level knowledge. Note this only holds for narrow-scope tasks — on open-ended or multi-step work, the constrained reasoning budget at `@low` can cause Opus to underperform Sonnet@high.
 
 ### 4. Run with `--dry-run` first
 
@@ -224,7 +225,7 @@ Quick-reference table of valid slug components (not exhaustive).
 
 | CLI id | Provider slugs | Common models |
 |--------|----------------|---------------|
-| `claude-code` | `anthropic` | `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` |
+| `claude-code` | `anthropic` | `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` |
 | `codex` | `openai` | `gpt-5-codex` |
 | `opencode` | `openrouter`, `opencode`, `anthropic`, `openai`, `mistral`, `xai`, `groq` | Provider-specific; check [models.dev](https://models.dev). Examples: `openai/gpt-oss-120b:free`, `opencode/big-pickle`, `opencode/nemotron-3-super-free` |
 
