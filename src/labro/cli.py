@@ -533,6 +533,16 @@ def _cmd_run_live(
         )
 
         # ── Write run record ───────────────────────────────────────────────────
+        # For proactive-improvement: use the agent-updated issue title on success
+        # (the agent is prompted to rename the issue), or the tidied perspective
+        # name (e.g. "Red Team") on failure/partial.
+        proactive_task_description: str | None = None
+        if task is not None and task.source == "proactive-improvement":
+            if outcome == "success" and task.item_number is not None:
+                proactive_task_description = _fetch_issue_title(task.item_number, task.repo)
+            if proactive_task_description is None and task.chosen_perspective:
+                proactive_task_description = task.chosen_perspective.replace("-", " ").title()
+
         ended_at = _now_utc()
         logger_mod.write_run(
             conn,
@@ -547,6 +557,7 @@ def _cmd_run_live(
             ended_at=ended_at,
             wip_branch_url=wip_branch_url,
             fallback_attempts=fallback_attempts_json,
+            task_description_override=proactive_task_description,
         )
 
         dur_s = time.monotonic() - run_started
@@ -588,6 +599,25 @@ def _run_gh(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     @author Claude Sonnet 4.6 Anthropic
     """
     return subprocess.run(cmd, capture_output=True, text=True, shell=False)
+
+
+def _fetch_issue_title(issue_number: int, repo: str) -> str | None:
+    """Return the current title of a GitHub issue, or None on any error.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{repo}/issues/{issue_number}"],
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
+        title: str | None = json.loads(result.stdout).get("title")
+        return title
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, ValueError):
+        return None
 
 
 def _collect_labels_for_project(project: ProjectConfig, _config: LabroConfig) -> list[str]:

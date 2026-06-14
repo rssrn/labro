@@ -28,6 +28,7 @@ def write_run(
     ended_at: str,
     wip_branch_url: str | None = None,
     fallback_attempts: str | None = None,
+    task_description_override: str | None = None,
 ) -> None:
     """Write a single run record to the ``runs`` table.
 
@@ -99,7 +100,11 @@ def write_run(
                 "run_id": run_id,
                 "project": project,
                 "task_source": task.source if task is not None else None,
-                "task_description": task.description.splitlines()[0] if task is not None else None,
+                "task_description": (
+                    task_description_override
+                    if task_description_override is not None
+                    else (task.description.splitlines()[0] if task is not None else None)
+                ),
                 "item_url": task.item_url if task is not None else None,
                 "trigger_label": task.source_label if task is not None else None,
                 "agent": agent_cfg.agent if agent_cfg is not None else None,
