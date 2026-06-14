@@ -7,6 +7,7 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers';
 import type { RunFilter, TrendPoint } from '../data/DataSource';
 import { SqlJsDataSource } from '../data/SqlJsDataSource';
+import { OUTCOME_COLOR } from '../constants';
 
 echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -16,7 +17,6 @@ interface Props {
 }
 
 const OUTCOMES = ['success', 'failure', 'partial', 'skipped'] as const;
-const COLORS: Record<string, string> = { success: '#2a9', failure: '#c33', partial: '#c80', skipped: '#888' };
 
 export default function OutcomeTrendChart({ ds, filter }: Props) {
   const [data, setData] = useState<TrendPoint[]>([]);
@@ -63,7 +63,7 @@ export default function OutcomeTrendChart({ ds, filter }: Props) {
       type: 'bar',
       stack: 'outcomes',
       barWidth: '80%',
-      itemStyle: { color: COLORS[o] },
+      itemStyle: { color: OUTCOME_COLOR[o] },
       data: data.map((d) => d[o]),
     })),
   };

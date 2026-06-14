@@ -1,6 +1,7 @@
 // @author Claude Sonnet 4.6 Anthropic
 import { useState } from 'react';
 import type { ProjectStats } from '../data/DataSource';
+import { OUTCOME_COLOR } from '../constants';
 
 type SortKey = keyof ProjectStats;
 type SortDir = 'asc' | 'desc';
@@ -8,13 +9,6 @@ type SortDir = 'asc' | 'desc';
 interface Props {
   stats: ProjectStats[];
 }
-
-const OUTCOME_COLORS: Record<string, string> = {
-  success: '#2a9',
-  failure: '#c33',
-  partial: '#c80',
-  skipped: '#888',
-};
 
 function fmtCost(usd: number | null): string {
   if (usd == null) return '—';
@@ -42,10 +36,10 @@ function SuccessBar({ stats }: { stats: ProjectStats }) {
 
   const pct = (n: number) => `${((n / total) * 100).toFixed(0)}%`;
   const parts: [number, string, string][] = [
-    [stats.success_count, 'success', OUTCOME_COLORS.success],
-    [stats.failure_count, 'failure', OUTCOME_COLORS.failure],
-    [stats.partial_count, 'partial', OUTCOME_COLORS.partial],
-    [stats.skipped_count, 'skipped', OUTCOME_COLORS.skipped],
+    [stats.success_count, 'success', OUTCOME_COLOR.success],
+    [stats.failure_count, 'failure', OUTCOME_COLOR.failure],
+    [stats.partial_count, 'partial', OUTCOME_COLOR.partial],
+    [stats.skipped_count, 'skipped', OUTCOME_COLOR.skipped],
   ];
 
   return (
