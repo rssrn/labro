@@ -124,6 +124,7 @@ export default function FilterBar({ options, value, onChange }: Props) {
   return (
     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
       <select
+        aria-label="Time range"
         style={SELECT_STYLE}
         value={timespan}
         onChange={(e) => set('since', timespanSince(e.target.value))}
@@ -134,6 +135,7 @@ export default function FilterBar({ options, value, onChange }: Props) {
         <option value="7d">Last 7 days</option>
       </select>
       <select
+        aria-label="Project"
         style={SELECT_STYLE}
         value={value.project ?? ''}
         onChange={(e) => set('project', e.target.value || undefined)}
@@ -149,6 +151,7 @@ export default function FilterBar({ options, value, onChange }: Props) {
         onChange={(v) => set('outcomes', v.length === 0 ? undefined : v)}
       />
       <select
+        aria-label="Task source"
         style={SELECT_STYLE}
         value={value.task_source ?? ''}
         onChange={(e) => set('task_source', e.target.value || undefined)}
@@ -159,6 +162,7 @@ export default function FilterBar({ options, value, onChange }: Props) {
         ))}
       </select>
       <select
+        aria-label="Agent"
         style={SELECT_STYLE}
         value={value.agent ?? ''}
         onChange={(e) => set('agent', e.target.value || undefined)}
@@ -169,6 +173,7 @@ export default function FilterBar({ options, value, onChange }: Props) {
         ))}
       </select>
       <select
+        aria-label="Model"
         style={SELECT_STYLE}
         value={value.model ?? ''}
         onChange={(e) => set('model', e.target.value || undefined)}
