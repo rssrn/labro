@@ -86,7 +86,7 @@ The manifest at `https://labro.rossarnold.uk/manifest.json` contains a `db_filen
 1. **Propose** — draft the changelog entries (features, fixes, breaking changes; user-facing, not commit-log) and propose a new version number (semver). Wait for user confirmation before making any changes.
 2. **Changelog** — add a `## vX.Y.Z — YYYY-MM-DD` heading to `CHANGELOG.md` with the confirmed entries.
 3. **Bump version** — update `version =` in `pyproject.toml` under `[project]`.
-4. **Commit** — use the form `Release vX.Y.Z: <one-line summary>` (not a generic `chore:` prefix).
+4. **Commit** — stage `CHANGELOG.md`, `pyproject.toml`, and `uv.lock` (version bump updates the lock file), then commit using the form `Release vX.Y.Z: <one-line summary>` (not a generic `chore:` prefix).
 5. **Tag** — `git tag vX.Y.Z` on the release commit, then push the tag: `git push origin vX.Y.Z`.
 6. **Docker image** — `publish.yml` triggers on the version-tag push (`v*.*.*`), publishing the versioned tag and `:latest` to GHCR; confirm the image built successfully after pushing the tag.
 
