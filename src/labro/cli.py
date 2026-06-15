@@ -1149,8 +1149,10 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
     try:
         import sqlite3
 
-        conn = sqlite3.connect(str(db_path))
+        conn = store_mod.open_db(db_path)
         try:
+            project_rows = [(p.name, p.name_short, p.repo) for p in config.projects]
+            store_mod.upsert_projects(conn, project_rows)
             # Bound parameter avoids bandit B608 (SQL injection via f-string)
             conn.execute("VACUUM INTO ?", (str(snapshot_path),))
         finally:

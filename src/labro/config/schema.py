@@ -256,6 +256,7 @@ class ProjectConfig(BaseModel):
     """Configuration for a single managed project."""
 
     name: str
+    name_short: str | None = None
     repo: str
     cron: str
     enabled: bool = True

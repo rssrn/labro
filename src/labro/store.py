@@ -79,6 +79,12 @@ CREATE TABLE IF NOT EXISTS items_touched (
 CREATE INDEX IF NOT EXISTS idx_items_touched_run_id ON items_touched (run_id);
 CREATE INDEX IF NOT EXISTS idx_items_touched_repo_item
     ON items_touched (repo, item_type, item_number);
+
+CREATE TABLE IF NOT EXISTS projects (
+    name        TEXT    PRIMARY KEY,
+    name_short  TEXT,
+    repo        TEXT    NOT NULL
+);
 """
 
 
@@ -418,6 +424,28 @@ def query_runs(
         f"FROM runs {where} ORDER BY started_at DESC LIMIT ?"  # nosec B608
     )
     return conn.execute(sql, params).fetchall()
+
+
+def upsert_projects(
+    conn: sqlite3.Connection,
+    projects: list[tuple[str, str | None, str]],
+) -> None:
+    """Replace all rows in the projects table with the current config snapshot.
+
+    Clears the table first so removed projects don't linger.
+
+    Args:
+        conn: Open database connection.
+        projects: List of (name, name_short, repo) tuples from config.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    with conn:
+        conn.execute("DELETE FROM projects")
+        conn.executemany(
+            "INSERT INTO projects (name, name_short, repo) VALUES (?, ?, ?)",
+            projects,
+        )
 
 
 def get_daily_spend(conn: sqlite3.Connection, project: str) -> float:
