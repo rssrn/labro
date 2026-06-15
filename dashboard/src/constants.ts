@@ -17,6 +17,6 @@ export const OUTCOME_TOOLTIP: Record<string, string> = {
 export const SOURCE_TOOLTIP: Record<string, string> = {
   'gh-label': 'Picks up open GitHub issues/PRs that carry a configured trigger label.',
   'gh-author': 'Picks up PRs/issues matching a configured author pattern (e.g. Dependabot).',
-  'proactive-improvement': 'No pre-existing item — harness creates a fresh issue and gives the agent a randomly chosen perspective to guide an improvement suggestion.',
+  'proactive-improvement': 'Labro uses a randomly chosen perspective to guide an improvement suggestion.',
   'grafana-alerts': 'Picks up firing Grafana alert rules for the project.',
 };
