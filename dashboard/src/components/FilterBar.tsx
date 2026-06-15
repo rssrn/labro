@@ -64,11 +64,17 @@ function OutcomeMultiSelect({
       <button
         style={{ ...SELECT_STYLE, cursor: 'pointer' }}
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label="Outcomes"
       >
         {label} ▾
       </button>
       {open && (
         <div
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label="Outcomes"
           style={{
             position: 'absolute',
             top: 'calc(100% + 2px)',

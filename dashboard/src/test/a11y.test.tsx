@@ -1,5 +1,6 @@
 // @author Claude Sonnet 4.6 Anthropic
-import { render } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
+import { vi } from 'vitest';
 import { axe } from 'jest-axe';
 import FilterBar from '../components/FilterBar';
 import RunDrawer from '../components/RunDrawer';
@@ -56,6 +57,16 @@ describe('FilterBar accessibility', () => {
     const results = await axe(container);
     expect(results).toHaveNoViolations();
   });
+
+  it('outcome button reflects open state via aria-expanded', () => {
+    const { getByRole } = render(
+      <FilterBar options={FILTER_OPTIONS} value={FILTER_VALUE} onChange={() => {}} />
+    );
+    const btn = getByRole('button', { name: /outcomes/i });
+    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute('aria-expanded', 'true');
+  });
 });
 
 describe('RunDrawer accessibility', () => {
@@ -88,5 +99,46 @@ describe('RunsTable accessibility', () => {
     );
     const results = await axe(container);
     expect(results).toHaveNoViolations();
+  });
+
+  it('marks the default sort column (date) as descending', () => {
+    const { getAllByRole } = render(
+      <RunsTable runs={[SAMPLE_RUN]} onSelect={() => {}} projectEmoji={{}} />
+    );
+    const headers = getAllByRole('columnheader');
+    expect(headers[0]).toHaveAttribute('aria-sort', 'descending');
+    expect(headers[1]).toHaveAttribute('aria-sort', 'none');
+  });
+
+  it('updates aria-sort when a column header is clicked', () => {
+    const { getAllByRole } = render(
+      <RunsTable runs={[SAMPLE_RUN]} onSelect={() => {}} projectEmoji={{}} />
+    );
+    const headers = getAllByRole('columnheader');
+    fireEvent.click(headers[1]); // project column
+    expect(headers[1]).toHaveAttribute('aria-sort', 'descending');
+    expect(headers[0]).toHaveAttribute('aria-sort', 'none');
+    fireEvent.click(headers[1]); // toggle to ascending
+    expect(headers[1]).toHaveAttribute('aria-sort', 'ascending');
+  });
+
+  it('activates a row on Enter key', () => {
+    const onSelect = vi.fn();
+    const { getAllByRole } = render(
+      <RunsTable runs={[SAMPLE_RUN]} onSelect={onSelect} projectEmoji={{}} />
+    );
+    const rows = getAllByRole('row');
+    fireEvent.keyDown(rows[1], { key: 'Enter' }); // rows[0] is the header row
+    expect(onSelect).toHaveBeenCalledWith(SAMPLE_RUN);
+  });
+
+  it('activates a row on Space key', () => {
+    const onSelect = vi.fn();
+    const { getAllByRole } = render(
+      <RunsTable runs={[SAMPLE_RUN]} onSelect={onSelect} projectEmoji={{}} />
+    );
+    const rows = getAllByRole('row');
+    fireEvent.keyDown(rows[1], { key: ' ' });
+    expect(onSelect).toHaveBeenCalledWith(SAMPLE_RUN);
   });
 });

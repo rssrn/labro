@@ -108,9 +108,14 @@ export default function RunsTable({ runs, onSelect, projectEmoji }: Props) {
     return sortDir === 'asc' ? ' ▲' : ' ▼';
   }
 
+  function sort(key: SortKey): 'ascending' | 'descending' | 'none' {
+    if (key !== sortKey) return 'none';
+    return sortDir === 'asc' ? 'ascending' : 'descending';
+  }
+
   function th(label: string, key: SortKey, extra?: React.CSSProperties, thTitle?: string) {
     return (
-      <th style={{ ...TH_STYLE, ...extra }} onClick={() => handleSort(key)} title={thTitle}>
+      <th style={{ ...TH_STYLE, ...extra }} onClick={() => handleSort(key)} title={thTitle} aria-sort={sort(key)}>
         {label}{arrow(key)}
       </th>
     );
@@ -129,25 +134,25 @@ export default function RunsTable({ runs, onSelect, projectEmoji }: Props) {
         <thead>
           <tr style={{ color: '#aaa' }}>
             {th('date', 'started_at', undefined, localTZ())}
-            <th style={TH_STYLE} onClick={() => handleSort('project')}>
+            <th style={TH_STYLE} onClick={() => handleSort('project')} aria-sort={sort('project')}>
               <span className="proj-mobile">proj</span>
               <span className="proj-desktop">project</span>
               {arrow('project')}
             </th>
-            <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from.">
+            <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from." aria-sort={sort('task_source')}>
               <span className="proj-mobile">src</span>
               <span className="proj-desktop">source</span>
               {arrow('task_source')}
             </th>
-            <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('agent')}>agent{arrow('agent')}</th>
-            <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('model')}>model{arrow('model')}</th>
-            <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run; updated by thumbs up/down reactions.">
+            <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('agent')} aria-sort={sort('agent')}>agent{arrow('agent')}</th>
+            <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('model')} aria-sort={sort('model')}>model{arrow('model')}</th>
+            <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run; updated by thumbs up/down reactions." aria-sort={sort('outcome')}>
               <span className="proj-mobile">out</span>
               <span className="proj-desktop">outcome</span>
               {arrow('outcome')}
             </th>
-            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('total_cost_usd')}>cost{arrow('total_cost_usd')}</th>
-            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')} title="Number of agent conversation turns used. Capped by the configured max_turns; if turns = max and outcome = partial, the run was cut short.">turns{arrow('turns_used')}</th>
+            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('total_cost_usd')} aria-sort={sort('total_cost_usd')}>cost{arrow('total_cost_usd')}</th>
+            <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')} title="Number of agent conversation turns used. Capped by the configured max_turns; if turns = max and outcome = partial, the run was cut short." aria-sort={sort('turns_used')}>turns{arrow('turns_used')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, cursor: 'default', minWidth: '120px' }}>
               detail
             </th>
@@ -155,7 +160,13 @@ export default function RunsTable({ runs, onSelect, projectEmoji }: Props) {
         </thead>
         <tbody>
           {sorted.map((run) => (
-            <tr key={run.run_id} style={{ color: '#ddd' }} onClick={() => onSelect(run)}>
+            <tr
+              key={run.run_id}
+              style={{ color: '#ddd' }}
+              onClick={() => onSelect(run)}
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(run); } }}
+            >
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>
                 <span className="proj-mobile">{projectEmoji[run.project] || run.project}</span>

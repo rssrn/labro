@@ -132,25 +132,31 @@ export default function App() {
           <div className={filtersOpen ? 'filter-panel filter-panel--open' : 'filter-panel'}>
             <FilterBar options={filterOptions} value={filter} onChange={setFilter} />
           </div>
-          <div style={{ marginBottom: '1.25rem', borderBottom: '1px solid #2a2a2a' }}>
-            <button style={TAB_STYLE(tab === 'runs')} onClick={() => setTab('runs')}>
+          <div role="tablist" aria-label="Views" style={{ marginBottom: '1.25rem', borderBottom: '1px solid #2a2a2a' }}>
+            <button id="tab-runs" role="tab" aria-selected={tab === 'runs'} aria-controls="panel-runs" style={TAB_STYLE(tab === 'runs')} onClick={() => setTab('runs')}>
               runs
             </button>
-            <button style={TAB_STYLE(tab === 'stats')} onClick={() => setTab('stats')}>
+            <button id="tab-stats" role="tab" aria-selected={tab === 'stats'} aria-controls="panel-stats" style={TAB_STYLE(tab === 'stats')} onClick={() => setTab('stats')}>
               by project
             </button>
-            <button style={TAB_STYLE(tab === 'charts')} onClick={() => setTab('charts')}>
+            <button id="tab-charts" role="tab" aria-selected={tab === 'charts'} aria-controls="panel-charts" style={TAB_STYLE(tab === 'charts')} onClick={() => setTab('charts')}>
               charts
             </button>
           </div>
           {tab === 'runs' && (
-            <RunsTable runs={state.runs} onSelect={setSelectedRun} projectEmoji={projectEmoji} />
+            <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs">
+              <RunsTable runs={state.runs} onSelect={setSelectedRun} projectEmoji={projectEmoji} />
+            </div>
           )}
           {tab === 'stats' && (
-            <ProjectStatsView stats={state.stats} />
+            <div role="tabpanel" id="panel-stats" aria-labelledby="tab-stats">
+              <ProjectStatsView stats={state.stats} />
+            </div>
           )}
           {tab === 'charts' && (
-            <ChartsView ds={ds} filter={filter} />
+            <div role="tabpanel" id="panel-charts" aria-labelledby="tab-charts">
+              <ChartsView ds={ds} filter={filter} />
+            </div>
           )}
         </>
       )}
