@@ -42,7 +42,7 @@ const SAMPLE_RUN: Run = {
   failure_reason: null,
   actions_taken: null,
   wip_branch_url: null,
-  source_description: '🏷️ gh-label',
+  source_description: '🔍 Analyst',
   thumbs_up: 1,
   thumbs_down: 0,
   chosen_perspective: null,
@@ -140,5 +140,42 @@ describe('RunsTable accessibility', () => {
     const rows = getAllByRole('row');
     fireEvent.keyDown(rows[1], { key: ' ' });
     expect(onSelect).toHaveBeenCalledWith(SAMPLE_RUN);
+  });
+
+  it('mobile emoji cells have aria-label with the real text value', () => {
+    const run = { ...SAMPLE_RUN, thumbs_up: 0 };
+    const { container } = render(
+      <RunsTable runs={[run]} onSelect={() => {}} projectEmoji={{ labro: '🤖' }} />
+    );
+    const mobileSpans = container.querySelectorAll('.proj-mobile[aria-label]');
+    const labels = Array.from(mobileSpans).map((el) => el.getAttribute('aria-label'));
+    expect(labels).toContain('labro');
+    expect(labels).toContain('gh-label: Analyst');
+    expect(labels).toContain('success');
+  });
+
+  it('thumbs-up/down spans have descriptive aria-label and title', () => {
+    const run = { ...SAMPLE_RUN, thumbs_up: 2, thumbs_down: 1 };
+    const { container } = render(
+      <RunsTable runs={[run]} onSelect={() => {}} projectEmoji={{}} />
+    );
+    const thumbsUp = container.querySelector('[aria-label*="positive GitHub reaction"]');
+    const thumbsDown = container.querySelector('[aria-label*="negative GitHub reaction"]');
+    expect(thumbsUp).toHaveAttribute('aria-label', '2 positive GitHub reactions on the linked issue or PR');
+    expect(thumbsUp).toHaveAttribute('title', '2 positive GitHub reactions on the linked issue or PR');
+    expect(thumbsDown).toHaveAttribute('aria-label', '1 negative GitHub reaction on the linked issue or PR');
+    expect(thumbsDown).toHaveAttribute('title', '1 negative GitHub reaction on the linked issue or PR');
+  });
+
+  it('source aria-label includes sub-type and (highly rated) for thumbs-up runs', () => {
+    const thumbsUpRun = { ...SAMPLE_RUN, task_source: 'proactive-improvement', source_description: '🎭 Black Hat', thumbs_up: 1 };
+    const normalRun = { ...SAMPLE_RUN, run_id: 'run-002', task_source: 'proactive-improvement', source_description: '🎭 Black Hat', thumbs_up: 0 };
+    const { container } = render(
+      <RunsTable runs={[thumbsUpRun, normalRun]} onSelect={() => {}} projectEmoji={{}} />
+    );
+    const sourceSpans = container.querySelectorAll('[aria-label*="proactive-improvement"]');
+    const labels = Array.from(sourceSpans).map((el) => el.getAttribute('aria-label'));
+    expect(labels).toContain('proactive-improvement: Black Hat (highly rated)');
+    expect(labels).toContain('proactive-improvement: Black Hat');
   });
 });

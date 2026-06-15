@@ -19,6 +19,14 @@ function sourceLabel(run: Run): string {
   return thumbsUp ? label.replace('🎭', '💡') : label;
 }
 
+function sourceAriaLabel(run: Run): string {
+  const desc = run.source_description;
+  // Strip leading emoji token (e.g. "🔍 Analyst" → "Analyst") then prefix with task_source
+  const text = desc ? desc.replace(/^\S+\s*/, '').trim() : null;
+  const base = text ? `${run.task_source ?? '—'}: ${text}` : (run.task_source ?? '—');
+  return (run.thumbs_up ?? 0) > 0 ? `${base} (highly rated)` : base;
+}
+
 function localTZ(): string {
   const offset = -new Date().getTimezoneOffset();
   const sign = offset >= 0 ? '+' : '';
@@ -169,12 +177,12 @@ export default function RunsTable({ runs, onSelect, projectEmoji }: Props) {
             >
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
               <td style={TD_STYLE}>
-                <span className="proj-mobile">{projectEmoji[run.project] || run.project}</span>
+                <span className="proj-mobile" aria-label={run.project}>{projectEmoji[run.project] || run.project}</span>
                 <span className="proj-desktop">{run.project}</span>
               </td>
               <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>
-                <span className="proj-mobile">{[...sourceLabel(run)][0] ?? '—'}</span>
-                <span className="proj-desktop">{sourceLabel(run)}</span>
+                <span className="proj-mobile" aria-label={sourceAriaLabel(run)}>{[...sourceLabel(run)][0] ?? '—'}</span>
+                <span className="proj-desktop" aria-label={sourceAriaLabel(run)}>{sourceLabel(run)}</span>
               </td>
               <td className="col-desktop" style={TD_STYLE}>{run.agent ?? '—'}</td>
               <td className="col-desktop" style={TD_STYLE}>
@@ -186,12 +194,22 @@ export default function RunsTable({ runs, onSelect, projectEmoji }: Props) {
               <td style={TD_STYLE}>
                 <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }} title={run.outcome ? OUTCOME_TOOLTIP[run.outcome] : undefined}>
                   <span className="proj-desktop">{run.outcome ?? '—'}</span>
-                  <span className="proj-mobile" style={{ fontWeight: 'bold', fontSize: '1rem' }}>
+                  <span className="proj-mobile" style={{ fontWeight: 'bold', fontSize: '1rem' }} aria-label={run.outcome ?? '—'}>
                     {run.outcome === 'success' ? '✔' : run.outcome === 'failure' ? '✖' : run.outcome ?? '—'}
                   </span>
                 </span>
-                {(run.thumbs_up ?? 0) > 0 && <span title={`${run.thumbs_up} thumbs up`}> 👍</span>}
-                {(run.thumbs_down ?? 0) > 0 && <span title={`${run.thumbs_down} thumbs down`}> 👎</span>}
+                {(run.thumbs_up ?? 0) > 0 && (
+                  <span
+                    aria-label={`${run.thumbs_up} positive GitHub reaction${(run.thumbs_up ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                    title={`${run.thumbs_up} positive GitHub reaction${(run.thumbs_up ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                  > 👍</span>
+                )}
+                {(run.thumbs_down ?? 0) > 0 && (
+                  <span
+                    aria-label={`${run.thumbs_down} negative GitHub reaction${(run.thumbs_down ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                    title={`${run.thumbs_down} negative GitHub reaction${(run.thumbs_down ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                  > 👎</span>
+                )}
               </td>
               <td className="col-desktop" style={{ ...TD_STYLE, textAlign: 'right', color: '#aaa' }}>
                 {fmtCost(run.total_cost_usd)}
