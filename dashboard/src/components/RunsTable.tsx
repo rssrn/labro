@@ -18,13 +18,20 @@ function sourceLabel(run: Run): string {
   return thumbsUp ? label.replace('🎭', '💡') : label;
 }
 
+function localTZ(): string {
+  const offset = -new Date().getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '';
+  const h = Math.floor(offset / 60);
+  const m = offset % 60;
+  return `GMT${sign}${h}${m !== 0 ? ':' + String(m).padStart(2, '0') : ''}`;
+}
+
 function DateCell({ iso }: { iso: string }) {
-  const full = iso.replace('T', ' ').slice(0, 16) + 'Z'; // 2026-06-04 09:30Z
-  const short = iso.slice(5, 16).replace('T', ' ');       // 06-04 09:30
+  const s = new Date(iso).toLocaleString('sv-SE');
   return (
     <>
-      <span className="date-full">{full}</span>
-      <span className="date-short">{short}</span>
+      <span className="date-full">{s.slice(0, 16)}</span>
+      <span className="date-short">{s.slice(5, 16)}</span>
     </>
   );
 }
@@ -100,9 +107,9 @@ export default function RunsTable({ runs, onSelect }: Props) {
     return sortDir === 'asc' ? ' ▲' : ' ▼';
   }
 
-  function th(label: string, key: SortKey, extra?: React.CSSProperties) {
+  function th(label: string, key: SortKey, extra?: React.CSSProperties, thTitle?: string) {
     return (
-      <th style={{ ...TH_STYLE, ...extra }} onClick={() => handleSort(key)}>
+      <th style={{ ...TH_STYLE, ...extra }} onClick={() => handleSort(key)} title={thTitle}>
         {label}{arrow(key)}
       </th>
     );
@@ -120,7 +127,7 @@ export default function RunsTable({ runs, onSelect }: Props) {
       >
         <thead>
           <tr style={{ color: '#aaa' }}>
-            {th('date', 'started_at')}
+            {th('date', 'started_at', undefined, localTZ())}
             {th('project', 'project')}
             <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from.">source{arrow('task_source')}</th>
             <th style={TH_STYLE} onClick={() => handleSort('agent')}>agent{arrow('agent')}</th>

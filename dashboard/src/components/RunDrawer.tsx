@@ -29,6 +29,10 @@ function fmtCost(usd: number | null): string {
   return `$${usd.toFixed(4)}`;
 }
 
+function fmtLocal(iso: string): string {
+  return new Date(iso).toLocaleString('sv-SE');
+}
+
 function fmtTokens(n: number | null): string {
   if (n == null) return '—';
   return n.toLocaleString();
@@ -289,8 +293,8 @@ export default function RunDrawer({ run, onClose }: Props) {
 
           {/* 5. Timing — already visible in table, least urgent */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-            <Cell label="started">{run.started_at.replace('T', ' ').slice(0, 19)}Z</Cell>
-            <Cell label="ended">{run.ended_at ? run.ended_at.replace('T', ' ').slice(0, 19) + 'Z' : '—'}</Cell>
+            <Cell label="started">{fmtLocal(run.started_at)}</Cell>
+            <Cell label="ended">{run.ended_at ? fmtLocal(run.ended_at) : '—'}</Cell>
             <Cell label="duration">{fmtDuration(run.duration_s, run.started_at, run.ended_at)}</Cell>
           </div>
 
