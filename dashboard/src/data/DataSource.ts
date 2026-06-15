@@ -95,9 +95,15 @@ export interface FilterOptions {
   outcomes: string[];
 }
 
+export interface Project {
+  name: string;
+  name_short: string;
+}
+
 export interface DataSource {
   init(manifest: Manifest): Promise<void>;
   count(table: string): Promise<number>;
+  listProjects(): Promise<Project[]>;
   listRuns(filter?: RunFilter): Promise<Run[]>;
   projectStats(filter?: RunFilter): Promise<ProjectStats[]>;
   getFilterOptions(): Promise<FilterOptions>;

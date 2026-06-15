@@ -1,5 +1,5 @@
 import type { Database } from 'sql.js';
-import type { DataSource, ProjectStats, Run, RunFilter, TrendPoint, BreakdownEntry, EngagementRow, FilterOptions, DurationPoint } from './DataSource';
+import type { DataSource, Project, ProjectStats, Run, RunFilter, TrendPoint, BreakdownEntry, EngagementRow, FilterOptions, DurationPoint } from './DataSource';
 import type { Manifest } from './manifest';
 
 export class SqlJsDataSource implements DataSource {
@@ -16,6 +16,16 @@ export class SqlJsDataSource implements DataSource {
     if (!res.ok) throw new Error(`db fetch failed: ${res.status}`);
     const buf = await res.arrayBuffer();
     this.db = new SQL.Database(new Uint8Array(buf));
+  }
+
+  async listProjects(): Promise<Project[]> {
+    const db = this._db();
+    const result = db.exec('SELECT name, name_short FROM projects ORDER BY name');
+    if (!result[0]) return [];
+    return result[0].values.map((row) => ({
+      name: row[0] as string,
+      name_short: (row[1] as string) ?? '',
+    }));
   }
 
   async count(table: string): Promise<number> {

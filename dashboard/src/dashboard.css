@@ -48,17 +48,52 @@
   .mobile-pad {
     padding: 0.75rem;
   }
-  .runs-table {
-    font-size: 0.72rem;
-  }
   .runs-table td,
   .runs-table th {
-    padding: 0.25rem 0.4rem;
+    padding: 0.5rem 0.2rem !important;
   }
 }
 
 @media (min-width: 641px) {
   .date-short {
     display: none;
+  }
+  .proj-mobile {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .proj-desktop {
+    display: none;
+  }
+}
+
+.filter-toggle {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .filter-toggle {
+    display: block;
+    width: 100%;
+    background: none;
+    border: 1px solid #444;
+    color: #aaa;
+    font-family: monospace;
+    font-size: 0.82rem;
+    padding: 0.6rem 0.6rem;
+    cursor: pointer;
+    margin-bottom: 0.75rem;
+    border-radius: 3px;
+    text-align: left;
+  }
+
+  .filter-panel {
+    display: none;
+  }
+
+  .filter-panel--open {
+    display: block;
   }
 }

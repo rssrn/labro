@@ -9,6 +9,7 @@ type SortDir = 'asc' | 'desc';
 interface Props {
   runs: Run[];
   onSelect: (run: Run) => void;
+  projectEmoji: Record<string, string>;
 }
 
 // Swaps 🎭→💡 on thumbs-up runs so successful proactive suggestions are visually distinct at a glance.
@@ -82,7 +83,7 @@ const TD_STYLE: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-export default function RunsTable({ runs, onSelect }: Props) {
+export default function RunsTable({ runs, onSelect, projectEmoji }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('started_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -128,11 +129,23 @@ export default function RunsTable({ runs, onSelect }: Props) {
         <thead>
           <tr style={{ color: '#aaa' }}>
             {th('date', 'started_at', undefined, localTZ())}
-            {th('project', 'project')}
-            <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from.">source{arrow('task_source')}</th>
-            <th style={TH_STYLE} onClick={() => handleSort('agent')}>agent{arrow('agent')}</th>
+            <th style={TH_STYLE} onClick={() => handleSort('project')}>
+              <span className="proj-mobile">proj</span>
+              <span className="proj-desktop">project</span>
+              {arrow('project')}
+            </th>
+            <th style={TH_STYLE} onClick={() => handleSort('task_source')} title="Where the task came from.">
+              <span className="proj-mobile">src</span>
+              <span className="proj-desktop">source</span>
+              {arrow('task_source')}
+            </th>
+            <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('agent')}>agent{arrow('agent')}</th>
             <th className="col-desktop" style={TH_STYLE} onClick={() => handleSort('model')}>model{arrow('model')}</th>
-            <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run; updated by thumbs up/down reactions.">outcome{arrow('outcome')}</th>
+            <th style={TH_STYLE} onClick={() => handleSort('outcome')} title="Recorded at the end of the run; updated by thumbs up/down reactions.">
+              <span className="proj-mobile">out</span>
+              <span className="proj-desktop">outcome</span>
+              {arrow('outcome')}
+            </th>
             <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('total_cost_usd')}>cost{arrow('total_cost_usd')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, textAlign: 'right' }} onClick={() => handleSort('turns_used')} title="Number of agent conversation turns used. Capped by the configured max_turns; if turns = max and outcome = partial, the run was cut short.">turns{arrow('turns_used')}</th>
             <th className="col-desktop" style={{ ...TH_STYLE, cursor: 'default', minWidth: '120px' }}>
@@ -144,9 +157,15 @@ export default function RunsTable({ runs, onSelect }: Props) {
           {sorted.map((run) => (
             <tr key={run.run_id} style={{ color: '#ddd' }} onClick={() => onSelect(run)}>
               <td style={TD_STYLE}><DateCell iso={run.started_at} /></td>
-              <td style={TD_STYLE}>{run.project}</td>
-              <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{sourceLabel(run)}</td>
-              <td style={TD_STYLE}>{run.agent ?? '—'}</td>
+              <td style={TD_STYLE}>
+                <span className="proj-mobile">{projectEmoji[run.project] || run.project}</span>
+                <span className="proj-desktop">{run.project}</span>
+              </td>
+              <td style={TD_STYLE} title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>
+                <span className="proj-mobile">{[...sourceLabel(run)][0] ?? '—'}</span>
+                <span className="proj-desktop">{sourceLabel(run)}</span>
+              </td>
+              <td className="col-desktop" style={TD_STYLE}>{run.agent ?? '—'}</td>
               <td className="col-desktop" style={TD_STYLE}>
                 {run.fallback_attempts
                   ? <span style={{ color: '#c80' }} title={`fallback from ${parseFallbacks(run.fallback_attempts) ?? '?'}`}>⤳ </span>
@@ -155,7 +174,10 @@ export default function RunsTable({ runs, onSelect }: Props) {
               </td>
               <td style={TD_STYLE}>
                 <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }} title={run.outcome ? OUTCOME_TOOLTIP[run.outcome] : undefined}>
-                  {run.outcome ?? '—'}
+                  <span className="proj-desktop">{run.outcome ?? '—'}</span>
+                  <span className="proj-mobile" style={{ fontWeight: 'bold', fontSize: '1rem' }}>
+                    {run.outcome === 'success' ? '✔' : run.outcome === 'failure' ? '✖' : run.outcome ?? '—'}
+                  </span>
                 </span>
                 {(run.thumbs_up ?? 0) > 0 && <span title={`${run.thumbs_up} thumbs up`}> 👍</span>}
                 {(run.thumbs_down ?? 0) > 0 && <span title={`${run.thumbs_down} thumbs down`}> 👎</span>}

@@ -123,7 +123,6 @@ export default function FilterBar({ options, value, onChange }: Props) {
 
   return (
     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-      <span style={{ color: '#888', fontSize: '0.8rem' }}>filter:</span>
       <select
         style={SELECT_STYLE}
         value={timespan}
