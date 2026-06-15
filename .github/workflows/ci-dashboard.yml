@@ -29,6 +29,10 @@ jobs:
         working-directory: dashboard
         run: npm ci
 
+      - name: Test (vitest + axe)
+        working-directory: dashboard
+        run: npm test
+
       - name: Build (tsc + vite)
         working-directory: dashboard
         run: npm run build
