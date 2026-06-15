@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.15.0 — 2026-06-15
+
+### Added
+- `projects` table populated at publish time, enabling per-project filtering and drill-down in the dashboard
+
+### Changed
+- Bump pinned versions of Claude, Codex, and OpenCode agents
+- Dashboard: dates now display in browser local time (sv-SE locale)
+- Dashboard: minor text amendment
+
+### Internal
+- Extract shared dashboard constants; add `run-dashboard` dev skill
+
 ## v0.14.0 — 2026-06-14
 
 ### Added
