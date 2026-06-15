@@ -2,6 +2,7 @@
 import { useEffect } from 'react';
 import type { Run } from '../data/DataSource';
 import { OUTCOME_COLOR, OUTCOME_TOOLTIP, SOURCE_TOOLTIP } from '../constants';
+import { fmtCost, fmtModel, sourceLabel, sourceAriaLabel } from '../utils/runFormat';
 
 interface Props {
   run: Run | null;
@@ -20,13 +21,6 @@ function fmtDuration(duration_s: number | null, started_at: string, ended_at: st
     if (!isNaN(delta)) return `${fmtSecs(delta)} (wall clock)`;
   }
   return '—';
-}
-
-function fmtCost(usd: number | null): string {
-  if (usd == null) return '—';
-  if (usd <= 0) return '$0.0000';
-  if (usd < 0.01) return '<$0.01';
-  return `$${usd.toFixed(4)}`;
 }
 
 function fmtLocal(iso: string): string {
@@ -100,20 +94,27 @@ export default function RunDrawer({ run, onClose }: Props) {
     <>
       {/* Backdrop */}
       <div
+        aria-hidden="true"
         onClick={onClose}
         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100 }}
       />
 
       {/* Panel */}
-      <div className="run-drawer" style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0,
-        zIndex: 101,
-        background: '#161616',
-        borderLeft: '1px solid #2a2a2a',
-        overflowY: 'auto',
-        fontFamily: 'monospace',
-      }}>
-        {/* Header bar — project + outcome badge + close */}
+      <div
+        className="run-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Run details"
+        style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0,
+          zIndex: 101,
+          background: '#161616',
+          borderLeft: '1px solid #2a2a2a',
+          overflowY: 'auto',
+          fontFamily: 'monospace',
+        }}
+      >
+        {/* Header bar — project + outcome badge + thumbs + close */}
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
           padding: '1.4rem 1.5rem 1rem',
@@ -145,6 +146,18 @@ export default function RunDrawer({ run, onClose }: Props) {
                 <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: outcomeColor, display: 'inline-block' }} />
                 {run.outcome ?? '—'}
               </span>
+              {(run.thumbs_up ?? 0) > 0 && (
+                <span
+                  aria-label={`${run.thumbs_up} positive GitHub reaction${(run.thumbs_up ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                  title={`${run.thumbs_up} positive GitHub reaction${(run.thumbs_up ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                >👍</span>
+              )}
+              {(run.thumbs_down ?? 0) > 0 && (
+                <span
+                  aria-label={`${run.thumbs_down} negative GitHub reaction${(run.thumbs_down ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                  title={`${run.thumbs_down} negative GitHub reaction${(run.thumbs_down ?? 0) !== 1 ? 's' : ''} on the linked issue or PR`}
+                >👎</span>
+              )}
             </div>
             <div style={{ color: '#444', fontSize: '0.7rem', marginTop: '0.25rem', fontVariantNumeric: 'tabular-nums' }}>
               {run.run_id}
@@ -170,7 +183,9 @@ export default function RunDrawer({ run, onClose }: Props) {
 
           {/* 1. Task — what was the job */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-            <Cell label="source" title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>{run.task_source ?? '—'}</Cell>
+            <Cell label="source" title={run.task_source ? SOURCE_TOOLTIP[run.task_source] : undefined}>
+              <span aria-label={sourceAriaLabel(run)}>{sourceLabel(run)}</span>
+            </Cell>
             {run.trigger_label
               ? <Cell label="trigger" title="The GitHub label that triggered this gh-label run.">{run.trigger_label}</Cell>
               : <div />
@@ -229,10 +244,9 @@ export default function RunDrawer({ run, onClose }: Props) {
           {/* 3. Agent + Cost */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
             <Cell label="agent">{run.agent ?? '—'}</Cell>
-            <Cell label="total cost">{fmtCost(run.total_cost_usd)}</Cell>
-            <Cell label="model">{run.model ?? '—'}</Cell>
+            <Cell label="total cost">{fmtCost(run.total_cost_usd, 4)}</Cell>
+            <Cell label="model">{fmtModel(run.provider, run.model)}</Cell>
             <Cell label="turns" title="Agent conversation turns used. Capped by max_turns; if turns = max and outcome = partial, the run was cut short.">{run.turns_used ? run.turns_used : <span style={{ color: '#555' }}>Not reported</span>}</Cell>
-            {run.provider && <Cell label="provider">{run.provider}</Cell>}
             {run.effort && <Cell label="effort" title="Agent reasoning depth. Higher effort = more thorough but slower and costlier.">{run.effort}</Cell>}
           </div>
 
@@ -291,7 +305,7 @@ export default function RunDrawer({ run, onClose }: Props) {
 
           <Divider />
 
-          {/* 5. Timing — already visible in table, least urgent */}
+          {/* 5. Timing */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
             <Cell label="started">{fmtLocal(run.started_at)}</Cell>
             <Cell label="ended">{run.ended_at ? fmtLocal(run.ended_at) : '—'}</Cell>

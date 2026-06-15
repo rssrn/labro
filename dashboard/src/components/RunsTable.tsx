@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import type { Run } from '../data/DataSource';
 import { OUTCOME_COLOR, OUTCOME_TOOLTIP, SOURCE_TOOLTIP } from '../constants';
+import { fmtCost, fmtModel, sourceLabel, sourceAriaLabel } from '../utils/runFormat';
 
 type SortKey = 'started_at' | 'project' | 'task_source' | 'agent' | 'model' | 'outcome' | 'total_cost_usd' | 'turns_used';
 type SortDir = 'asc' | 'desc';
@@ -10,21 +11,6 @@ interface Props {
   runs: Run[];
   onSelect: (run: Run) => void;
   projectEmoji: Record<string, string>;
-}
-
-// Swaps 🎭→💡 on thumbs-up runs so successful proactive suggestions are visually distinct at a glance.
-function sourceLabel(run: Run): string {
-  const label = run.source_description ?? run.task_source ?? '—';
-  const thumbsUp = (run.thumbs_up ?? 0) > 0;
-  return thumbsUp ? label.replace('🎭', '💡') : label;
-}
-
-function sourceAriaLabel(run: Run): string {
-  const desc = run.source_description;
-  // Strip leading emoji token (e.g. "🔍 Analyst" → "Analyst") then prefix with task_source
-  const text = desc ? desc.replace(/^\S+\s*/, '').trim() : null;
-  const base = text ? `${run.task_source ?? '—'}: ${text}` : (run.task_source ?? '—');
-  return (run.thumbs_up ?? 0) > 0 ? `${base} (highly rated)` : base;
 }
 
 function localTZ(): string {
@@ -43,21 +29,6 @@ function DateCell({ iso }: { iso: string }) {
       <span className="date-short">{s.slice(5, 16)}</span>
     </>
   );
-}
-
-function fmtModel(provider: string | null, model: string | null): string {
-  if (!model) {
-    return "[agent's internal default]";
-  }
-  const short = model.replace(/^claude-/, '');
-  return provider ? `${provider}/${short}` : short;
-}
-
-function fmtCost(usd: number | null): string {
-  if (usd == null) return '—';
-  if (usd <= 0) return '$0.00';
-  if (usd < 0.01) return '<$0.01';
-  return `$${usd.toFixed(2)}`;
 }
 
 function parseFallbacks(raw: string | null): string | null {
