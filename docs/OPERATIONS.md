@@ -132,6 +132,17 @@ Labro creates the GitHub issue before the agent runs, applying `ai-proactive-sug
 
 The `ai-proactive-suggestion` label counts toward the open-suggestion cap (`max_open_suggestions`, default 3). Close or relabel an issue to make room for a new proactive run.
 
+### `gh-dependabot-alert` Path
+
+Labro creates the GitHub issue before the agent runs, applying `ai-dependabot-alert` (configurable via `alert_label`) at creation time. The agent's task is to investigate the alert and open a fix PR.
+
+| Outcome | Labels added to created issue | Notes |
+|---|---|---|
+| success | `ai-contributed` | `ai-dependabot-alert` already applied at creation |
+| failure | `ai-failed`, `ai-contributed` | Failure reason posted as a comment |
+
+There is no open-issue cap — dedup is handled by checking whether an existing `ai-dependabot-alert` issue already contains the alert's GHSA ID. Close the tracking issue once the fix PR is merged to keep the list tidy.
+
 ## Daily Budget Cap
 
 Add to your project stanza in `labro.toml` to cap per-project spending per calendar day (UTC):

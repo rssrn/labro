@@ -246,15 +246,16 @@ def pre_run(task: Task, agent_cfg: AgentConfig) -> PreRunHandle | None:
 
     For gh-label/gh-author tasks: posts a 'Labro picking up' comment and
     returns a handle containing the comment ID.
-    For proactive-improvement tasks: no comment is posted; returns a handle
-    containing the issue number so fallback notes can be appended to the body.
+    For proactive-improvement / gh-dependabot-alert tasks: no comment is posted;
+    returns a handle containing the issue number so fallback notes can be
+    appended to the body.
     Returns None if the task has no item_number.
 
     @author Claude Sonnet 4.6 Anthropic
     """
     if task.item_number is None:
         return None
-    if task.source == "proactive-improvement":
+    if task.source in {"proactive-improvement", "gh-dependabot-alert"}:
         return PreRunHandle(repo=task.repo, issue_number=task.item_number)
     parts = ["Labro picking up"]
     if task.source_label:
@@ -336,8 +337,8 @@ def post_run(
         resuming_wip: True if this run resumed from a prior WIP branch (changes
             the branch-reference wording in the handover comment).
     """
-    if task.source == "proactive-improvement":
-        _post_run_proactive(task, agent_result, outcome=outcome, agent_name=agent_name)
+    if task.source in {"proactive-improvement", "gh-dependabot-alert"}:
+        _post_run_harness_issue(task, agent_result, outcome=outcome, agent_name=agent_name)
         return
 
     if task.source not in {"gh-label", "gh-author"} or task.item_number is None:
@@ -418,14 +419,17 @@ def post_run(
         _gh_comment(item_type, item_number, repo, body)
 
 
-def _post_run_proactive(
+def _post_run_harness_issue(
     task: Task,
     agent_result: AgentResult | None,
     *,
     outcome: str,
     agent_name: str,
 ) -> None:
-    """Apply labels and post comments on the harness-created proactive suggestion issue."""
+    """Apply labels and post comments on a harness-created issue.
+
+    Handles proactive-improvement and gh-dependabot-alert sources.
+    """
     if task.item_number is None:
         return
 

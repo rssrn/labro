@@ -242,9 +242,30 @@ class ProactiveImprovementSource(BaseModel):
     model: ModelSlugList | None = None
 
 
+class DependabotAlertSource(BaseModel):
+    """Task source: gh-dependabot-alert.
+
+    Fetches open Dependabot security alerts and raises GitHub issues for alerts
+    that have no fix PR merged yet (``fixed_at`` is null).  A dedicated label
+    (``ai-dependabot-alert``) is applied to each created issue to prevent
+    duplicates across runs.
+    """
+
+    type: Literal["gh-dependabot-alert"]
+    alert_label: str = "ai-dependabot-alert"
+    """Label applied to issues created by this source (used for dedup tracking)."""
+    persona: str | None = None
+    permitted_actions: list[PermittedAction] | None = None
+    model: ModelSlugList | None = None
+
+
 # Union discriminated on `type`.
 TaskSource = Annotated[
-    GhLabelSource | GhAuthorSource | GrafanaAlertsSource | ProactiveImprovementSource,
+    GhLabelSource
+    | GhAuthorSource
+    | GrafanaAlertsSource
+    | ProactiveImprovementSource
+    | DependabotAlertSource,
     Field(discriminator="type"),
 ]
 
@@ -389,7 +410,10 @@ class LabroConfig(BaseModel):
                             raise ValueError(
                                 f"persona {arule.persona!r} is not defined in [personas]"
                             )
-                elif isinstance(source, GrafanaAlertsSource | ProactiveImprovementSource):
+                elif isinstance(
+                    source,
+                    GrafanaAlertsSource | ProactiveImprovementSource | DependabotAlertSource,
+                ):
                     if source.persona is not None and source.persona not in self.personas:
                         raise ValueError(
                             f"persona {source.persona!r} is not defined in [personas]"

@@ -88,6 +88,26 @@ where relevant, a recommended approach or links to prior decisions. Do not
 implement changes — your output is design guidance only.
 """
 
+[personas.first-responder]
+prompt = """
+Act as a security-first responder. Your job is to triage and fix Dependabot
+security alerts that could not be auto-remediated.
+
+Read the issue body for the full alert details (package, severity, GHSA/CVE,
+vulnerable range, patched version). Then:
+
+1. **Investigate** — determine the current version pinned in the project and why
+   Dependabot could not create a fix PR (conflicting transitive dependency,
+   restrictive version constraint, etc.).
+2. **Fix** — update the dependency to the earliest patched version that resolves
+   the conflict, or apply a targeted override. Verify the fix compiles and tests
+   pass.
+3. **Submit** — open a PR with the fix and link the issue.  Always leave a
+   comment on the issue summarising what you did and why.  If you could not
+   raise a PR (e.g. no patched version exists, the conflict is unresolvable),
+   explain why in the comment so a human maintainer can take over.
+"""
+
 [personas.maintainer]
 prompt = """
 Act as a careful project maintainer reviewing a dependency upgrade pull request
@@ -244,35 +264,46 @@ description               = "Dependabot Security"   # shown in dashboard source 
 requires_dependabot_alert = true
 permitted_actions         = ["comment_on_pr"]
 
-# (2) dev label — high-priority feature / bug work
+# (2) dependabot alerts without an auto-fix PR — raise an issue for manual intervention.
+#     Fetches open Dependabot security alerts and creates a GitHub issue for the
+#     highest-severity alert that has no fix PR merged (``fixed_at`` is null) and
+#     no existing tracking issue.  Alerts where Dependabot reports "cannot update
+#     to the required version" (incompatible dependency constraints) are detected
+#     because they are open alerts with no fix PR.
+[[projects.task_sources]]
+type              = "gh-dependabot-alert"
+persona           = "first-responder"
+permitted_actions = ["comment_on_issue", "open_pr"]
+
+# (3) dev label — high-priority feature / bug work
 [[projects.task_sources]]
 type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 rule = "dev"
 
-# (3) grafana alerts — only reached when no security or dev items are waiting
+# (4) grafana alerts — only reached when no security or dev items are waiting
 [[projects.task_sources]]
 type         = "grafana-alerts"
 min_severity = "warning"
 persona      = "frontline-support"
 permitted_actions = ["create_issue"]
 
-# (4) ba label
+# (5) ba label
 [[projects.task_sources]]
 type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 rule = "ba"
 
-# (5) architect label
+# (6) architect label
 [[projects.task_sources]]
 type = "gh-label"
 
 [[projects.task_sources.label_rules]]
 rule = "architect"
 
-# (6) dependabot routine bumps — lowest priority for bots; only picked when
+# (7) dependabot routine bumps — lowest priority for bots; only picked when
 #     no security PRs are waiting (fall-through from source #1).
 #     Omitting requires_dependabot_alert matches all remaining PRs from this author.
 [[projects.task_sources]]
@@ -283,7 +314,7 @@ actor             = "dependabot[bot]"
 done_label        = "ai-maintainer-done"
 permitted_actions = ["comment_on_pr"]
 
-# (7) proactive improvement — fires when nothing else is queued.
+# (8) proactive improvement — fires when nothing else is queued.
 #     Labro creates a GitHub issue and asks the agent to investigate from a
 #     randomly selected perspective (defined in perspectives.toml).
 #     Omit `perspectives` to draw from all defined perspectives.
@@ -336,6 +367,9 @@ permitted_actions = ["create_issue", "comment_on_issue"]
 # label      = "ai-architect"
 # done_label = "ai-architect-done"
 # permitted_actions = ["comment_on_issue"]
+#
+# [[projects.task_sources]]
+# type = "gh-dependabot-alert"
 #
 # [[projects.task_sources]]
 # type                 = "proactive-improvement"

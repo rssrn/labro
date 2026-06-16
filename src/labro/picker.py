@@ -12,6 +12,9 @@ from __future__ import annotations
 import logging
 
 from labro.config.schema import (
+    DependabotAlertSource as DependabotAlertSourceConfig,
+)
+from labro.config.schema import (
     GhAuthorSource as GhAuthorSourceConfig,
 )
 from labro.config.schema import (
@@ -29,6 +32,7 @@ from labro.config.schema import (
 from labro.models import AgentConfig, Task
 from labro.task_sources.base import TaskSource
 from labro.task_sources.gh_author import GhAuthorTaskSource
+from labro.task_sources.gh_dependabot_alert import DependabotAlertTaskSource
 from labro.task_sources.gh_label import GhLabelTaskSource
 from labro.task_sources.proactive_improvement import ProactiveImprovementTaskSource
 
@@ -50,6 +54,8 @@ def _build_source(
         return GhAuthorTaskSource(source_config, personas)
     if isinstance(source_config, ProactiveImprovementSourceConfig):
         return ProactiveImprovementTaskSource(source_config, personas, perspectives)
+    if isinstance(source_config, DependabotAlertSourceConfig):
+        return DependabotAlertTaskSource(source_config, personas)
     # GrafanaAlertsSource — skip gracefully until M6.
     return None
 

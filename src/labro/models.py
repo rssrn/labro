@@ -22,6 +22,7 @@ class Task:
 
     task_id: str  # UUID v4, generated at selection time
     source: str  # "grafana-alerts" | "gh-label" | "gh-author" | "proactive-improvement"
+    # | "gh-dependabot-alert"
     description: str  # human-readable; inserted into prompt section 2
     permitted_actions: list[PermittedAction]  # effective set; inserted into prompt section 3
 
@@ -35,6 +36,8 @@ class Task:
     source_label: str | None  # label to remove on success (gh-label label_rules only)
     done_label: str | None  # label to apply on success (gh-label only)
     grafana_rule_uid: str | None  # rule UID for grafana-alerts tasks
+    # Note: gh-dependabot-alert and proactive-improvement also have None
+    # for source_label and done_label — post_run uses ai-contributed/ai-failed.
 
     # Human-readable label for the source queue, written to the runs table and shown in
     # the dashboard source column (e.g. "AI Dev" for a gh-label rule, "🎭 Red Team" for

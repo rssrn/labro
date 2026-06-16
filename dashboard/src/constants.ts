@@ -19,4 +19,5 @@ export const SOURCE_TOOLTIP: Record<string, string> = {
   'gh-author': 'Picks up PRs/issues matching a configured author pattern (e.g. Dependabot).',
   'proactive-improvement': 'Labro uses a randomly chosen perspective to guide an improvement suggestion.',
   'grafana-alerts': 'Picks up firing Grafana alert rules for the project.',
+  'gh-dependabot-alert': 'Raises issues for open Dependabot security alerts that have no fix PR.',
 };
