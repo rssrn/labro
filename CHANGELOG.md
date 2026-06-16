@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.16.0 — 2026-06-16
+
+### Added
+- `gh-dependabot-alert` task source — harness can now pick up Dependabot security alerts and hand them to the agent
+- Dashboard: mobile-optimised view with responsive layout
+- Dashboard: ARIA roles and keyboard navigation for all interactive elements
+- Dashboard: accessibility test harness (axe-core via vitest) run in CI
+
+### Changed
+- Dashboard: drawer UX synced with table row UX; shared formatter utilities extracted
+
 ## v0.15.0 — 2026-06-15
 
 ### Added
