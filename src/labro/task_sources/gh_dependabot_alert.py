@@ -73,6 +73,15 @@ def _fetch_open_alerts(repo: str) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = _run_gh_api(
             f"repos/{repo}/dependabot/alerts?state=open&per_page=100"
         )
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        logger.warning(
+            "gh-dependabot-alert: failed to fetch alerts for %s (exit %d)%s",
+            repo,
+            exc.returncode,
+            f": {stderr}" if stderr else "",
+        )
+        return []
     except Exception:
         logger.warning("gh-dependabot-alert: failed to fetch alerts for %s", repo, exc_info=True)
         return []

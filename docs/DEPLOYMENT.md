@@ -21,6 +21,7 @@ A GitHub App gives Labro a proper bot identity (`your-app[bot]`) with scoped per
 | Permission | Level | Why |
 |---|---|---|
 | Contents | Read & write | Push WIP branches |
+| Dependabot alerts | Read-only | Fetch open security alerts (`gh-dependabot-alert` source) |
 | Issues | Read & write | Comment, add/remove labels |
 | Metadata | Read-only | Repo lookup (required by GitHub) |
 | Pull requests | Read & write | Open PRs |
@@ -75,6 +76,7 @@ docker run --rm \
 | Permission | Level | Why |
 |---|---|---|
 | Contents | Read & write | Push branches for PRs |
+| Dependabot alerts | Read-only | Fetch open security alerts (`gh-dependabot-alert` source) |
 | Issues | Read & write | Comment on issues, add/remove labels |
 | Metadata | Read-only | List issues, repo lookup (required by GitHub) |
 | Pull requests | Read & write | Open PRs |
