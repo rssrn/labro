@@ -7,6 +7,7 @@ Covers:
 - API failure: source returns None when gh api call fails
 - Issue creation: returned Task has correct item_type, item_number, item_url
 - Severity ordering: critical alerts picked before low
+- Closed-issue dedup: recently closed blocks re-creation; old closed does not
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -14,6 +15,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from subprocess import CalledProcessError
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -142,7 +144,8 @@ def _gh_create_response(number: int = 99, repo: str = "org/repo") -> str:
 def test_many_existing_issues_do_not_block_when_untracked_alert_exists() -> None:
     """Source has no cap: many open tracking issues don't prevent a new one for a novel alert."""
     many_issues = [
-        {"title": "Dependabot alert: other-pkg", "body": "GHSA-other"} for _ in range(10)
+        {"state": "open", "title": "Dependabot alert: other-pkg", "body": "GHSA-other"}
+        for _ in range(10)
     ]
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
@@ -199,6 +202,7 @@ def test_fetch_existing_issues_failure_returns_none() -> None:
 def test_all_alerts_already_have_tracking_issues_returns_none() -> None:
     """When every alert already has a tracking issue, source returns None."""
     existing_issue = {
+        "state": "open",
         "title": "Dependabot alert: minimist (GHSA-aaaa-bbbb-cccc) [critical]",
         "body": (
             "<!-- Labro Dependabot alert — do not edit this header -->\n"
@@ -213,6 +217,75 @@ def test_all_alerts_already_have_tracking_issues_returns_none() -> None:
     with patch("subprocess.run", side_effect=responses):
         result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]  # dict[str, object] vs typed kwargs
     assert result is None
+
+
+def test_closed_issue_within_10_days_blocks_recreation() -> None:
+    """A closed issue with matching GHSA blocks re-creation when closed within 10 days."""
+    recently_closed = (datetime.now(UTC) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+    existing_issue = {
+        "state": "closed",
+        "closed_at": recently_closed,
+        "title": "Dependabot alert: minimist (GHSA-aaaa-bbbb-cccc) [critical]",
+        "body": (
+            "<!-- Labro Dependabot alert — do not edit this header -->\n"
+            "**GHSA:** `GHSA-aaaa-bbbb-cccc`"
+        ),
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([existing_issue]), returncode=0),  # existing
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is None
+
+
+def test_closed_issue_older_than_10_days_allows_recreation() -> None:
+    """A closed issue older than 10 days does not block re-creation for the same alert."""
+    old_closed = (datetime.now(UTC) - timedelta(days=30)).isoformat().replace("+00:00", "Z")
+    existing_issue = {
+        "state": "closed",
+        "closed_at": old_closed,
+        "title": "Dependabot alert: minimist (GHSA-aaaa-bbbb-cccc) [critical]",
+        "body": (
+            "<!-- Labro Dependabot alert — do not edit this header -->\n"
+            "**GHSA:** `GHSA-aaaa-bbbb-cccc`"
+        ),
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([existing_issue]), returncode=0),  # existing
+        MagicMock(returncode=0),  # ensure label
+        MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
+
+
+def test_closed_issue_missing_closed_at_does_not_block() -> None:
+    """Closed issue without closed_at is treated as inactive — does not block re-creation."""
+    existing_issue = {
+        "state": "closed",
+        # no closed_at key
+        "title": "Dependabot alert: minimist (GHSA-aaaa-bbbb-cccc) [critical]",
+        "body": (
+            "<!-- Labro Dependabot alert — do not edit this header -->\n"
+            "**GHSA:** `GHSA-aaaa-bbbb-cccc`"
+        ),
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([existing_issue]), returncode=0),  # existing
+        MagicMock(returncode=0),  # ensure label
+        MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
 
 
 # ── Issue creation ─────────────────────────────────────────────────────────────

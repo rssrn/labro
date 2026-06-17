@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import subprocess
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from labro.config.schema import (
@@ -103,6 +104,26 @@ def _has_tracking_issue(alert: dict[str, Any], existing_issues: list[dict[str, A
     if not ghsa_id:
         return False
     return any(ghsa_id in (issue.get("body") or "").lower() for issue in existing_issues)
+
+
+def _is_active_issue(issue: dict[str, Any], cutoff: datetime) -> bool:
+    """True if *issue* is open, or was closed on or after *cutoff*.
+
+    Issues with a missing or malformed ``closed_at`` are treated as inactive
+    so they never permanently block re-creation.
+    """
+    if issue.get("state") == "open":
+        return True
+    if issue.get("state") == "closed":
+        closed_raw: str | None = issue.get("closed_at")
+        if not closed_raw:
+            return False
+        try:
+            closed = datetime.fromisoformat(closed_raw.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return False
+        return closed >= cutoff
+    return False
 
 
 def _severity_sort_key(alert: dict[str, Any]) -> int:
@@ -225,9 +246,10 @@ class DependabotAlertTaskSource(TaskSource):
             return None
 
         # ── Fetch existing tracking issues for dedup ───────────────────────────
+        cutoff = datetime.now(UTC) - timedelta(days=10)
         try:
-            existing: list[dict[str, Any]] = _run_gh_api(
-                f"repos/{repo}/issues?state=open&labels={label}&per_page=100"
+            all_existing: list[dict[str, Any]] = _run_gh_api(
+                f"repos/{repo}/issues?state=all&labels={label}&per_page=100"
             )
         except (subprocess.CalledProcessError, ValueError) as exc:
             logger.warning(
@@ -236,6 +258,9 @@ class DependabotAlertTaskSource(TaskSource):
                 exc,
             )
             return None
+
+        # Only open issues and recently-closed issues block re-creation.
+        existing = [iss for iss in all_existing if _is_active_issue(iss, cutoff)]
 
         # ── Find first unaddressed alert (highest severity first) ──────────────
         alerts.sort(key=_severity_sort_key)
