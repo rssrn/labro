@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.16.2 — 2026-06-17
+
+### Fixed
+- `gh-dependabot-alert` task source no longer re-creates an issue for the same Dependabot alert when a previous tracking issue was closed within the last 10 days; after 10 days a fresh issue may be raised
+
 ## v0.16.1 — 2026-06-17
 
 ### Fixed
