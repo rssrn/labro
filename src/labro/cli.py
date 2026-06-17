@@ -1130,6 +1130,19 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
         _log.warning("publish-db: dashboard.enabled = false in config; nothing to do")
         return 0
 
+    if not dry_run:
+        r2_missing = [
+            v
+            for v in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ACCOUNT_ID", "R2_BUCKET")
+            if not os.environ.get(v)
+        ]
+        if r2_missing:
+            print(
+                f"error: Missing required environment variable(s): {', '.join(r2_missing)}",
+                file=sys.stderr,
+            )
+            return 1
+
     if not db_path.exists():
         _log.warning("publish-db: database not found at %s; nothing to do", db_path)
         return 0

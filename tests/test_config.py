@@ -914,7 +914,7 @@ class TestDashboardConfig:
     def test_dashboard_required_env_vars(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """When dashboard.enabled, R2_* vars are added to required_env_vars."""
+        """R2_* vars are NOT in required_env_vars — they are checked by publish-db only."""
         from labro.config.loader import required_env_vars
         from labro.config.schema import DashboardConfig, DefaultsConfig, DigestConfig, LabroConfig
 
@@ -924,10 +924,8 @@ class TestDashboardConfig:
             defaults=DefaultsConfig(),
         )
         required = required_env_vars(config)
-        assert "R2_ACCESS_KEY_ID" in required
-        assert "R2_SECRET_ACCESS_KEY" in required
-        assert "R2_ACCOUNT_ID" in required
-        assert "R2_BUCKET" in required
+        for var in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ACCOUNT_ID", "R2_BUCKET"):
+            assert var not in required
 
     def test_dashboard_disabled_no_r2_vars_required(self) -> None:
         """When dashboard.enabled = false, R2_* vars are NOT required."""
@@ -942,18 +940,3 @@ class TestDashboardConfig:
         required = required_env_vars(config)
         for var in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ACCOUNT_ID", "R2_BUCKET"):
             assert var not in required
-
-    def test_dashboard_missing_r2_vars_raises(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """load_config raises ConfigError when dashboard is enabled but R2_* vars are absent."""
-        monkeypatch.setenv("GH_TOKEN", "ghp_test")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-        monkeypatch.delenv("R2_ACCESS_KEY_ID", raising=False)
-        monkeypatch.delenv("R2_SECRET_ACCESS_KEY", raising=False)
-        monkeypatch.delenv("R2_ACCOUNT_ID", raising=False)
-        monkeypatch.delenv("R2_BUCKET", raising=False)
-        toml = MINIMAL_VALID_TOML + "\n[dashboard]\nenabled = true\n"
-        p = write_toml(tmp_path, toml)
-        with pytest.raises(ConfigError, match="R2_"):
-            load_config(p)

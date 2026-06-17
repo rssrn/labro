@@ -18,6 +18,15 @@ from labro.config.schema import DashboardConfig, DefaultsConfig, DigestConfig, L
 from labro.r2 import R2Credentials
 
 
+@pytest.fixture(autouse=True)
+def _r2_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set all four R2 vars so publish-db tests don't fail the startup env check."""
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key-id")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "test-acct")
+    monkeypatch.setenv("R2_BUCKET", "test-bucket")
+
+
 def _make_config(
     *,
     dashboard_enabled: bool = True,
