@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.16.1 — 2026-06-17
+
+### Fixed
+- `labro run` no longer fails when `dashboard.enabled = true` but R2 credentials are absent from the environment; R2 env var validation is now deferred to the `publish-db` command where it's actually needed
+- Bumped `cryptography` to 49.0.0 to resolve security advisory GHSA-537c-gmf6-5ccf
+- Improved fetch error logging in `gh-dependabot-alert` task source; documented required Dependabot alerts permission in deployment guide
+
 ## v0.16.0 — 2026-06-16
 
 ### Added
