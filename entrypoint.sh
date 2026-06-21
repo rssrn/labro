@@ -37,6 +37,10 @@ echo "$startup_msg"
 log_path="${LABRO_LOG_PATH:-/data/labro.log}"
 if [ -d "$(dirname "$log_path")" ]; then
     echo "$(date -u '+%Y-%m-%d %H:%M:%S,%3N') INFO entrypoint: $startup_msg" >> "$log_path"
+    # Tail the log file to stdout so 'docker logs' shows labro output.
+    # touch ensures the file exists before tail starts.
+    touch "$log_path"
+    tail -F "$log_path" &
 fi
 mkdir -p /var/log/labro
 labro gen-crontab > /etc/cron.d/labro
