@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.16.3 — 2026-06-21
+
+### Fixed
+- Container log output now appears in `docker logs`; the entrypoint tails `labro.log` to stdout so cron job output is visible without shelling into the container
+- Bumped `undici` (dashboard dev dependency) to 7.28.0 to resolve security advisory
+- Bumped `msgpack` to 1.2.1 to resolve GHSA-6v7p-g79w-8964
+
 ## v0.16.2 — 2026-06-17
 
 ### Fixed
