@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.16.5 — 2026-06-25
+
+### Added
+- Optional Prometheus Pushgateway integration: set `PUSHGATEWAY_URL` to push `labro_last_run_timestamp` and `labro_run_duration_seconds` (with `project` and `outcome` labels) after each run. Requires `pip install labro[metrics]`. Silent no-op if the env var is absent.
+
 ## v0.16.4 — 2026-06-25
 
 ### Changed
