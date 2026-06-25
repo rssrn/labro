@@ -20,7 +20,11 @@ dependencies = [
 labro = "labro.cli:main"
 
 [project.optional-dependencies]
+metrics = [
+    "prometheus-client>=0.20",
+]
 dev = [
+    "prometheus-client>=0.20",
     "pytest>=8.2",
     "pytest-cov>=5.0",
     "mypy>=1.10",

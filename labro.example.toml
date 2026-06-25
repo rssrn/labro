@@ -22,6 +22,8 @@
 # Optional:
 #   SLACK_WEBHOOK_URL         Required only if [digest] enabled = true
 #   GRAFANA_TOKEN             Required only if any project uses a grafana-alerts source
+#   PUSHGATEWAY_URL           Prometheus Pushgateway base URL (e.g. http://pushgateway:9091)
+#                             Requires: pip install labro[metrics]
 #
 # Config resolution pattern:
 #   The labro binary and your labro.toml live in separate repos.

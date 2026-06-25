@@ -56,6 +56,10 @@ Required only when `[dashboard] enabled = true` in `labro.toml`:
 - **`R2_ACCOUNT_ID`** — Cloudflare account ID (endpoint derived automatically).
 - **`R2_BUCKET`** — R2 bucket name. Used by the CI workflow (`dashboard-publish.yml`) to upload SPA assets; the harness reads the bucket from `[dashboard] bucket` in `labro.toml`.
 
+### Prometheus Pushgateway (optional)
+
+- **`PUSHGATEWAY_URL`** — Base URL of your Prometheus Pushgateway (e.g. `http://pushgateway:9091`). If set, Labro pushes two metrics after each run: `labro_last_run_timestamp` (all outcomes) and `labro_run_duration_seconds` (non-skipped runs only). Both carry `{project, outcome}` labels. Requires `pip install labro[metrics]` (adds `prometheus-client`). Silent no-op if the env var is absent or the push fails.
+
 ## Emergency Pause — `LABRO_DISABLED`
 
 To stop Labro from picking up new tasks without restarting containers:

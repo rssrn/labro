@@ -34,6 +34,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import labro.logger as logger_mod
+import labro.metrics as metrics_mod
 import labro.post_run as post_run_mod
 import labro.signals as signals_mod
 import labro.store as store_mod
@@ -561,6 +562,13 @@ def _cmd_run_live(
         )
 
         dur_s = time.monotonic() - run_started
+        metrics_mod.push_run(
+            project=project_name,
+            outcome=outcome,
+            duration_s=dur_s,
+            started_at_ts=time.time() - dur_s,
+        )
+
         parts = [f"run complete: outcome={outcome}", f"dur={dur_s:.0f}s"]
         ar = agent_result
         if ar is not None:
