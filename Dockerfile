@@ -147,7 +147,7 @@ COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 RUN uv venv /app/.venv \
-    && uv pip install --python /app/.venv/bin/python -e .
+    && uv pip install --python /app/.venv/bin/python -e ".[metrics]"
 
 ENV PATH="/app/.venv/bin:$PATH"
 

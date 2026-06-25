@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.16.6 — 2026-06-25
+
+### Fixed
+- `prometheus-client` is now included in the production Docker image (`.[metrics]` extra installed at build time); v0.16.5 silently skipped all Pushgateway pushes because the package was missing from the image
+
 ## v0.16.5 — 2026-06-25
 
 ### Added
