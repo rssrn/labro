@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.16.7 — 2026-06-25
+
+### Fixed
+- Pushgateway metrics now push on skipped and budget-exceeded runs, not just agent runs; the push was placed after the agent invocation so all early-exit paths bypassed it
+
 ## v0.16.6 — 2026-06-25
 
 ### Fixed

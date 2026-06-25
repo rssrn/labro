@@ -468,7 +468,7 @@ wheels = [
 
 [[package]]
 name = "labro"
-version = "0.16.6"
+version = "0.16.7"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

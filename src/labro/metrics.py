@@ -33,7 +33,7 @@ def push_run(
         return
 
     try:
-        from prometheus_client import (  # type: ignore[import-not-found]  # optional dep
+        from prometheus_client import (
             CollectorRegistry,
             Gauge,
             push_to_gateway,

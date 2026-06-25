@@ -15,6 +15,7 @@ repos:
         additional_dependencies:
           - cryptography>=41.0
           - pydantic>=2.7
+          - prometheus-client>=0.20
           - typer>=0.12
           - pytest>=8.2
         args: [--config-file=pyproject.toml]

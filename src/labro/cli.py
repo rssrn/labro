@@ -281,6 +281,7 @@ def _cmd_run_live(
     run_id = str(uuid.uuid4())
     started_at = _now_utc()
     run_started = time.monotonic()
+    _run_outcome = "skipped"  # updated before every return; read in finally for metrics
     _set_run_context(project_name, run_id)
     _log.info("run start: repo=%s config=%s", project.repo, config_path)
 
@@ -307,6 +308,7 @@ def _cmd_run_live(
                     ended_at=ended_at,
                 )
                 _log.info("%s", reason)
+                _run_outcome = "skipped"
                 return 0
 
         # ── GitHub App: generate per-run installation token ────────────────────
@@ -345,6 +347,7 @@ def _cmd_run_live(
                     ended_at=ended_at,
                 )
                 _log.error("GitHub App authentication failed for %s: %s", project.repo, exc)
+                _run_outcome = "failure"
                 return 1
 
         # ── Pick task ──────────────────────────────────────────────────────────
@@ -364,6 +367,7 @@ def _cmd_run_live(
                 ended_at=ended_at,
             )
             _log.info("run skipped: no eligible task found for project %r", project_name)
+            _run_outcome = "skipped"
             return 0
 
         # Write items_touched row before agent runs (item already known for gh-label)
@@ -561,14 +565,8 @@ def _cmd_run_live(
             task_description_override=proactive_task_description,
         )
 
+        _run_outcome = outcome
         dur_s = time.monotonic() - run_started
-        metrics_mod.push_run(
-            project=project_name,
-            outcome=outcome,
-            duration_s=dur_s,
-            started_at_ts=time.time() - dur_s,
-        )
-
         parts = [f"run complete: outcome={outcome}", f"dur={dur_s:.0f}s"]
         ar = agent_result
         if ar is not None:
@@ -594,6 +592,12 @@ def _cmd_run_live(
         return 0 if outcome == "success" else 1
 
     finally:
+        metrics_mod.push_run(
+            project=project_name,
+            outcome=_run_outcome,
+            duration_s=time.monotonic() - run_started,
+            started_at_ts=time.time() - (time.monotonic() - run_started),
+        )
         store_mod.release_lock(conn, project_name)
         conn.close()
 
