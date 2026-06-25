@@ -90,6 +90,37 @@ The manifest at `https://labro.rossarnold.uk/manifest.json` contains a `db_filen
 5. **Tag** — `git tag vX.Y.Z` on the release commit, then push the tag: `git push origin vX.Y.Z`.
 6. **Docker image** — `publish.yml` triggers on the version-tag push (`v*.*.*`), publishing the versioned tag and `:latest` to GHCR; confirm the image built successfully after pushing the tag.
 
+## Config Repo — `labro-rssrn` (`/home/ross/src/labro-rssrn`)
+
+The private config repo holds `labro.toml` and four GitHub Actions workflows that manage the live deployment on the homelab server. All persistent state lives under `/opt/labro/data/` on the host (mounted to `/data` inside the container).
+
+### Workflows
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `sync-config.yml` | Push to `labro.toml`, or manual | SCPs `labro.toml` to `/opt/labro/data/labro.toml` and regenerates `/etc/cron.d/labro` inside the running container. No restart needed — labro reads config fresh each cron run. |
+| `upgrade-image.yml` | `repository_dispatch: labro-release` (fired by `publish.yml` on version tag), or manual | Pulls `ghcr.io/rssrn/labro:latest`, drains in-flight runs, recreates the container with fresh secrets. This is the normal upgrade path after a release. |
+| `labro-restart.yml` | Manual only | Same drain + recreate as above but does **not** pull a new image. Use after rotating a secret or recovering from a hung state. |
+| `dashboard-publish.yml` | `repository_dispatch: dashboard-publish` (fired by `publish.yml` on dashboard changes), or manual | Builds the React SPA from `rssrn/labro` and uploads it to R2 with `--no-delete` (preserves `/db/` objects and `manifest.json` written by `labro publish-db`). |
+
+### Container run flags
+```
+docker run -d --name labro --restart unless-stopped \
+  --env-file /opt/labro/.env \
+  --network monitoring \        # joins Prometheus monitoring network (for pushgateway:9091)
+  -v /opt/labro/data:/data \
+  ghcr.io/rssrn/labro:latest
+```
+
+### Secrets (stored in `labro-rssrn` repo settings)
+- `TAILSCALE_AUTHKEY`, `DEPLOY_HOST` — SSH access via Tailscale
+- `GH_APP_PRIVATE_KEY_BASE64` — GitHub App private key
+- `CLAUDE_CODE_OAUTH_TOKEN`, `OPENROUTER_API_KEY`, `CODEX_API_KEY`, `CODEX_AUTH_JSON_BASE64` — agent credentials
+- `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET` — Cloudflare R2
+- `PUSHGATEWAY_URL` — Prometheus Pushgateway (e.g. `http://pushgateway:9091`)
+- `LABRO_READ_TOKEN` — read token for `rssrn/labro` (used by `dashboard-publish.yml`)
+- `CONFIG_REPO_DISPATCH_TOKEN` — PAT used by `labro`'s `publish.yml` to fire `repository_dispatch` events into this repo
+
 ## Current Milestone
 
 - **M1–M5 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment, operator CLI.
