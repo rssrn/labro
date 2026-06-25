@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.16.4 — 2026-06-25
+
+### Changed
+- `gh-dependabot-alert` now skips alerts younger than 24 hours (configurable via `min_alert_age_hours`) so Dependabot has time to raise its own fix PR first
+- `gh-dependabot-alert` skips alerts where Dependabot already has an open PR for the package
+- `gh-dependabot-alert` deduplicates at package level — a second alert for the same package and manifest path is skipped even if it has a different GHSA ID
+
 ## v0.16.3 — 2026-06-21
 
 ### Fixed
