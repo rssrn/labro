@@ -254,6 +254,12 @@ class DependabotAlertSource(BaseModel):
     type: Literal["gh-dependabot-alert"]
     alert_label: str = "ai-dependabot-alert"
     """Label applied to issues created by this source (used for dedup tracking)."""
+    min_alert_age_hours: int = 24
+    """Minimum age of a Dependabot alert before Labro acts on it.
+
+    Gives Dependabot time to raise its own fix PR before Labro steps in.
+    Alerts newer than this threshold are silently skipped.
+    """
     persona: str | None = None
     permitted_actions: list[PermittedAction] | None = None
     model: ModelSlugList | None = None

@@ -8,6 +8,9 @@ Covers:
 - Issue creation: returned Task has correct item_type, item_number, item_url
 - Severity ordering: critical alerts picked before low
 - Closed-issue dedup: recently closed blocks re-creation; old closed does not
+- Package-level dedup: same package+manifest, different GHSA → skip
+- Age filter: alerts newer than min_alert_age_hours are skipped
+- Dependabot PR check: open Dependabot PR for the package → skip
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -34,6 +37,7 @@ from labro.task_sources.gh_dependabot_alert import DependabotAlertTaskSource
 _ALERT_WITH_FIX = {
     "state": "fixed",
     "fixed_at": "2025-01-01T00:00:00Z",
+    "created_at": "2025-01-01T00:00:00Z",
     "dependency": {
         "package": {"name": "lodash"},
         "manifest_path": "package-lock.json",
@@ -49,6 +53,7 @@ _ALERT_WITH_FIX = {
 _ALERT_CRITICAL = {
     "state": "open",
     "fixed_at": None,
+    "created_at": "2020-01-01T00:00:00Z",
     "dependency": {
         "package": {"name": "minimist"},
         "manifest_path": "package-lock.json",
@@ -69,6 +74,7 @@ _ALERT_CRITICAL = {
 _ALERT_HIGH = {
     "state": "open",
     "fixed_at": None,
+    "created_at": "2020-01-01T00:00:00Z",
     "dependency": {
         "package": {"name": "lodash"},
         "manifest_path": "package-lock.json",
@@ -83,6 +89,7 @@ _ALERT_HIGH = {
 _ALERT_LOW = {
     "state": "open",
     "fixed_at": None,
+    "created_at": "2020-01-01T00:00:00Z",
     "dependency": {
         "package": {"name": "debug"},
         "manifest_path": "package-lock.json",
@@ -138,6 +145,15 @@ def _gh_create_response(number: int = 99, repo: str = "org/repo") -> str:
     return f"https://github.com/{repo}/issues/{number}\n"
 
 
+def _dependabot_pr(pkg: str) -> dict[str, Any]:
+    """Return a minimal Dependabot PR dict for *pkg*."""
+    return {
+        "user": {"login": "dependabot[bot]"},
+        "title": f"Bump {pkg} from 1.0.0 to 1.1.0",
+        "head": {"ref": f"dependabot/npm_and_yarn/{pkg}-1.1.0"},
+    }
+
+
 # ── No cap — many existing tracking issues do not block the source ─────────────
 
 
@@ -150,6 +166,7 @@ def test_many_existing_issues_do_not_block_when_untracked_alert_exists() -> None
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
         MagicMock(stdout=_gh_list_response(many_issues), returncode=0),  # fetch existing issues
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # fetch open PRs
         MagicMock(returncode=0),  # ensure label
         MagicMock(stdout=_gh_create_response(42), returncode=0),  # issue create
     ]
@@ -196,6 +213,130 @@ def test_fetch_existing_issues_failure_returns_none() -> None:
     assert result is None
 
 
+# ── Age filter ─────────────────────────────────────────────────────────────────
+
+
+def test_alert_newer_than_min_age_is_skipped() -> None:
+    """Alerts created less than min_alert_age_hours ago are skipped."""
+    fresh_alert = {
+        **_ALERT_CRITICAL,
+        "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([fresh_alert]), returncode=0),  # fetch alerts
+    ]
+    source = _make_source(_source_cfg(min_alert_age_hours=24))
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is None
+
+
+def test_alert_older_than_min_age_is_actioned() -> None:
+    """Alerts created more than min_alert_age_hours ago proceed normally."""
+    old_alert = {
+        **_ALERT_CRITICAL,
+        "created_at": (datetime.now(UTC) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([old_alert]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing issues
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
+        MagicMock(returncode=0),  # ensure label
+        MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
+    ]
+    source = _make_source(_source_cfg(min_alert_age_hours=24))
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
+
+
+def test_alert_with_unparseable_created_at_is_included() -> None:
+    """Alerts with missing or bad created_at are included rather than silently dropped."""
+    bad_date_alert = {**_ALERT_CRITICAL, "created_at": "not-a-date"}
+    responses = [
+        MagicMock(stdout=_gh_list_response([bad_date_alert]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing issues
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
+        MagicMock(returncode=0),  # ensure label
+        MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
+    ]
+    source = _make_source(_source_cfg(min_alert_age_hours=24))
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
+
+
+# ── Dependabot PR check ────────────────────────────────────────────────────────
+
+
+def test_open_dependabot_pr_for_package_skips_alert() -> None:
+    """When Dependabot already has an open PR for the package, source returns None."""
+    responses = [
+        MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing issues
+        MagicMock(  # open PRs — Dependabot PR for minimist
+            stdout=_gh_list_response([_dependabot_pr("minimist")]), returncode=0
+        ),
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is None
+
+
+def test_dependabot_pr_for_different_package_does_not_block() -> None:
+    """A Dependabot PR for a different package does not block the alert."""
+    responses = [
+        MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing issues
+        MagicMock(  # open PRs — Dependabot PR for lodash, not minimist
+            stdout=_gh_list_response([_dependabot_pr("lodash")]), returncode=0
+        ),
+        MagicMock(returncode=0),  # ensure label
+        MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
+
+
+def test_non_dependabot_pr_does_not_block() -> None:
+    """An open PR from a human author for the same package does not block the alert."""
+    human_pr = {
+        "user": {"login": "octocat"},
+        "title": "fix: bump minimist to 1.2.6",
+        "head": {"ref": "fix/minimist-bump"},
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing issues
+        MagicMock(stdout=_gh_list_response([human_pr]), returncode=0),  # open PRs
+        MagicMock(returncode=0),  # ensure label
+        MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
+
+
+def test_all_candidates_have_dependabot_prs_returns_none() -> None:
+    """When every untracked alert has a Dependabot PR, source returns None."""
+    responses = [
+        MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL, _ALERT_LOW]), returncode=0),
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing issues
+        MagicMock(  # PRs cover both packages
+            stdout=_gh_list_response([_dependabot_pr("minimist"), _dependabot_pr("debug")]),
+            returncode=0,
+        ),
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is None
+
+
 # ── Dedup ──────────────────────────────────────────────────────────────────────
 
 
@@ -217,6 +358,69 @@ def test_all_alerts_already_have_tracking_issues_returns_none() -> None:
     with patch("subprocess.run", side_effect=responses):
         result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]  # dict[str, object] vs typed kwargs
     assert result is None
+
+
+def test_same_package_different_ghsa_blocked_by_package_dedup() -> None:
+    """A second alert for the same package+manifest with a different GHSA is skipped."""
+    # Existing issue tracks GHSA-aaaa-bbbb-cccc for minimist/package-lock.json
+    existing_issue = {
+        "state": "open",
+        "body": (
+            "<!-- Labro Dependabot alert — do not edit this header -->\n"
+            "**Package:** `minimist`\n"
+            "**Manifest:** `package-lock.json`\n"
+            "**GHSA:** `GHSA-aaaa-bbbb-cccc`"
+        ),
+    }
+    # New alert: same package+manifest, different GHSA
+    base_advisory: dict[str, Any] = dict(_ALERT_CRITICAL.get("security_advisory") or {})  # type: ignore[arg-type]
+    second_alert = {
+        **_ALERT_CRITICAL,
+        "security_advisory": {**base_advisory, "ghsa_id": "GHSA-zzzz-zzzz-zzzz"},
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([second_alert]), returncode=0),  # fetch alerts
+        MagicMock(stdout=_gh_list_response([existing_issue]), returncode=0),  # existing
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is None
+
+
+def test_same_package_different_manifest_not_blocked_by_package_dedup() -> None:
+    """Alerts for the same package but a different manifest are not blocked."""
+    # Existing issue tracks minimist in package-lock.json
+    existing_issue = {
+        "state": "open",
+        "body": (
+            "<!-- Labro Dependabot alert — do not edit this header -->\n"
+            "**Package:** `minimist`\n"
+            "**Manifest:** `package-lock.json`\n"
+            "**GHSA:** `GHSA-aaaa-bbbb-cccc`"
+        ),
+    }
+    # New alert: same package, different manifest
+    base_advisory2: dict[str, Any] = dict(_ALERT_CRITICAL.get("security_advisory") or {})  # type: ignore[arg-type]
+    other_manifest_alert = {
+        **_ALERT_CRITICAL,
+        "dependency": {
+            "package": {"name": "minimist"},
+            "manifest_path": "subdir/package-lock.json",
+        },
+        "security_advisory": {**base_advisory2, "ghsa_id": "GHSA-zzzz-zzzz-zzzz"},
+    }
+    responses = [
+        MagicMock(stdout=_gh_list_response([other_manifest_alert]), returncode=0),
+        MagicMock(stdout=_gh_list_response([existing_issue]), returncode=0),
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
+        MagicMock(returncode=0),  # ensure label
+        MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
+    ]
+    source = _make_source()
+    with patch("subprocess.run", side_effect=responses):
+        result = source.fetch_task(_project(), **_fetch_defaults())  # type: ignore[arg-type]
+    assert result is not None
 
 
 def test_closed_issue_within_10_days_blocks_recreation() -> None:
@@ -256,6 +460,7 @@ def test_closed_issue_older_than_10_days_allows_recreation() -> None:
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
         MagicMock(stdout=_gh_list_response([existing_issue]), returncode=0),  # existing
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
         MagicMock(returncode=0),  # ensure label
         MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
     ]
@@ -279,6 +484,7 @@ def test_closed_issue_missing_closed_at_does_not_block() -> None:
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
         MagicMock(stdout=_gh_list_response([existing_issue]), returncode=0),  # existing
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
         MagicMock(returncode=0),  # ensure label
         MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
     ]
@@ -296,6 +502,7 @@ def test_task_has_correct_item_fields() -> None:
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
         MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
         MagicMock(returncode=0),  # ensure label
         MagicMock(stdout=_gh_create_response(number=42, repo="org/repo"), returncode=0),  # create
     ]
@@ -318,6 +525,7 @@ def test_issue_create_failure_returns_none() -> None:
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
         MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
         MagicMock(returncode=0),  # ensure label
         CalledProcessError(1, "gh"),  # issue create fails
     ]
@@ -332,6 +540,7 @@ def test_permitted_actions_default_to_comment_and_open_pr() -> None:
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
         MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
         MagicMock(returncode=0),  # ensure label
         MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
     ]
@@ -349,6 +558,7 @@ def test_source_description_includes_package_name() -> None:
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_CRITICAL]), returncode=0),  # fetch alerts
         MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
         MagicMock(returncode=0),  # ensure label
         MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
     ]
@@ -368,6 +578,7 @@ def test_critical_alert_picked_before_low() -> None:
     responses = [
         MagicMock(stdout=_gh_list_response([_ALERT_LOW, _ALERT_CRITICAL]), returncode=0),  # alerts
         MagicMock(stdout=_gh_list_response([]), returncode=0),  # existing
+        MagicMock(stdout=_gh_list_response([]), returncode=0),  # open PRs
         MagicMock(returncode=0),  # ensure label
         MagicMock(stdout=_gh_create_response(), returncode=0),  # issue create
     ]

@@ -6,6 +6,16 @@ no existing issue tracking it.  A dedicated label (``ai-dependabot-alert`` by
 default) is applied to each created issue so the source can detect duplicates
 across runs.
 
+Three dedup / skip mechanisms prevent noisy issue creation:
+
+1. **GHSA dedup** — if an existing tracking issue mentions the GHSA ID, skip.
+2. **Package dedup** — if an existing tracking issue covers the same package +
+   manifest path (different GHSA, same fix), skip.
+3. **Dependabot PR check** — if Dependabot already has an open PR that
+   addresses the package, skip (let Dependabot handle it).
+4. **Minimum alert age** — alerts newer than ``min_alert_age_hours`` (default
+   24 h) are skipped so Dependabot has time to raise its own PR first.
+
 All subprocess calls use list-form args with shell=False (enforced by bandit B602).
 
 @author Claude Sonnet 4.6 Anthropic
@@ -93,17 +103,80 @@ def _fetch_open_alerts(repo: str) -> list[dict[str, Any]]:
     return unfixed
 
 
-def _has_tracking_issue(alert: dict[str, Any], existing_issues: list[dict[str, Any]]) -> bool:
-    """True if any existing issue already tracks *alert*, matched on GHSA ID.
+def _filter_by_age(alerts: list[dict[str, Any]], min_age_hours: int) -> list[dict[str, Any]]:
+    """Return only alerts older than *min_age_hours*.
 
-    Returns False when the alert has no GHSA ID so that unidentified alerts
-    are always actioned rather than silently skipped.
+    Alerts with a missing or unparseable ``created_at`` are included so they
+    are never permanently suppressed.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=min_age_hours)
+    result = []
+    for alert in alerts:
+        created_raw: str = alert.get("created_at") or ""
+        try:
+            created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            result.append(alert)
+            continue
+        if created <= cutoff:
+            result.append(alert)
+    return result
+
+
+def _fetch_open_prs(repo: str) -> list[dict[str, Any]]:
+    """Return all open PRs for *repo*. Failures yield an empty list."""
+    try:
+        prs: list[dict[str, Any]] = _run_gh_api(f"repos/{repo}/pulls?state=open&per_page=100")
+        return prs
+    except Exception:
+        logger.warning("gh-dependabot-alert: failed to fetch open PRs for %s", repo, exc_info=True)
+        return []
+
+
+def _has_dependabot_pr(alert: dict[str, Any], open_prs: list[dict[str, Any]]) -> bool:
+    """True if an open Dependabot PR already addresses *alert*'s package.
+
+    Matches on package name appearing in the PR branch name or title, which
+    Dependabot sets consistently (e.g. ``dependabot/npm_and_yarn/.../undici-7.28.0``).
+    """
+    dep = alert.get("dependency") or {}
+    pkg = (dep.get("package") or {}).get("name", "").lower()
+    if not pkg:
+        return False
+    for pr in open_prs:
+        user = (pr.get("user") or {}).get("login", "")
+        if not user.startswith("dependabot"):
+            continue
+        head_ref = ((pr.get("head") or {}).get("ref") or "").lower()
+        title = (pr.get("title") or "").lower()
+        if pkg in head_ref or pkg in title:
+            return True
+    return False
+
+
+def _has_tracking_issue(alert: dict[str, Any], existing_issues: list[dict[str, Any]]) -> bool:
+    """True if any existing issue already tracks *alert*.
+
+    Matches on GHSA ID (primary) or on package name + manifest path (catches
+    multiple alerts for the same package fixed by the same version bump).
+    Returns False when the alert has no identifiers so unidentified alerts are
+    always actioned rather than silently skipped.
     """
     advisory = alert.get("security_advisory") or {}
     ghsa_id = (advisory.get("ghsa_id") or "").lower()
-    if not ghsa_id:
-        return False
-    return any(ghsa_id in (issue.get("body") or "").lower() for issue in existing_issues)
+
+    dep = alert.get("dependency") or {}
+    pkg = (dep.get("package") or {}).get("name", "").lower()
+    manifest = (dep.get("manifest_path") or "").lower()
+
+    for issue in existing_issues:
+        body = (issue.get("body") or "").lower()
+        if ghsa_id and ghsa_id in body:
+            return True
+        if pkg and manifest:
+            if f"**package:** `{pkg}`" in body and f"**manifest:** `{manifest}`" in body:
+                return True
+    return False
 
 
 def _is_active_issue(issue: dict[str, Any], cutoff: datetime) -> bool:
@@ -177,11 +250,9 @@ def _build_issue_body(alert: dict[str, Any]) -> str:
         lines.append("")
     lines.extend(
         [
-            "Dependabot was unable to create an automatic fix PR for this alert"
-            " (e.g. due to incompatible version constraints).",
-            "",
-            "A manual fix is required — update the dependency to a patched version"
-            " or resolve the conflict.",
+            "No automatic fix PR from Dependabot was found for this alert."
+            " A manual fix is required — update the dependency to a patched version"
+            " or resolve any version conflicts.",
         ]
     )
 
@@ -245,6 +316,16 @@ class DependabotAlertTaskSource(TaskSource):
             logger.debug("gh-dependabot-alert: no open unfixed alerts in %s", repo)
             return None
 
+        # ── Filter by minimum age ──────────────────────────────────────────────
+        alerts = _filter_by_age(alerts, self._cfg.min_alert_age_hours)
+        if not alerts:
+            logger.debug(
+                "gh-dependabot-alert: all alerts in %s are newer than %d h — skipping",
+                repo,
+                self._cfg.min_alert_age_hours,
+            )
+            return None
+
         # ── Fetch existing tracking issues for dedup ───────────────────────────
         cutoff = datetime.now(UTC) - timedelta(days=10)
         try:
@@ -265,15 +346,29 @@ class DependabotAlertTaskSource(TaskSource):
         # ── Find first unaddressed alert (highest severity first) ──────────────
         alerts.sort(key=_severity_sort_key)
         target: dict[str, Any] | None = None
+        open_prs: list[dict[str, Any]] | None = None  # fetched lazily
+
         for alert in alerts:
-            if not _has_tracking_issue(alert, existing):
-                target = alert
-                break
+            if _has_tracking_issue(alert, existing):
+                continue
+            # Lazy-fetch open PRs on first candidate to avoid an extra API call
+            # when all alerts are already tracked.
+            if open_prs is None:
+                open_prs = _fetch_open_prs(repo)
+            if _has_dependabot_pr(alert, open_prs):
+                dep = alert.get("dependency") or {}
+                pkg = (dep.get("package") or {}).get("name", "unknown")
+                logger.debug(
+                    "gh-dependabot-alert: skipping %s in %s — open Dependabot PR exists",
+                    pkg,
+                    repo,
+                )
+                continue
+            target = alert
+            break
 
         if target is None:
-            logger.debug(
-                "gh-dependabot-alert: all open alerts already have tracking issues in %s", repo
-            )
+            logger.debug("gh-dependabot-alert: all open alerts already addressed in %s", repo)
             return None
 
         # ── Resolve config ─────────────────────────────────────────────────────
