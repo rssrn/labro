@@ -85,7 +85,8 @@ def test_has_auth_true_even_without_env_vars(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_validate_auth_warn_when_key_present(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-    status, msg = _AGENT.validate_auth()
+    with patch("shutil.which", return_value="/usr/bin/opencode"):
+        status, msg = _AGENT.validate_auth()
     assert status == "WARN"
     assert "OPENROUTER_API_KEY" in msg
 
@@ -93,7 +94,8 @@ def test_validate_auth_warn_when_key_present(monkeypatch: pytest.MonkeyPatch) ->
 def test_validate_auth_warn_when_no_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     for var in _AGENT.auth_env_vars:
         monkeypatch.delenv(var, raising=False)
-    status, msg = _AGENT.validate_auth()
+    with patch("shutil.which", return_value="/usr/bin/opencode"):
+        status, msg = _AGENT.validate_auth()
     assert status == "WARN"
     assert "no known provider" in msg
 
