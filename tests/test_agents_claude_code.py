@@ -473,3 +473,28 @@ def test_allowed_tools_passed_to_subprocess() -> None:
     idx = cmd.index("--allowedTools")
     tools_passed = cmd[idx + 1 :]
     assert "Bash(gh issue comment *)" in tools_passed
+
+
+# ── validate_auth / binary check ──────────────────────────────────────────────
+
+
+def test_validate_auth_fails_when_binary_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_auth returns FAIL when the claude binary is not on PATH."""
+    from labro.agents.claude_code import ClaudeCodeAgent
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+    with patch("shutil.which", return_value=None):
+        status, msg = ClaudeCodeAgent().validate_auth()
+    assert status == "FAIL"
+    assert "claude" in msg
+    assert "PATH" in msg
+
+
+def test_validate_auth_ok_when_binary_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_auth proceeds past the binary check when claude is on PATH."""
+    from labro.agents.claude_code import ClaudeCodeAgent
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+    with patch("shutil.which", return_value="/usr/bin/claude"):
+        status, _ = ClaudeCodeAgent().validate_auth()
+    assert status != "FAIL"

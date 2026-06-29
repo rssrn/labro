@@ -40,6 +40,8 @@ class CodexAgent(Agent):
         return _AUTH_JSON_PATH.exists()
 
     def validate_auth(self) -> tuple[str, str]:
+        if (fail := self.check_binary("codex")) is not None:
+            return fail
         if os.environ.get("CODEX_API_KEY"):
             return ("WARN", "CODEX_API_KEY: env var present but not validated")
         if _AUTH_JSON_PATH.exists():

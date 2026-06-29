@@ -500,6 +500,22 @@ def _cmd_run_live(
                         reason=reason,
                         next_slug=_next_configs[0].slug,
                     )
+            except Exception as exc:
+                # Catches unexpected errors (e.g. FileNotFoundError when the agent
+                # binary is missing) so the run is still recorded in the DB.
+                reason = f"{type(exc).__name__}: {exc}"
+                failed_attempts.append({"slug": _attempt_cfg.slug, "reason": reason})
+                _log.error(
+                    "agent %s raised unexpected error: %s", _attempt_cfg.slug, exc, exc_info=True
+                )
+                _next_configs = _configs_to_try[_i + 1 :]
+                if pre_run_handle is not None and _next_configs:
+                    post_run_mod.append_fallback_note(
+                        pre_run_handle,
+                        failed_slug=_attempt_cfg.slug,
+                        reason=reason,
+                        next_slug=_next_configs[0].slug,
+                    )
 
         # If every attempt failed with an exception, update agent_cfg to the last
         # attempt so the run record reflects the actual last model tried.

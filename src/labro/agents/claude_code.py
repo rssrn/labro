@@ -194,6 +194,8 @@ class ClaudeCodeAgent(Agent):
         return run_claude(prompt, config)
 
     def validate_auth(self) -> tuple[str, str]:
+        if (fail := self.check_binary("claude")) is not None:
+            return fail
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if api_key:
             return _check_anthropic_api_key(api_key)

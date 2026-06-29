@@ -401,6 +401,48 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
     conn.close()
 
 
+def test_runner_unexpected_exception_stored_as_failure(tmp_path: Path) -> None:
+    """Unexpected invoke errors (e.g. FileNotFoundError) are caught, written to DB, return 1."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
+        patch("labro.cli.preserve_wip", return_value=None),
+        patch("labro.cli.get_agent") as MockAgent,
+        patch("labro.cli.logger_mod.write_run") as mock_write,
+        patch("labro.cli.post_run_mod.pre_run"),
+    ):
+        mock_instance = MagicMock()
+        mock_instance.invoke.side_effect = FileNotFoundError("claude: not found")
+        MockAgent.return_value = mock_instance
+
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 1
+    call_kwargs = mock_write.call_args.kwargs
+    assert call_kwargs["outcome"] == "failure"
+    assert call_kwargs["agent_result"] is None
+    assert "FileNotFoundError" in call_kwargs["failure_reason"]
+    assert call_kwargs["fallback_attempts"] is not None
+
+    conn.close()
+
+
 def test_lock_released_on_exception(tmp_path: Path) -> None:
     """Lock is released in ``finally`` even when an unexpected exception occurs."""
     db_path = tmp_path / "labro.db"

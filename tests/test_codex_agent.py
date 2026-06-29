@@ -158,3 +158,24 @@ def test_timeout_raises_agent_timeout_error(tmp_path: pytest.TempPathFactory) ->
         mock_invoke.side_effect = AgentTimeoutError("codex exceeded timeout of 120s")
         with pytest.raises(AgentTimeoutError):
             _AGENT.invoke("prompt", _BASE_CONFIG)
+
+
+# ── validate_auth / binary check ──────────────────────────────────────────────
+
+
+def test_validate_auth_fails_when_binary_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_auth returns FAIL when the codex binary is not on PATH."""
+    monkeypatch.setenv("CODEX_API_KEY", "key")
+    with patch("shutil.which", return_value=None):
+        status, msg = _AGENT.validate_auth()
+    assert status == "FAIL"
+    assert "codex" in msg
+    assert "PATH" in msg
+
+
+def test_validate_auth_ok_when_binary_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_auth proceeds past the binary check when codex is on PATH."""
+    monkeypatch.setenv("CODEX_API_KEY", "key")
+    with patch("shutil.which", return_value="/usr/bin/codex"):
+        status, _ = _AGENT.validate_auth()
+    assert status != "FAIL"

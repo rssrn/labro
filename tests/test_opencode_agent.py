@@ -334,3 +334,24 @@ def test_all_agents_includes_opencode() -> None:
 
     ids = {a.id for a in all_agents()}
     assert "opencode" in ids
+
+
+# ── binary check ──────────────────────────────────────────────────────────────
+
+
+def test_validate_auth_fails_when_binary_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_auth returns FAIL when the opencode binary is not on PATH."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "key")
+    with patch("shutil.which", return_value=None):
+        status, msg = _AGENT.validate_auth()
+    assert status == "FAIL"
+    assert "opencode" in msg
+    assert "PATH" in msg
+
+
+def test_validate_auth_ok_when_binary_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_auth proceeds past the binary check when opencode is on PATH."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "key")
+    with patch("shutil.which", return_value="/usr/bin/opencode"):
+        status, _ = _AGENT.validate_auth()
+    assert status != "FAIL"

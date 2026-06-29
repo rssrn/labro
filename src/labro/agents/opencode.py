@@ -90,6 +90,8 @@ class OpenCodeAgent(Agent):
         return True
 
     def validate_auth(self) -> tuple[str, str]:
+        if (fail := self.check_binary("opencode")) is not None:
+            return fail
         found = [v for v in _KNOWN_PROVIDER_KEYS if os.environ.get(v)]
         if found:
             return (

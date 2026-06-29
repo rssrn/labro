@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from abc import ABC, abstractmethod
 from typing import ClassVar
 
@@ -45,3 +46,16 @@ class Agent(ABC):
             "FAIL",
             f"no auth for agent '{self.id}' — set one of: {', '.join(self.auth_env_vars)}",
         )
+
+    @staticmethod
+    def check_binary(binary: str) -> tuple[str, str] | None:
+        """Return a FAIL tuple if *binary* is not on PATH, else None.
+
+        Call at the top of validate_auth() to surface missing CLI tools during
+        `labro check` before any run is attempted.
+
+        @author Claude Sonnet 4.6 Anthropic
+        """
+        if shutil.which(binary) is None:
+            return ("FAIL", f"{binary}: binary not found on PATH")
+        return None
