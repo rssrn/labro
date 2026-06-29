@@ -393,7 +393,7 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
     call_kwargs = mock_write.call_args.kwargs
     assert call_kwargs["outcome"] == "failure"
     assert call_kwargs["agent_result"] is None
-    assert call_kwargs["failure_reason"] == "timeout"
+    assert call_kwargs["failure_reason"] == "claude-code:anthropic/claude-opus-4-7: timeout"
     assert call_kwargs["fallback_attempts"] == json.dumps(
         [{"slug": "claude-code:anthropic/claude-opus-4-7", "reason": "timeout"}]
     )
@@ -814,7 +814,10 @@ def test_all_fallbacks_fail(tmp_path: Path) -> None:
     call_kwargs = mock_write.call_args.kwargs
     assert call_kwargs["outcome"] == "failure"
     assert call_kwargs["agent_result"] is None
-    assert call_kwargs["failure_reason"] == "timeout"
+    assert call_kwargs["failure_reason"] == (
+        "claude-code:anthropic/claude-opus-4-7: timeout"
+        "; claude-code:anthropic/claude-sonnet-4-6: timeout"
+    )
     assert call_kwargs["agent_cfg"].slug == "claude-code:anthropic/claude-sonnet-4-6"
     assert call_kwargs["fallback_attempts"] == json.dumps(
         [

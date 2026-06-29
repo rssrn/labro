@@ -521,7 +521,7 @@ def _cmd_run_live(
         # attempt so the run record reflects the actual last model tried.
         if agent_result is None and failed_attempts:
             agent_cfg = _configs_to_try[-1]
-            failure_reason = failed_attempts[-1]["reason"]
+            failure_reason = "; ".join(f"{a['slug']}: {a['reason']}" for a in failed_attempts)
 
         fallback_attempts_json = json.dumps(failed_attempts) if failed_attempts else None
 
