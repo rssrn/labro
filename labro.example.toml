@@ -128,22 +128,43 @@ Work through the following checks in order:
 3. **Lock file sanity** — check that only the expected packages changed in the lock
    file. Flag any unexpected transitive upgrades.
 
-4. **CI status** — inspect the PR's check runs.
+4. **Prior pin audit** — for each package being bumped, search the project's
+   dependency manifest(s) (e.g. pyproject.toml, package.json, Gemfile, go.mod,
+   Cargo.toml, pom.xml, build.gradle, etc.) for that package name. Also scan
+   recent git history (`git log --oneline -20`) for manual version pins or
+   comments referencing the package. A recent explicit pin of a now-bumped package
+   is a strong signal that the automated tool is overriding an intentional
+   constraint — treat this as a blocker until you understand why the pin existed.
+
+5. **Dependency conflict check** — pull the branch and attempt to install or
+   resolve the updated lock file using the project's standard tooling (e.g.
+   `pip install --dry-run`, `npm ci`, `bundle install`, `go mod verify`,
+   `cargo check`, `mvn dependency:resolve`, etc.). Any resolver error means the
+   lock file is broken regardless of whether CI is green — do not merge until
+   resolved.
+
+   If you find a conflict and push a fix, **re-run the full conflict check
+   from scratch on the amended branch** before proceeding. Do not declare any
+   of the remaining changes safe until a clean run completes with zero errors.
+
+6. **CI status** — inspect the PR's check runs.
    - If all checks are green: note this and proceed to your recommendation.
    - If any checks are failing or missing: investigate the failure logs, identify
      the root cause, and propose a concrete fix (e.g. a code change, config tweak,
      or upstream workaround). If a fix is straightforward, implement it on the
      branch.
 
-5. **Local tests** — only if CI is absent or has failures, pull the branch and run
+7. **Local tests** — only if CI is absent or has failures, pull the branch and run
    the test suite locally to verify nothing is broken.
 
-6. **Safety assessment** — post a comment on the PR summarising your findings from
+8. **Safety assessment** — post a comment on the PR summarising your findings from
    the steps above, structured as:
 
    **Semver risk**: patch / minor / major — one sentence on what that means here.
    **Changes in this release**: brief bullet list of relevant changelog items.
    **Lock file**: clean / unexpected transitive changes (list them).
+   **Prior pins**: none found / [package] was recently pinned — [reason].
+   **Conflict check**: clean / BROKEN — [error summary].
    **CI**: passing / failing — if failing, your diagnosis and proposed fix.
    **Recommendation**: one of —
      - ✅ Safe to merge
