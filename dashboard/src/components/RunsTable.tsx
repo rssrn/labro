@@ -160,7 +160,7 @@ export default function RunsTable({ runs, onSelect, projectEmoji }: Props) {
                 {run.fallback_attempts
                   ? <span style={{ color: '#c80' }} title={`fallback from ${parseFallbacks(run.fallback_attempts) ?? '?'}`}>⤳ </span>
                   : null}
-                {fmtModel(run.provider, run.model)}
+                {fmtModel(run.provider, run.model, run.agent)}
               </td>
               <td style={TD_STYLE}>
                 <span style={{ color: OUTCOME_COLOR[run.outcome ?? ''] ?? '#aaa', fontWeight: 'bold' }} title={run.outcome ? OUTCOME_TOOLTIP[run.outcome] : undefined}>

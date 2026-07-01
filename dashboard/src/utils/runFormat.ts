@@ -8,7 +8,8 @@ export function fmtCost(usd: number | null, precision = 2): string {
   return `$${usd.toFixed(precision)}`;
 }
 
-export function fmtModel(provider: string | null, model: string | null): string {
+export function fmtModel(provider: string | null, model: string | null, agent: string | null): string {
+  if (!agent) return '—';
   if (!model) return "[agent's internal default]";
   const short = model.replace(/^claude-/, '');
   return provider ? `${provider}/${short}` : short;

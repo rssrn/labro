@@ -245,7 +245,7 @@ export default function RunDrawer({ run, onClose }: Props) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
             <Cell label="agent">{run.agent ?? '—'}</Cell>
             <Cell label="total cost">{fmtCost(run.total_cost_usd, 4)}</Cell>
-            <Cell label="model">{fmtModel(run.provider, run.model)}</Cell>
+            <Cell label="model">{fmtModel(run.provider, run.model, run.agent)}</Cell>
             <Cell label="turns" title="Agent conversation turns used. Capped by max_turns; if turns = max and outcome = partial, the run was cut short.">{run.turns_used ? run.turns_used : <span style={{ color: '#555' }}>Not reported</span>}</Cell>
             {run.effort && <Cell label="effort" title="Agent reasoning depth. Higher effort = more thorough but slower and costlier.">{run.effort}</Cell>}
           </div>
