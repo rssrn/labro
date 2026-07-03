@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.16.8 — 2026-07-03
+
+### Fixed
+- `labro check` now reports FAIL when an agent CLI binary is not on PATH; unexpected invoke errors (e.g. a missing binary at runtime) are caught and recorded in the runs table instead of being lost
+- `failure_reason` now summarises all fallback attempts, not just the last one
+- Dashboard shows `—` for an empty agent instead of an internal default value
+- `labro.example.toml`'s maintainer persona example brought in sync with the live config (prior pin audit and dependency conflict check steps were missing)
+
 ## v0.16.7 — 2026-06-25
 
 ### Fixed
