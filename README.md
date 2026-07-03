@@ -73,7 +73,7 @@ For a full reference with personas, shared rules, dashboards, and multi-project 
 
 A read-only static SPA (React + Vite + sql.js) served from an S3-compatible blob store (e.g. Cloudflare R2). It loads a published snapshot of `labro.db` client-side and renders a runs list, per-project stats, and charts — no runtime link to the harness.
 
-> **⚠️ Data sensitivity:** the published snapshot contains private-repo prose. The dashboard ships **no built-in access control**. If your repo contents are sensitive, do not use this feature. See [ADR-0007](docs/adr/0007-metrics-dashboard.md).
+> **⚠️ Data sensitivity:** the published snapshot includes run metadata — issue titles, PR descriptions, and agent output — which may contain repo content. The dashboard ships **no built-in access control**. If your repo contents are sensitive, do not use this feature. See [ADR-0007](docs/adr/0007-metrics-dashboard.md).
 
 Full setup guide: [Metrics Dashboard](docs/DASHBOARD.md)
 
