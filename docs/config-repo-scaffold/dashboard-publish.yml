@@ -9,6 +9,11 @@
 #   R2_ACCOUNT_ID        — Cloudflare account ID (endpoint is derived automatically)
 #   R2_BUCKET            — R2 bucket name
 #
+# Optional repo secret:
+#   ANALYTICS_SNIPPET_HTML — raw HTML to inject in place of the
+#     <!-- ANALYTICS_SNIPPET --> placeholder in dashboard/index.html (e.g. a
+#     Umami, Plausible, or GA script tag). Leave unset for no tracking.
+#
 # This workflow writes only to the SPA root (HTML/JS/CSS/wasm assets).
 # It does NOT pass --delete, so /db/ and /manifest.json (written by labro publish-db
 # on the VPS) are never removed when the SPA is redeployed.
@@ -39,6 +44,24 @@ jobs:
       - name: Build
         working-directory: dashboard
         run: npm run build
+
+      - name: Inject analytics snippet
+        env:
+          ANALYTICS_SNIPPET_HTML: ${{ secrets.ANALYTICS_SNIPPET_HTML }}
+        run: |
+          python3 - <<'EOF'
+          import os
+
+          path = "dashboard/dist/index.html"
+          with open(path, encoding="utf-8") as f:
+              html = f.read()
+          html = html.replace(
+              "<!-- ANALYTICS_SNIPPET -->",
+              os.environ.get("ANALYTICS_SNIPPET_HTML", ""),
+          )
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(html)
+          EOF
 
       - name: Upload SPA assets to R2
         env:

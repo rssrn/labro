@@ -44,4 +44,6 @@ After the first successful upload, `manifest.json` and `db/labro-<hash>.db` appe
 
 Copy `docs/config-repo-scaffold/dashboard-publish.yml` into `.github/workflows/` in your config repo and add the four R2 secrets. Push to trigger the first build and upload. Once deployed, open your custom domain — the dashboard loads data from the published snapshot.
 
+Optionally, add an `ANALYTICS_SNIPPET_HTML` secret containing raw HTML (e.g. a Umami, Plausible, or GA script tag) — the workflow injects it into the dashboard's `<!-- ANALYTICS_SNIPPET -->` placeholder at build time. Leave it unset for no tracking.
+
 The SPA rebuilds automatically when `dashboard/**` changes on labro `main` (dispatched via `dashboard-dispatch.yml`). Snapshot publishing runs independently on the cron in `[dashboard]`.

@@ -119,6 +119,7 @@ docker run -d --name labro --restart unless-stopped \
 - `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET` — Cloudflare R2
 - `PUSHGATEWAY_URL` — Prometheus Pushgateway (e.g. `http://pushgateway:9091`)
 - `LABRO_READ_TOKEN` — read token for `rssrn/labro` (used by `dashboard-publish.yml`)
+- `ANALYTICS_SNIPPET_HTML` *(optional)* — raw HTML injected into the dashboard's `<!-- ANALYTICS_SNIPPET -->` placeholder (e.g. a Umami/Plausible/GA script tag). Unset by default — public builds ship with no tracking.
 - `CONFIG_REPO_DISPATCH_TOKEN` — PAT used by `labro`'s `publish.yml` to fire `repository_dispatch` events into this repo
 
 ## Current Milestone
