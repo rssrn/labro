@@ -1,0 +1,24 @@
+# docker-compose.yml (in the config repo)
+# Deployed to /opt/labro/docker-compose.yml by labro-deploy.yml, alongside
+# /opt/labro/.env (written by labro-restart.yml / labro-update.yml) and
+# /opt/labro/data (bind-mounted below). Adjust the image tag/org to match
+# your setup.
+services:
+  labro:
+    image: ghcr.io/<your-org>/labro:latest
+    container_name: labro
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$(cat /proc/1/comm)\" = cron && test -f /etc/cron.d/labro"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -186,17 +186,22 @@ jobs:
 
 ### VPS with crond (Always-On)
 
-Start the container once; it generates `/etc/cron.d/labro` from `labro.toml` and execs `crond -f`:
+Run Labro via `docker compose` rather than a bare `docker run` — it gives you declarative recreates (`up -d`) instead of manual `stop`/`rm`/`run`, which is what the config-repo workflows below rely on.
 
-```bash
-docker run -d --name labro \
-  --restart unless-stopped \
-  --env-file /your/secrets/.env \
-  -v /your/data/dir:/data \
-  ghcr.io/rssrn/labro:latest
+`docker-compose.yml` (see [`docs/config-repo-scaffold/docker-compose.yml`](config-repo-scaffold/docker-compose.yml) for a copy-pasteable version):
+
+```yaml
+services:
+  labro:
+    image: ghcr.io/rssrn/labro:latest
+    container_name: labro
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
 ```
 
-Where `/your/secrets/.env` contains (at minimum):
+Place it at `/your/deploy/dir/docker-compose.yml`, with `/your/deploy/dir/.env` alongside it (at minimum):
 
 ```
 LABRO_CONFIG=/data/labro.toml
@@ -205,30 +210,38 @@ GH_APP_PRIVATE_KEY_BASE64=<base64 -w 0 your-app.pem>
 CLAUDE_CODE_OAUTH_TOKEN=<token>
 ```
 
-Verify the crontab was generated correctly:
+Then, from `/your/deploy/dir`:
 
 ```bash
-docker exec labro cat /etc/cron.d/labro
+docker compose up -d
+```
+
+`entrypoint.sh` generates `/etc/cron.d/labro` from `labro.toml` and execs `crond -f`. Verify the crontab was generated correctly:
+
+```bash
+docker compose exec -T labro cat /etc/cron.d/labro
 ```
 
 ### Graceful Restart Procedure
 
-When updating the config or rotating secrets, drain in-flight runs before restarting:
+When updating the config or rotating secrets, drain in-flight runs before restarting. Run these from `/your/deploy/dir` (where `docker-compose.yml` lives):
+
+> **Scripting this over SSH:** `-T` only disables pseudo-TTY allocation — `docker compose exec` still attaches stdin to the exec'd process. Inside an SSH heredoc, that means the exec'd command silently consumes the rest of the script as its own input, and everything after it (including the actual `up -d --force-recreate`) never runs — while the step still exits 0. Add `< /dev/null` to every `exec` call below when running this non-interactively (e.g. from a GitHub Actions heredoc); the scaffold workflows already do this.
 
 ```bash
 # 1. Signal no new runs
-docker exec labro touch /data/LABRO_DISABLED
+docker compose exec -T labro touch /data/LABRO_DISABLED
 
 # 2. Wait for any run in progress to finish
-while [ "$(docker exec labro sqlite3 /data/labro.db 'SELECT COUNT(*) FROM project_locks')" != "0" ]; do
+while [ "$(docker compose exec -T labro sqlite3 /data/labro.db 'SELECT COUNT(*) FROM project_locks')" != "0" ]; do
   echo "waiting…"; sleep 5
 done
 
-# 3. Restart (entrypoint regenerates crontab on start)
-docker restart labro
+# 3. Recreate (entrypoint regenerates crontab on start)
+docker compose up -d --force-recreate
 
 # 4. Re-enable
-docker exec labro rm -f /data/LABRO_DISABLED
+docker compose exec -T labro rm -f /data/LABRO_DISABLED
 ```
 
 ---
@@ -244,29 +257,33 @@ The recommended production setup separates the harness (this repo) from your ope
 ```
 my-labro-config/
   labro.toml                        ← your operator config (checked in)
+  docker-compose.yml                ← service definition (checked in)
   .gitignore                        ← excludes *.pem, *.key, .env
   .github/workflows/
-    labro-deploy.yml                ← auto-triggered on labro.toml changes
+    labro-deploy.yml                ← auto-triggered on labro.toml/docker-compose.yml changes
     labro-update.yml                ← manual: pull latest image and redeploy
     labro-restart.yml               ← manual: refresh secrets and restart
     dashboard-publish.yml           ← auto-triggered on dashboard/** changes; builds + uploads SPA to R2
 ```
 
-Scaffold copies of all four workflows are in [`docs/config-repo-scaffold/`](docs/config-repo-scaffold/). Copy them into your config repo and adjust the host paths and image name to match your setup:
+`docker-compose.yml` and `labro.toml` are both synced to the server (to `/opt/labro/docker-compose.yml` and `/opt/labro/data/labro.toml` respectively); `.env` is written directly on the server by the workflows from GitHub repo secrets and never checked in.
+
+Scaffold copies of all workflows plus `docker-compose.yml` are in [`docs/config-repo-scaffold/`](docs/config-repo-scaffold/). Copy them into your config repo and adjust the host paths and image name to match your setup:
 
 ```bash
 cp docs/config-repo-scaffold/*.yml <your-config-repo>/.github/workflows/
+cp docs/config-repo-scaffold/docker-compose.yml <your-config-repo>/docker-compose.yml
 ```
 
 ### How the Workflows Connect
 
-The workflows SSH to your server (the scaffolds use [Tailscale](https://tailscale.com) for private networking, but any SSH-reachable host works) and manage the container lifecycle:
+The workflows SSH to your server (the scaffolds use [Tailscale](https://tailscale.com) for private networking, but any SSH-reachable host works) and manage the container lifecycle via `docker compose`:
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `labro-deploy.yml` | Push to `labro.toml` | Writes fresh secrets → copies config → recreates container |
-| `labro-update.yml` | Manual | Writes fresh secrets → pulls `:latest` → recreates container |
-| `labro-restart.yml` | Manual | Writes fresh secrets → recreates container (same image) |
+| `labro-deploy.yml` | Push to `labro.toml` or `docker-compose.yml` | Copies config/compose file → drains → `docker compose up -d --force-recreate` |
+| `labro-update.yml` | Manual | Writes fresh secrets → `docker compose pull` → drains → recreates container |
+| `labro-restart.yml` | Manual | Writes fresh secrets → drains → `docker compose up -d --force-recreate` (same image) |
 | `dashboard-publish.yml` | `dashboard-publish` dispatch or manual | Checks out labro repo → builds SPA → uploads assets to R2 |
 
 All workflows write `/your/secrets/.env` on the server from GitHub repo secrets before recreating the container, so rotating any API key is just: update the secret in GitHub → run `labro-restart.yml`.
@@ -298,8 +315,9 @@ The codex CLI supports two auth modes:
 ### Server Host Layout
 
 ```
-/your/secrets/.env          ← written by workflow; read by docker at run time (not mounted)
-/your/data/dir/             ← single volume mount (-v /your/data/dir:/data)
+/opt/labro/docker-compose.yml  ← synced by labro-deploy.yml
+/opt/labro/.env                ← written by workflow; read by docker at run time (not mounted)
+/opt/labro/data/                ← single volume mount (./data:/data in docker-compose.yml)
   labro.toml                ← LABRO_CONFIG=/data/labro.toml
   labro.db                  ← SQLite run records
   labro.log

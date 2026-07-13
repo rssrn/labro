@@ -1,6 +1,7 @@
 # .github/workflows/labro-deploy.yml (in the config repo)
-# Triggers on labro.toml changes. Copies the new config to the host and performs
-# a graceful restart (drains in-flight runs before restarting the container).
+# Triggers on labro.toml or docker-compose.yml changes. Copies both to the
+# host and performs a graceful restart (drains in-flight runs before
+# restarting the container).
 #
 # Required repo secrets:
 #   TAILSCALE_AUTHKEY — ephemeral auth key from Tailscale admin (Actions → Keys)
@@ -11,6 +12,7 @@ on:
   push:
     paths:
       - 'labro.toml'
+      - 'docker-compose.yml'
 
 jobs:
   deploy:
@@ -27,17 +29,20 @@ jobs:
       - name: Copy updated config
         run: |
           scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            labro.toml ${{ secrets.DEPLOY_HOST }}:/opt/labro/config/labro.toml
+            labro.toml ${{ secrets.DEPLOY_HOST }}:/opt/labro/data/labro.toml
+          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            docker-compose.yml ${{ secrets.DEPLOY_HOST }}:/opt/labro/docker-compose.yml
 
       - name: Graceful restart
         run: |
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             ${{ secrets.DEPLOY_HOST }} '
-            docker exec labro touch /data/LABRO_DISABLED
-            while [ "$(docker exec labro sqlite3 /data/labro.db \
-                "SELECT COUNT(*) FROM project_locks" 2>/dev/null)" != "0" ]; do
+            cd /opt/labro
+            docker compose exec -T labro touch /data/LABRO_DISABLED < /dev/null
+            while [ "$(docker compose exec -T labro sqlite3 /data/labro.db \
+                "SELECT COUNT(*) FROM project_locks" < /dev/null 2>/dev/null)" != "0" ]; do
               echo "waiting..."; sleep 5
             done
-            docker restart labro
-            docker exec labro rm -f /data/LABRO_DISABLED
+            docker compose up -d --force-recreate
+            docker compose exec -T labro rm -f /data/LABRO_DISABLED < /dev/null
           '
