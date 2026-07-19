@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from labro.repo import cleanup_working_copy, prepare_repo, preserve_wip
+from labro.repo import cleanup_working_copy, clear_tool_caches, prepare_repo, preserve_wip
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -440,6 +440,51 @@ class TestCleanupWorkingCopy:
 
         for c in mock_run.call_args_list:
             assert c.kwargs.get("shell", False) is False, f"shell=True found in call: {c}"
+
+
+# ---------------------------------------------------------------------------
+# clear_tool_caches
+# ---------------------------------------------------------------------------
+
+
+class TestClearToolCaches:
+    """clear_tool_caches wipes ~/.cache after a run."""
+
+    def test_removes_cache_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake_home = tmp_path / "home"
+        cache_dir = fake_home / ".cache"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "pip-tools").mkdir()
+        (cache_dir / "pip-tools" / "http-v2").write_text("stale cache entry")
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+        clear_tool_caches()
+
+        assert not cache_dir.exists()
+
+    def test_missing_cache_dir_is_a_noop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+        clear_tool_caches()  # must not raise
+
+        assert not (fake_home / ".cache").exists()
+
+    def test_best_effort_swallows_errors(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        def _boom() -> Path:
+            raise RuntimeError("no HOME set")
+
+        monkeypatch.setattr(Path, "home", _boom)
+
+        with caplog.at_level(logging.WARNING, logger="labro.repo"):
+            clear_tool_caches()  # must not raise
+
+        assert any("clear_tool_caches" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------

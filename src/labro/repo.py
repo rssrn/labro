@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -223,6 +224,32 @@ def cleanup_working_copy(repo_path: Path) -> None:
         _run(["git", "-C", str(repo_path), "clean", "-fdx"])
     except Exception:
         logger.warning("cleanup_working_copy failed for %s", repo_path, exc_info=True)
+
+
+def clear_tool_caches() -> None:
+    """Wipe ``~/.cache`` inside the container after a run.
+
+    Best-effort — never raises. Package-manager tools invoked by the agent
+    (``pip``, ``pip-tools``, ``uv``, ...) cache HTTP responses and build
+    artifacts under ``~/.cache`` by XDG convention. Because the container
+    itself is long-lived (not recreated between runs), this directory sits
+    outside both the per-repo working copy (unaffected by
+    ``cleanup_working_copy``) and the ``/data`` bind mount, and grows
+    unbounded in the container's own writable layer otherwise — e.g. a
+    single dependency resolution against a large package can leave several
+    GB behind. Auth/config state for the CLIs Labro shells out to (``gh``,
+    ``codex``, ``claude``, ``npm``) lives elsewhere (``~/.config``,
+    ``~/.codex``, ``~/.npm``), not under ``~/.cache``, so this is safe to
+    clear unconditionally. Losing the cache costs a cold re-resolve on the
+    next run that touches the same dependencies — an acceptable trade given
+    how rarely Labro re-resolves the same repo's deps back-to-back.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    try:
+        shutil.rmtree(Path.home() / ".cache", ignore_errors=True)
+    except Exception:
+        logger.warning("clear_tool_caches failed", exc_info=True)
 
 
 def _gh_user_identity(

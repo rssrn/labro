@@ -51,7 +51,7 @@ from labro.config.schema import (
 from labro.models import AgentConfig, AgentResult
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
-from labro.repo import cleanup_working_copy, prepare_repo, preserve_wip
+from labro.repo import cleanup_working_copy, clear_tool_caches, prepare_repo, preserve_wip
 
 _log = logging.getLogger(__name__)
 
@@ -547,6 +547,12 @@ def _cmd_run_live(
         # behind. Anything worth keeping was already committed/pushed above
         # (WIP branch) or by the agent itself (permitted GitHub actions).
         cleanup_working_copy(repo_path)
+
+        # ── Clear tool caches ───────────────────────────────────────────────────
+        # Package-manager caches (pip-tools, pip, uv, ...) live under ~/.cache,
+        # outside both the repo checkout and the /data bind mount, and would
+        # otherwise grow unbounded in the container's own writable layer.
+        clear_tool_caches()
 
         # ── Post-run label transitions ─────────────────────────────────────────
         post_run_mod.post_run(
