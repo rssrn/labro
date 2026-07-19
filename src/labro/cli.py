@@ -51,7 +51,7 @@ from labro.config.schema import (
 from labro.models import AgentConfig, AgentResult
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
-from labro.repo import prepare_repo, preserve_wip
+from labro.repo import cleanup_working_copy, prepare_repo, preserve_wip
 
 _log = logging.getLogger(__name__)
 
@@ -541,6 +541,12 @@ def _cmd_run_live(
                 wip_branch_url = preserve_wip(
                     repo_path, task.repo, run_id, bot_identity=bot_identity
                 )
+
+        # ── Cleanup working copy ────────────────────────────────────────────────
+        # Strips any build artifacts (.venv, node_modules, ...) the agent left
+        # behind. Anything worth keeping was already committed/pushed above
+        # (WIP branch) or by the agent itself (permitted GitHub actions).
+        cleanup_working_copy(repo_path)
 
         # ── Post-run label transitions ─────────────────────────────────────────
         post_run_mod.post_run(

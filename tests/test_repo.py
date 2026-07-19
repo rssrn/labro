@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from labro.repo import prepare_repo, preserve_wip
+from labro.repo import cleanup_working_copy, prepare_repo, preserve_wip
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -397,6 +397,49 @@ class TestPreserveWip:
         assert any("add" in cmd for cmd in cmds)
         assert any("commit" in cmd for cmd in cmds)
         assert any("push" in cmd for cmd in cmds)
+
+
+# ---------------------------------------------------------------------------
+# cleanup_working_copy
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupWorkingCopy:
+    """cleanup_working_copy strips dirty/untracked state after a run."""
+
+    def test_resets_and_cleans_with_untracked_files(self, tmp_path: Path) -> None:
+        side_effects = [
+            _make_completed(),  # git reset --hard
+            _make_completed(),  # git clean -fdx
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
+            cleanup_working_copy(tmp_path)
+
+        cmds = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "-C", str(tmp_path), "reset", "--hard"] in cmds
+        assert ["git", "-C", str(tmp_path), "clean", "-fdx"] in cmds
+
+    def test_best_effort_swallows_errors(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with patch("labro.repo.subprocess.run", side_effect=RuntimeError("boom")):
+            with caplog.at_level(logging.WARNING, logger="labro.repo"):
+                cleanup_working_copy(tmp_path)  # must not raise
+
+        assert any("cleanup_working_copy" in rec.message for rec in caplog.records)
+
+    def test_shell_false_enforced(self, tmp_path: Path) -> None:
+        side_effects = [
+            _make_completed(),  # git reset --hard
+            _make_completed(),  # git clean -fdx
+        ]
+
+        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
+            cleanup_working_copy(tmp_path)
+
+        for c in mock_run.call_args_list:
+            assert c.kwargs.get("shell", False) is False, f"shell=True found in call: {c}"
 
 
 # ---------------------------------------------------------------------------

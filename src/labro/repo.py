@@ -203,6 +203,28 @@ def prepare_repo(
     return dest, None
 
 
+def cleanup_working_copy(repo_path: Path) -> None:
+    """Strip any dirty/untracked state left in *repo_path* after a run.
+
+    Best-effort — never raises. Runs after WIP preservation (or a successful
+    agent push), so anything worth keeping has already been committed/pushed;
+    this only removes leftovers such as build artifacts (``.venv``,
+    ``node_modules``) the agent created but didn't commit. Without this, such
+    artifacts persist indefinitely in the reused working copy between runs
+    and can exhaust host disk space.
+
+    ``-x`` (vs. plain ``git clean -fd``) also removes gitignored files, since
+    a ``.gitignore``'d ``.venv`` is exactly the kind of artifact this targets.
+
+    @author Claude Sonnet 4.6 Anthropic
+    """
+    try:
+        _run(["git", "-C", str(repo_path), "reset", "--hard"])
+        _run(["git", "-C", str(repo_path), "clean", "-fdx"])
+    except Exception:
+        logger.warning("cleanup_working_copy failed for %s", repo_path, exc_info=True)
+
+
 def _gh_user_identity(
     bot_identity: tuple[str, str] | None = None,
 ) -> tuple[str, str]:

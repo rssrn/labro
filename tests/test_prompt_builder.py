@@ -188,6 +188,12 @@ def test_section_4_instructs_claude_md_read() -> None:
     assert "CLAUDE.md" in ctx_section
 
 
+def test_section_4_warns_against_build_artifacts() -> None:
+    prompt = build_prompt(_task())
+    ctx_section = prompt.split(_DIVIDER)[3]
+    assert "build artifact" in ctx_section.lower()
+
+
 def test_section_4_appends_extra_context_when_present() -> None:
     extra = "This project uses strict semantic versioning. Never bump the major version."
     prompt = build_prompt(_task(), project_context=extra)

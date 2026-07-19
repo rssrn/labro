@@ -115,6 +115,13 @@ def _section_project_context(
         " It encodes project-specific conventions, no-go zones, and style rules"
         " that take precedence over your general defaults."
     )
+    lines.append("")
+    lines.append(
+        "This working copy is reused across runs — avoid creating large build"
+        " artifacts (virtualenvs, `node_modules`, model weights, build caches)"
+        " unless the task genuinely requires executing the code. If you do"
+        " create any, remove them before finishing."
+    )
     if wip_branch is not None:
         lines.append("")
         lines.append(
