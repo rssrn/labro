@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.16.9 — 2026-07-19
+
+### Added
+- Optional analytics snippet injection for the dashboard: set `ANALYTICS_SNIPPET_HTML` in the config repo to inject a tracking snippet (Umami, Plausible, GA, etc.) at deploy time. Unset by default — public builds ship with no tracking.
+
+### Fixed
+- Working copy artifacts left behind by the agent (e.g. a `.venv`) are now cleaned up after every run (`git reset --hard` + `git clean -fdx`), preventing unbounded disk growth on long-lived deployments
+- Tool caches (pip-tools, pip, uv) are now cleared after every run for the same reason — a single dependency resolution could leave several GB behind
+- Analytics snippet injection now actually matches the placeholder in `dashboard/index.html` (the deploy workflow's find/replace was a silent no-op)
+
+### Changed
+- Deployment docs now recommend docker-compose for VPS/crond mode instead of a bare `docker run`, for declarative recreates
+
 ## v0.16.8 — 2026-07-03
 
 ### Fixed
