@@ -37,7 +37,8 @@ htmlcov/
 
 # Claude Code session files (dropped by agent during live runs)
 .antigravitycli/
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Playwright MCP screenshots/snapshots (local dev only)
 .playwright-mcp/
