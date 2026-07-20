@@ -38,12 +38,32 @@ _CONFIG_FILENAME = "opencode.json"
 # Appended to every prompt so the model returns structured output.
 # Phrased to make clear that a text response is required AFTER all tool use —
 # models that finish tool-use steps without a text reply produce empty output.
+#
+# Weak/free opencode models (e.g. big-pickle, nemotron) reliably fail two ways
+# despite a schema alone: (1) they omit the required `outcome` key, and (2) they
+# wrap the object as {"structured_output": {...}}. Both surface as
+# "outcome ... got None". An explicit key list + a concrete copyable example +
+# an anti-wrapping directive steer these models far better than a bare schema.
 _SCHEMA_INJECTION = (
     "\n\n---\n"
-    "After you have finished all tool use, write your final response as plain text "
-    "(not via any tool). Your final text must be a single JSON object that exactly "
-    "matches the schema below — no markdown fences, no commentary, nothing else:\n"
-    + OUTCOME_SCHEMA_STR
+    "## FINAL RESPONSE — REQUIRED\n"
+    "When you have finished ALL tool use, your very last message must be plain text "
+    "(not a tool call) containing exactly ONE JSON object and nothing else — no prose "
+    "before or after, no markdown code fences.\n\n"
+    "The object must have these five top-level keys, ALL required:\n"
+    '  - "outcome": exactly one of "success", "failure", "partial" '
+    "(REQUIRED — never omit this key)\n"
+    '  - "summary": a non-empty string describing what you did\n'
+    '  - "actions_taken": array of strings\n'
+    '  - "items_created": array of objects like {"item_type": "issue" | "pr", "number": <int>}\n'
+    '  - "failure_reason": a string, or null\n\n'
+    "Copy this exact shape (fill in your own values):\n"
+    '{"outcome": "success", "summary": "Reviewed the change and left a comment.", '
+    '"actions_taken": ["Read the diff", "Posted a review comment"], '
+    '"items_created": [], "failure_reason": null}\n\n'
+    'Do NOT nest the object inside another key (never write {"structured_output": {...}} '
+    'or {"result": {...}}) — emit the five keys at the top level.\n\n'
+    "Full JSON schema for reference:\n" + OUTCOME_SCHEMA_STR
 )
 
 
@@ -192,6 +212,32 @@ def _strip_fences(text: str) -> str:
     return text
 
 
+# Keys under which weak models sometimes nest the real object instead of
+# emitting it at the top level. Unwrapped by _unwrap_outcome as a recovery.
+_WRAPPER_KEYS: tuple[str, ...] = ("structured_output", "result", "output", "response")
+
+
+def _unwrap_outcome(obj: Any) -> Any:
+    """Unwrap a single-level wrapper if the top-level object lacks `outcome`.
+
+    Weak/free models occasionally emit {"structured_output": {...}} (or a
+    similar single wrapper key) instead of the bare object, which otherwise
+    validates as `outcome ... got None`. If *obj* has no `outcome` but a
+    known wrapper key (or its only value) is a dict that does, return that.
+    """
+    if not isinstance(obj, dict) or "outcome" in obj:
+        return obj
+    # Prefer a known wrapper key; otherwise, if there's exactly one value and
+    # it's a dict carrying `outcome`, unwrap that.
+    candidates = [obj[k] for k in _WRAPPER_KEYS if k in obj]
+    if not candidates and len(obj) == 1:
+        candidates = list(obj.values())
+    for inner in candidates:
+        if isinstance(inner, dict) and "outcome" in inner:
+            return inner
+    return obj
+
+
 def _extract_json_object(text: str) -> Any:
     """Return the last parseable top-level JSON object found in *text*.
 
@@ -199,13 +245,15 @@ def _extract_json_object(text: str) -> Any:
     We scan right-to-left for closing braces and try to parse back to the
     matching opener, returning the first (rightmost) hit.  Falls back to a
     plain json.loads of the whole text if no brace-delimited block matches.
+    A single-level wrapper object (e.g. {"structured_output": {...}}) is
+    unwrapped so weak-model nesting doesn't surface as `outcome ... got None`.
 
     Raises json.JSONDecodeError if nothing parses.
     """
     # Fast path: whole text is valid JSON.
     stripped = _strip_fences(text)
     try:
-        return json.loads(stripped)
+        return _unwrap_outcome(json.loads(stripped))
     except (json.JSONDecodeError, ValueError):
         pass
 
@@ -222,7 +270,7 @@ def _extract_json_object(text: str) -> Any:
             break
         try:
             obj = json.loads(search[start:])
-            return obj
+            return _unwrap_outcome(obj)
         except (json.JSONDecodeError, ValueError):
             pos = start + 1
 

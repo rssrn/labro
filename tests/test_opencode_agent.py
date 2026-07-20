@@ -191,6 +191,33 @@ def test_parse_result_only_synthetic_containing_json() -> None:
     assert result.outcome == "success"
 
 
+def test_parse_result_unwraps_structured_output_wrapper() -> None:
+    # Weak models sometimes nest the object as {"structured_output": {...}};
+    # the extractor unwraps it instead of failing with "outcome ... got None".
+    wrapped = {"structured_output": _FULL_SO}
+    stream = _make_event_stream(_text_event(json.dumps(wrapped)))
+    result = _parse_result(stream, b"")
+    assert result.outcome == "success"
+    assert result.summary == "Fixed the bug."
+
+
+def test_parse_result_unwraps_single_key_wrapper() -> None:
+    # A single unknown wrapper key whose only value carries `outcome` is unwrapped.
+    wrapped = {"data": _FULL_SO}
+    stream = _make_event_stream(_text_event(json.dumps(wrapped)))
+    result = _parse_result(stream, b"")
+    assert result.outcome == "success"
+
+
+def test_parse_result_does_not_unwrap_when_outcome_present() -> None:
+    # A valid top-level object that happens to carry an extra nested dict is
+    # returned as-is (its own outcome wins, no spurious unwrap).
+    obj = {**_FULL_SO, "meta": {"outcome": "failure"}}
+    stream = _make_event_stream(_text_event(json.dumps(obj)))
+    result = _parse_result(stream, b"")
+    assert result.outcome == "success"
+
+
 def test_parse_result_json_parse_failure() -> None:
     stream = _make_event_stream(_text_event("not valid json at all"))
     with pytest.raises(AgentOutputError, match="json_parse_error"):
