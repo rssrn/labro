@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.16.10 — 2026-07-21
+
+### Fixed
+- OpenCode structured-output reliability on weak/free models (big-pickle,
+  nemotron, etc.): the prompt now leads with an explicit mandate that the
+  `outcome` key is always present, is one of the three literal values, and is
+  never null or omitted — fixing intermittent `outcome … got None` validation
+  failures. The JSON extractor also now unwraps a single-level wrapper object
+  (e.g. `{"structured_output": {...}}`) instead of hard-failing on it.
+
 ## v0.16.9 — 2026-07-19
 
 ### Added
