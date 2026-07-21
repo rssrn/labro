@@ -1202,14 +1202,46 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
     try:
         import sqlite3
 
+        published_names = [p.name for p in config.projects if p.publish]
+
         conn = store_mod.open_db(db_path)
         try:
-            project_rows = [(p.name, p.name_short, p.repo) for p in config.projects]
+            # Only upsert projects that are opted-in to dashboard publishing.
+            project_rows = [(p.name, p.name_short, p.repo) for p in config.projects if p.publish]
             store_mod.upsert_projects(conn, project_rows)
             # Bound parameter avoids bandit B608 (SQL injection via f-string)
             conn.execute("VACUUM INTO ?", (str(snapshot_path),))
         finally:
             conn.close()
+
+        # Filter snapshot: remove runs (and orphaned items_touched) for
+        # projects that are not opted-in to publishing.  This is done on
+        # the disposable snapshot copy so the live DB is never touched.
+        snap_conn = sqlite3.connect(str(snapshot_path))
+        try:
+            if published_names:
+                placeholders = ",".join("?" for _ in published_names)
+                snap_conn.execute(
+                    f"DELETE FROM items_touched"  # noqa: S608
+                    f" WHERE run_id NOT IN"
+                    f" (SELECT run_id FROM runs WHERE project IN ({placeholders}))",
+                    published_names,
+                )
+                snap_conn.execute(
+                    f"DELETE FROM runs WHERE project NOT IN ({placeholders})",  # noqa: S608
+                    published_names,
+                )
+                snap_conn.execute(
+                    f"DELETE FROM projects WHERE name NOT IN ({placeholders})",  # noqa: S608
+                    published_names,
+                )
+            else:
+                snap_conn.execute("DELETE FROM items_touched")
+                snap_conn.execute("DELETE FROM runs")
+                snap_conn.execute("DELETE FROM projects")
+            snap_conn.commit()
+        finally:
+            snap_conn.close()
 
         # Hash the snapshot for content-addressed key and manifest
         hasher = hashlib.sha256()
@@ -1223,7 +1255,7 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
         db_filename = f"labro-{content_hash[:16]}.db"
         db_key = f"{key_prefix}db/{db_filename}"
 
-        # Row count from snapshot
+        # Row count from filtered snapshot
         snap_conn = sqlite3.connect(str(snapshot_path))
         try:
             row_count: int = snap_conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]

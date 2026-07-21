@@ -287,6 +287,13 @@ class ProjectConfig(BaseModel):
     repo: str
     cron: str
     enabled: bool = True
+    publish: bool = False
+    """Include this project's runs in the public dashboard snapshot.
+
+    Defaults to ``False`` so new projects never publish until explicitly
+    opted in.  Only projects with ``publish = true`` appear in the
+    snapshot uploaded by ``labro publish-db``.
+    """
     model: ModelSlugList | None = None
     max_turns: int | None = None
     timeout_s: int | None = None
