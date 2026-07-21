@@ -39,20 +39,29 @@ _CONFIG_FILENAME = "opencode.json"
 # Phrased to make clear that a text response is required AFTER all tool use —
 # models that finish tool-use steps without a text reply produce empty output.
 #
-# Weak/free opencode models (e.g. big-pickle, nemotron) reliably fail two ways
-# despite a schema alone: (1) they omit the required `outcome` key, and (2) they
-# wrap the object as {"structured_output": {...}}. Both surface as
-# "outcome ... got None". An explicit key list + a concrete copyable example +
-# an anti-wrapping directive steer these models far better than a bare schema.
+# Weak/free opencode models (e.g. big-pickle, nemotron) reliably fail three ways
+# despite a schema alone: (1) they omit the required `outcome` key, (2) they emit
+# `"outcome": null`, and (3) they wrap the object as {"structured_output": {...}}.
+# All three surface as "outcome ... got None". An explicit key list + a concrete
+# copyable example + an `outcome`-specific mandate + a prose caution naming the
+# three failure modes steer these models far better than a bare schema. The caution
+# is prose, not copyable malformed JSON, to avoid priming weak models to reproduce
+# the bad shape.
 _SCHEMA_INJECTION = (
     "\n\n---\n"
     "## FINAL RESPONSE — REQUIRED\n"
     "When you have finished ALL tool use, your very last message must be plain text "
     "(not a tool call) containing exactly ONE JSON object and nothing else — no prose "
     "before or after, no markdown code fences.\n\n"
+    'The single most important key is "outcome". It is MANDATORY. It must always be '
+    'present and must be exactly one of the three string literals "success", '
+    '"failure", or "partial". Never omit it. Never set it to null. Even if the task '
+    "failed or you only partially finished, you must still report the honest outcome — "
+    'a run that already did work but omits "outcome" is discarded and retried from '
+    "scratch, duplicating that work.\n\n"
     "The object must have these five top-level keys, ALL required:\n"
     '  - "outcome": exactly one of "success", "failure", "partial" '
-    "(REQUIRED — never omit this key)\n"
+    "(REQUIRED — never omit, never null)\n"
     '  - "summary": a non-empty string describing what you did\n'
     '  - "actions_taken": array of strings\n'
     '  - "items_created": array of objects like {"item_type": "issue" | "pr", "number": <int>}\n'
@@ -61,8 +70,11 @@ _SCHEMA_INJECTION = (
     '{"outcome": "success", "summary": "Reviewed the change and left a comment.", '
     '"actions_taken": ["Read the diff", "Posted a review comment"], '
     '"items_created": [], "failure_reason": null}\n\n'
-    'Do NOT nest the object inside another key (never write {"structured_output": {...}} '
-    'or {"result": {...}}) — emit the five keys at the top level.\n\n'
+    "Three mistakes get the response rejected and force the whole task to be re-run: "
+    'leaving out the "outcome" key, setting "outcome" to null instead of a literal, and '
+    "nesting the five keys under a wrapper key instead of at the top level. Make sure "
+    'your object has "outcome" set to a literal string and all five keys at the top '
+    "level.\n\n"
     "Full JSON schema for reference:\n" + OUTCOME_SCHEMA_STR
 )
 
