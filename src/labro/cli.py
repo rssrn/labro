@@ -1202,14 +1202,67 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
     try:
         import sqlite3
 
+        published_names = [p.name for p in config.projects if p.publish]
+
         conn = store_mod.open_db(db_path)
         try:
-            project_rows = [(p.name, p.name_short, p.repo) for p in config.projects]
+            # Only upsert projects that are opted-in to dashboard publishing.
+            project_rows = [(p.name, p.name_short, p.repo) for p in config.projects if p.publish]
             store_mod.upsert_projects(conn, project_rows)
             # Bound parameter avoids bandit B608 (SQL injection via f-string)
             conn.execute("VACUUM INTO ?", (str(snapshot_path),))
         finally:
             conn.close()
+
+        # Filter snapshot: remove runs (and orphaned items_touched), plus
+        # projects and project_locks, for projects that are not opted-in to
+        # publishing.  This is done on the disposable snapshot copy so the
+        # live DB is never touched.
+        #
+        # The final ``VACUUM`` is not cosmetic: SQLite's default
+        # ``secure_delete`` is OFF, so ``DELETE`` only marks pages free —
+        # the deleted rows' bytes (repo names, agent free-text) remain
+        # physically present in the file and are trivially recoverable from
+        # the uploaded snapshot.  VACUUM rebuilds the file, purging the
+        # residue, and also corrects the reported ``size_bytes`` below.
+        # @author Claude Opus 4.8 Anthropic
+        snap_conn = sqlite3.connect(str(snapshot_path))
+        try:
+            if published_names:
+                placeholders = ",".join("?" for _ in published_names)
+                # `placeholders` is only "?" marks; values are bound. noqa/nosec
+                # silence ruff/bandit's f-string SQL heuristic (no injection).
+                snap_conn.execute(
+                    f"DELETE FROM items_touched"  # noqa: S608  # nosec B608
+                    f" WHERE run_id NOT IN"
+                    f" (SELECT run_id FROM runs WHERE project IN ({placeholders}))",
+                    published_names,
+                )
+                snap_conn.execute(
+                    f"DELETE FROM runs WHERE project NOT IN ({placeholders})",  # noqa: S608  # nosec B608
+                    published_names,
+                )
+                snap_conn.execute(
+                    f"DELETE FROM projects WHERE name NOT IN ({placeholders})",  # noqa: S608  # nosec B608
+                    published_names,
+                )
+                snap_conn.execute(
+                    f"DELETE FROM project_locks WHERE project NOT IN ({placeholders})",  # noqa: S608  # nosec B608
+                    published_names,
+                )
+            else:
+                snap_conn.execute("DELETE FROM items_touched")
+                snap_conn.execute("DELETE FROM runs")
+                snap_conn.execute("DELETE FROM projects")
+                snap_conn.execute("DELETE FROM project_locks")
+            snap_conn.commit()
+            # Purge deleted-row residue from free pages (see comment above).
+            snap_conn.execute("VACUUM")
+            # Read the published row count from the same connection, after
+            # filtering, to avoid reopening the snapshot a second time.
+            row_count: int = snap_conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        finally:
+            snap_conn.close()
 
         # Hash the snapshot for content-addressed key and manifest
         hasher = hashlib.sha256()
@@ -1222,13 +1275,6 @@ def _cmd_publish_db(args: argparse.Namespace) -> int:
         key_prefix = config.dashboard.key_prefix
         db_filename = f"labro-{content_hash[:16]}.db"
         db_key = f"{key_prefix}db/{db_filename}"
-
-        # Row count from snapshot
-        snap_conn = sqlite3.connect(str(snapshot_path))
-        try:
-            row_count: int = snap_conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-        finally:
-            snap_conn.close()
 
         manifest_dict: dict[str, object] = {
             "schema_version": 1,

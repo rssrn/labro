@@ -14,7 +14,13 @@ import pytest
 
 import labro.store as store_mod
 from labro.cli import _cmd_publish_db
-from labro.config.schema import DashboardConfig, DefaultsConfig, DigestConfig, LabroConfig
+from labro.config.schema import (
+    DashboardConfig,
+    DefaultsConfig,
+    DigestConfig,
+    LabroConfig,
+    ProjectConfig,
+)
 from labro.r2 import R2Credentials
 
 
@@ -32,28 +38,56 @@ def _make_config(
     dashboard_enabled: bool = True,
     key_prefix: str = "",
     endpoint: str | None = "https://fake.r2.cloudflarestorage.com",
+    projects: list[ProjectConfig] | None = None,
 ) -> LabroConfig:
     dashboard = DashboardConfig(
         enabled=dashboard_enabled,
         key_prefix=key_prefix,
         endpoint=endpoint,
     )
+    if projects is None:
+        projects = [
+            ProjectConfig(name="test-project", repo="o/test", cron="0 * * * *", publish=True)
+        ]
     return LabroConfig(
         digest=DigestConfig(enabled=False),
         dashboard=dashboard,
         defaults=DefaultsConfig(),
+        projects=projects,
     )
 
 
-def _make_db(tmp_path: Path, *, num_rows: int = 3) -> Path:
-    """Create a real labro.db at *tmp_path/labro.db* with *num_rows* run rows."""
+def _make_db(
+    tmp_path: Path,
+    *,
+    num_rows: int = 3,
+    projects: dict[str, int] | None = None,
+) -> Path:
+    """Create a real labro.db at *tmp_path/labro.db*.
+
+    If *projects* is provided (e.g. ``{"alpha": 2, "beta": 5}``), insert
+    that many rows per project instead of using *num_rows*/*test-project*.
+    """
     db_path = tmp_path / "labro.db"
     conn = store_mod.open_db(db_path)
-    for i in range(num_rows):
-        conn.execute(
-            "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
-            (f"run-{i}", "test-project", "2024-01-01T00:00:00Z", "success"),
-        )
+    if projects:
+        for project_name, count in projects.items():
+            for i in range(count):
+                conn.execute(
+                    "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
+                    (
+                        f"run-{project_name}-{i}",
+                        project_name,
+                        "2024-01-01T00:00:00Z",
+                        "success",
+                    ),
+                )
+    else:
+        for i in range(num_rows):
+            conn.execute(
+                "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
+                (f"run-{i}", "test-project", "2024-01-01T00:00:00Z", "success"),
+            )
     conn.commit()
     conn.close()
     return db_path
@@ -299,3 +333,193 @@ def test_snapshot_path_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
     assert rc == 0
     assert snapshot_path.exists()
+
+
+# ── per-project publish gate ─────────────────────────────────────────────────
+
+
+def _extract_row_counts(snapshot_path: Path) -> dict[str, int]:
+    """Return a dict of table → row count from a snapshot DB."""
+    import sqlite3
+
+    conn = sqlite3.connect(str(snapshot_path))
+    counts = {}
+    for table in ("runs", "items_touched", "projects"):
+        counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
+    conn.close()
+    return counts
+
+
+def test_no_projects_published_empty_snapshot(tmp_path: Path) -> None:
+    """When no project has publish=true, the snapshot has zero rows."""
+    db_path = _make_db(tmp_path, projects={"alpha": 3, "beta": 2})
+    snapshot_path = tmp_path / "snapshot.db"
+    config = _make_config(
+        projects=[
+            ProjectConfig(name="alpha", repo="o/alpha", cron="0 * * * *", publish=False),
+            ProjectConfig(name="beta", repo="o/beta", cron="0 * * * *", publish=False),
+        ]
+    )
+
+    rc, _, _ = _run(config, db_path, dry_run=True, snapshot_path=snapshot_path)
+    assert rc == 0
+    counts = _extract_row_counts(snapshot_path)
+    assert counts["runs"] == 0
+    assert counts["projects"] == 0
+
+
+def test_mixed_publish_flags_filters_correctly(tmp_path: Path) -> None:
+    """Only runs from published projects appear in the snapshot."""
+    db_path = _make_db(tmp_path, projects={"published": 4, "private": 6})
+    snapshot_path = tmp_path / "snapshot.db"
+    config = _make_config(
+        projects=[
+            ProjectConfig(name="published", repo="o/pub", cron="0 * * * *", publish=True),
+            ProjectConfig(name="private", repo="o/priv", cron="0 * * * *", publish=False),
+        ]
+    )
+
+    rc, _, _ = _run(config, db_path, dry_run=True, snapshot_path=snapshot_path)
+    assert rc == 0
+    counts = _extract_row_counts(snapshot_path)
+    assert counts["runs"] == 4
+    assert counts["projects"] == 1
+
+
+def test_all_published_keeps_all_rows(tmp_path: Path) -> None:
+    """When all projects have publish=true, all runs are kept."""
+    db_path = _make_db(tmp_path, projects={"a": 3, "b": 2})
+    snapshot_path = tmp_path / "snapshot.db"
+    config = _make_config(
+        projects=[
+            ProjectConfig(name="a", repo="o/a", cron="0 * * * *", publish=True),
+            ProjectConfig(name="b", repo="o/b", cron="0 * * * *", publish=True),
+        ]
+    )
+
+    rc, _, _ = _run(config, db_path, dry_run=True, snapshot_path=snapshot_path)
+    assert rc == 0
+    counts = _extract_row_counts(snapshot_path)
+    assert counts["runs"] == 5
+    assert counts["projects"] == 2
+
+
+def test_items_touched_filtered_with_runs(tmp_path: Path) -> None:
+    """items_touched rows for unpublished runs are removed."""
+    import sqlite3
+
+    db_path = tmp_path / "labro.db"
+    conn = store_mod.open_db(db_path)
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
+        ("run-pub", "published", "2024-01-01T00:00:00Z", "success"),
+    )
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome) VALUES (?, ?, ?, ?)",
+        ("run-priv", "private", "2024-01-01T00:00:00Z", "success"),
+    )
+    conn.execute(
+        "INSERT INTO items_touched (run_id, repo, item_type, item_number) VALUES (?, ?, ?, ?)",
+        ("run-pub", "o/pub", "issue", 1),
+    )
+    conn.execute(
+        "INSERT INTO items_touched (run_id, repo, item_type, item_number) VALUES (?, ?, ?, ?)",
+        ("run-priv", "o/priv", "issue", 2),
+    )
+    conn.commit()
+    conn.close()
+
+    snapshot_path = tmp_path / "snapshot.db"
+    config = _make_config(
+        projects=[
+            ProjectConfig(name="published", repo="o/pub", cron="0 * * * *", publish=True),
+            ProjectConfig(name="private", repo="o/priv", cron="0 * * * *", publish=False),
+        ]
+    )
+
+    rc, _, _ = _run(config, db_path, dry_run=True, snapshot_path=snapshot_path)
+    assert rc == 0
+
+    snap_conn = sqlite3.connect(str(snapshot_path))
+    runs = snap_conn.execute("SELECT run_id FROM runs").fetchall()
+    items = snap_conn.execute("SELECT run_id FROM items_touched").fetchall()
+    snap_conn.close()
+
+    assert len(runs) == 1
+    assert runs[0][0] == "run-pub"
+    assert len(items) == 1
+    assert items[0][0] == "run-pub"
+
+
+def test_publish_gate_updates_manifest_row_count(tmp_path: Path) -> None:
+    """Manifest row_count reflects only published runs, not total DB rows."""
+    db_path = _make_db(tmp_path, projects={"pub": 3, "priv": 7})
+    config = _make_config(
+        projects=[
+            ProjectConfig(name="pub", repo="o/pub", cron="0 * * * *", publish=True),
+            ProjectConfig(name="priv", repo="o/priv", cron="0 * * * *", publish=False),
+        ]
+    )
+
+    captured_manifest: list[bytes] = []
+
+    def _capture(**kwargs: object) -> None:
+        if kwargs.get("key") == "manifest.json":
+            captured_manifest.append(kwargs["body"])  # type: ignore[arg-type]
+
+    with (
+        patch("labro.r2._put_object", side_effect=_capture),
+        patch("labro.r2.credentials_from_env", return_value=_FAKE_CREDS),
+    ):
+        rc, _, _ = _run(config, db_path)
+
+    assert rc == 0
+    manifest = json.loads(captured_manifest[0])
+    assert manifest["row_count"] == 3
+
+
+def test_unpublished_free_text_absent_from_raw_snapshot_bytes(tmp_path: Path) -> None:
+    """Deleted rows must leave no residue in the snapshot's raw bytes.
+
+    SQLite ``DELETE`` only frees pages; without a VACUUM the deleted row
+    content (agent free-text, private repo/project names) stays physically
+    present in the file and is recoverable from the uploaded snapshot.
+    Assert at the byte level rather than via SQL, which cannot see the
+    difference.
+
+    @author Claude Opus 4.8 Anthropic
+    """
+    secret_marker = "SUPER-SECRET-PRIVATE-SUMMARY-9f3a"  # noqa: S105  # test fixture, not a credential
+    db_path = tmp_path / "labro.db"
+    conn = store_mod.open_db(db_path)
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome, summary) VALUES (?, ?, ?, ?, ?)",
+        ("run-pub", "published", "2024-01-01T00:00:00Z", "success", "public summary"),
+    )
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome, summary) VALUES (?, ?, ?, ?, ?)",
+        ("run-priv", "private-repo-name", "2024-01-01T00:00:00Z", "success", secret_marker),
+    )
+    conn.execute(
+        "INSERT INTO project_locks (project, locked_at) VALUES (?, ?)",
+        ("private-repo-name", "2024-01-01T00:00:00Z"),
+    )
+    conn.commit()
+    conn.close()
+
+    snapshot_path = tmp_path / "snapshot.db"
+    config = _make_config(
+        projects=[
+            ProjectConfig(name="published", repo="o/pub", cron="0 * * * *", publish=True),
+            ProjectConfig(
+                name="private-repo-name", repo="o/priv", cron="0 * * * *", publish=False
+            ),
+        ]
+    )
+
+    rc, _, _ = _run(config, db_path, dry_run=True, snapshot_path=snapshot_path)
+    assert rc == 0
+
+    raw = snapshot_path.read_bytes()
+    assert secret_marker.encode() not in raw
+    assert b"private-repo-name" not in raw
