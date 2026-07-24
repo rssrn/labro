@@ -476,3 +476,50 @@ def test_publish_gate_updates_manifest_row_count(tmp_path: Path) -> None:
     assert rc == 0
     manifest = json.loads(captured_manifest[0])
     assert manifest["row_count"] == 3
+
+
+def test_unpublished_free_text_absent_from_raw_snapshot_bytes(tmp_path: Path) -> None:
+    """Deleted rows must leave no residue in the snapshot's raw bytes.
+
+    SQLite ``DELETE`` only frees pages; without a VACUUM the deleted row
+    content (agent free-text, private repo/project names) stays physically
+    present in the file and is recoverable from the uploaded snapshot.
+    Assert at the byte level rather than via SQL, which cannot see the
+    difference.
+
+    @author Claude Opus 4.8 Anthropic
+    """
+    secret_marker = "SUPER-SECRET-PRIVATE-SUMMARY-9f3a"  # noqa: S105  # test fixture, not a credential
+    db_path = tmp_path / "labro.db"
+    conn = store_mod.open_db(db_path)
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome, summary) VALUES (?, ?, ?, ?, ?)",
+        ("run-pub", "published", "2024-01-01T00:00:00Z", "success", "public summary"),
+    )
+    conn.execute(
+        "INSERT INTO runs (run_id, project, started_at, outcome, summary) VALUES (?, ?, ?, ?, ?)",
+        ("run-priv", "private-repo-name", "2024-01-01T00:00:00Z", "success", secret_marker),
+    )
+    conn.execute(
+        "INSERT INTO project_locks (project, locked_at) VALUES (?, ?)",
+        ("private-repo-name", "2024-01-01T00:00:00Z"),
+    )
+    conn.commit()
+    conn.close()
+
+    snapshot_path = tmp_path / "snapshot.db"
+    config = _make_config(
+        projects=[
+            ProjectConfig(name="published", repo="o/pub", cron="0 * * * *", publish=True),
+            ProjectConfig(
+                name="private-repo-name", repo="o/priv", cron="0 * * * *", publish=False
+            ),
+        ]
+    )
+
+    rc, _, _ = _run(config, db_path, dry_run=True, snapshot_path=snapshot_path)
+    assert rc == 0
+
+    raw = snapshot_path.read_bytes()
+    assert secret_marker.encode() not in raw
+    assert b"private-repo-name" not in raw
