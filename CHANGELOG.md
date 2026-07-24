@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.17.0 — 2026-07-24
+
+### Added
+- Per-project publish gate for the dashboard snapshot. A new `publish`
+  boolean (default `false`) on each project in `labro.toml` controls whether
+  that project's runs are included in the public dashboard snapshot. Runs,
+  items_touched, projects, and project_locks rows are all filtered to
+  published projects only, so an unpublished project's name never ships in
+  the snapshot — including transient `project_locks` rows during an in-flight
+  run. The snapshot is VACUUMed after filtering as defensive hardening, so the
+  no-residue guarantee holds regardless of the SQLite build's `secure_delete`
+  setting.
+
+### Changed
+- **Action required on upgrade:** the dashboard snapshot now fails safe — a
+  project publishes nothing until you set `publish = true` for it in
+  `labro.toml`. Existing deployments must opt each project in explicitly or it
+  will drop off the public dashboard.
+
 ## v0.16.10 — 2026-07-21
 
 ### Fixed
