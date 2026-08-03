@@ -7,7 +7,7 @@ Labro is a self-hosted harness that runs Claude Code as a subprocess to perform 
 ## Tech Stack
 
 - **Language**: Python 3.12+, managed with `uv`
-- **CLI**: argparse (`labro run <project>`, `labro gen-crontab`)
+- **CLI**: argparse — `run`, `gen-crontab`, `init`, `check`, `review`, `list-locks`, `unlock`, `publish-db`, `collect-signals`
 - **Config**: TOML (`labro.toml`), validated with Pydantic 2
 - **GitHub**: `gh` CLI subprocess (not a Python SDK)
 - **Agent**: Claude Code, Codex, or OpenCode CLI subprocess (multi-provider registry)
@@ -30,22 +30,30 @@ See `CONTEXT.md` for the full glossary. The critical ones:
 
 ```
 src/labro/
-  cli.py              # entry point (argparse)
+  cli.py              # entry point (argparse) + the live run loop
   models.py           # Task, AgentConfig, ExecutionRecord
   picker.py           # priority-stack evaluator
   prompt_builder.py   # 4-section prompt constructor
-  runner.py           # live run loop (lock → budget → pick → repo → agent → post-run)
   store.py            # SQLite (WAL): runs, project_locks, items_touched
   logger.py           # structured run logging
   repo.py             # repo preparation (clone/reset/checkout)
   post_run.py         # label transitions, items_touched writes
-  assignee.py         # assignee resolution helpers
+  github_app.py       # GitHub App auth (installation token minting)
+  metrics.py          # Prometheus Pushgateway emission
+  r2.py               # Cloudflare R2 upload (publish-db)
+  signals.py          # signal collection (collect-signals)
   config/             # schema.py (Pydantic), loader.py
   task_sources/       # base.py, gh_label.py, gh_author.py, proactive_improvement.py, gh_dependabot_alert.py
   agents/             # base.py, claude_code.py, codex.py, opencode.py, registry.py, _schema.py, _subprocess.py
+dashboard/            # React + Vite metrics SPA (sql.js reads the published snapshot)
+perspectives.toml     # 42 prompt lenses for proactive-improvement runs
 tests/
-docs/                 # PRD, ARCHITECTURE, ROADMAP, ADRs
+docs/                 # PRD, ARCHITECTURE, ROADMAP, DASHBOARD, DEPLOYMENT, OPERATIONS, ADRs
 ```
+
+There is no `runner.py`. The live run loop (lock → budget → pick → repo → agent →
+post-run) is `_cmd_run_live` in `cli.py`; agent invocation lives in `agents/`. The
+`runner.py` re-export shim was removed in #35.
 
 ## Commands
 
@@ -58,7 +66,22 @@ uv run bandit -r src/                  # security lint
 labro run <project> --dry-run          # dry-run
 labro run <project>                    # live run
 labro gen-crontab                      # emit crontab entries for all projects
+labro check                            # validate labro.toml
+labro list-locks                       # show held project locks
+labro unlock <project>                 # release a stuck lock
+labro publish-db                       # snapshot the runs DB and upload to R2
 docker build -t labro .                # build container image (VERSION defaults to SNAPSHOT)
+```
+
+Dashboard (`dashboard/`, Node pinned by `.nvmrc`):
+
+```bash
+cd dashboard && nvm use                # switch to the pinned Node major
+npm ci                                 # install (warns via `engines` if Node is too old)
+npm test                               # vitest (accessibility suite)
+npm run build                          # tsc -b && vite build
+npm run dev                            # dev server, proxies live R2 data
+npm run preview                        # serve the production build (same proxy)
 ```
 
 **Before every commit:** run `uv run ruff format .` — the pre-commit hook will reformat and abort
@@ -90,6 +113,18 @@ The manifest at `https://labro.rossarnold.uk/manifest.json` contains a `db_filen
 5. **Tag** — `git tag vX.Y.Z` on the release commit, then push the tag: `git push origin vX.Y.Z`.
 6. **Docker image** — `publish.yml` triggers on the version-tag push (`v*.*.*`), publishing the versioned tag and `:latest` to GHCR; confirm the image built successfully after pushing the tag.
 
+## Workflows in This Repo
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci-python.yml` | PRs and pushes to `main`, `paths-ignore: dashboard/**` | ruff, mypy, bandit, pytest. Reports as the `ci` check. |
+| `ci-dashboard.yml` | PRs and pushes to `main`, `paths: dashboard/**` | `npm ci` + vitest + `tsc -b && vite build` on Node 22. Reports as the `build` check. |
+| `publish.yml` | Push of a `v*.*.*` tag | Builds the image, pushes the versioned tag and `:latest` to GHCR, then fires `repository_dispatch: labro-release` at `labro-rssrn`. |
+| `dashboard-dispatch.yml` | Push to `main` touching `dashboard/**` | Fires `repository_dispatch: dashboard-publish` at `labro-rssrn`, which rebuilds and republishes the SPA to R2. |
+
+Note the path filters are directory-based: *any* file under `dashboard/` triggers the
+dashboard workflows and a live republish, including non-build files like `.nvmrc`.
+
 ## Config Repo — `labro-rssrn` (`/home/ross/src/labro-rssrn`)
 
 The private config repo holds `labro.toml` and four GitHub Actions workflows that manage the live deployment on the homelab server. All persistent state lives under `/opt/labro/data/` on the host (mounted to `/data` inside the container).
@@ -101,7 +136,7 @@ The private config repo holds `labro.toml` and four GitHub Actions workflows tha
 | `sync-config.yml` | Push to `labro.toml`, or manual | SCPs `labro.toml` to `/opt/labro/data/labro.toml` and regenerates `/etc/cron.d/labro` inside the running container. No restart needed — labro reads config fresh each cron run. |
 | `upgrade-image.yml` | `repository_dispatch: labro-release` (fired by `publish.yml` on version tag), or manual | Pulls `ghcr.io/rssrn/labro:latest`, drains in-flight runs, recreates the container with fresh secrets. This is the normal upgrade path after a release. |
 | `labro-restart.yml` | Manual only | Same drain + recreate as above but does **not** pull a new image. Use after rotating a secret or recovering from a hung state. |
-| `dashboard-publish.yml` | `repository_dispatch: dashboard-publish` (fired by `publish.yml` on dashboard changes), or manual | Builds the React SPA from `rssrn/labro` and uploads it to R2 with `--no-delete` (preserves `/db/` objects and `manifest.json` written by `labro publish-db`). |
+| `dashboard-publish.yml` | `repository_dispatch: dashboard-publish` (fired by `dashboard-dispatch.yml` in `rssrn/labro` on any push to `main` touching `dashboard/**`), or manual | Builds the React SPA from `rssrn/labro` and uploads it to R2 with `--no-delete` (preserves `/db/` objects and `manifest.json` written by `labro publish-db`). |
 
 ### Container run flags
 ```
@@ -120,11 +155,11 @@ docker run -d --name labro --restart unless-stopped \
 - `PUSHGATEWAY_URL` — Prometheus Pushgateway (e.g. `http://pushgateway:9091`)
 - `LABRO_READ_TOKEN` — read token for `rssrn/labro` (used by `dashboard-publish.yml`)
 - `ANALYTICS_SNIPPET_HTML` *(optional)* — raw HTML injected into the dashboard's `<!-- ANALYTICS_SNIPPET -->` placeholder (e.g. a Umami/Plausible/GA script tag). Unset by default — public builds ship with no tracking.
-- `CONFIG_REPO_DISPATCH_TOKEN` — PAT used by `labro`'s `publish.yml` to fire `repository_dispatch` events into this repo
+- `CONFIG_REPO_DISPATCH_TOKEN` — PAT used by `labro`'s `publish.yml` and `dashboard-dispatch.yml` to fire `repository_dispatch` events into this repo
 
 ## Current Milestone
 
 - **M1–M5 complete** — dry-run, config, task sources, prompt builder, agent invocation, SQLite store, post-run label transitions, Docker deployment, operator CLI.
 - **M7 complete** — `proactive-improvement` task source: harness creates issue, randomly selected perspective from `perspectives.toml` injected as 5th prompt section, `chosen_perspective` column in `runs` table. M6 (`grafana-alerts`) skipped for now.
-- **Recently shipped** — multi-provider agent registry (CodexAgent, OpenCodeAgent), GitHub App auth, perspectives feature (42 perspectives across 9 groups), `gh-dependabot-alert` task source.
+- **Recently shipped** — multi-provider agent registry (CodexAgent, OpenCodeAgent), GitHub App auth, perspectives feature (42 perspectives in a flat `[perspectives.<name>]` namespace), `gh-dependabot-alert` task source, metrics dashboard.
 - **Next** — M6: `grafana-alerts` task source, or M8: daily digest.
