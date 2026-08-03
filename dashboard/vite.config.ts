@@ -1,6 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Proxy live R2 data so local servers use real snapshots without CORS issues.
+// Shared by `npm run dev` and `npm run preview` — preview serves the production
+// build, so it needs the same routes to render anything.
+const r2Proxy = {
+  '/manifest.json': { target: 'https://labro.rossarnold.uk', changeOrigin: true },
+  '/db': { target: 'https://labro.rossarnold.uk', changeOrigin: true },
+};
+
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
@@ -8,11 +16,6 @@ export default defineConfig({
     // The WASM file is loaded at runtime via locateFile, so bundling the JS is fine.
     include: ['sql.js'],
   },
-  server: {
-    // Proxy live R2 data in dev so `npm run dev` uses real snapshots without CORS issues.
-    proxy: {
-      '/manifest.json': { target: 'https://labro.rossarnold.uk', changeOrigin: true },
-      '/db': { target: 'https://labro.rossarnold.uk', changeOrigin: true },
-    },
-  },
+  server: { proxy: r2Proxy },
+  preview: { proxy: r2Proxy },
 });
