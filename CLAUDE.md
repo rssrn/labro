@@ -138,14 +138,30 @@ The private config repo holds `labro.toml` and four GitHub Actions workflows tha
 | `labro-restart.yml` | Manual only | Same drain + recreate as above but does **not** pull a new image. Use after rotating a secret or recovering from a hung state. |
 | `dashboard-publish.yml` | `repository_dispatch: dashboard-publish` (fired by `dashboard-dispatch.yml` in `rssrn/labro` on any push to `main` touching `dashboard/**`), or manual | Builds the React SPA from `rssrn/labro` and uploads it to R2 with `--no-delete` (preserves `/db/` objects and `manifest.json` written by `labro publish-db`). |
 
-### Container run flags
-```
-docker run -d --name labro --restart unless-stopped \
-  --env-file /opt/labro/.env \
-  --network monitoring \        # joins Prometheus monitoring network (for pushgateway:9091)
-  -v /opt/labro/data:/data \
-  ghcr.io/rssrn/labro:latest
-```
+### Container deployment
+
+The container is managed by Docker Compose, not a raw `docker run`. The compose file
+lives at `deploy/docker-compose.yml` in `labro-rssrn`; `upgrade-image.yml` and
+`labro-restart.yml` render `deploy/.env` from repo secrets, rsync `deploy/` to
+`/home/deploy/labro/` on the host, then `docker compose up -d --force-recreate` there.
+
+Host layout:
+
+| Path | What |
+|---|---|
+| `/home/deploy/labro/docker-compose.yml` | compose file (rsynced, `--delete`) |
+| `/home/deploy/labro/.env` | secrets (rendered by the workflows) |
+| `/opt/labro/data/` | persistent state, mounted to `/data` — outside the rsync |
+
+Service definition: image `ghcr.io/rssrn/labro:latest`, `restart: unless-stopped`,
+`/opt/labro/data:/data`, the external `monitoring` network (for `pushgateway:9091`),
+a healthcheck asserting PID 1 is `cron` and `/etc/cron.d/labro` exists, json-file
+logging capped at 3×10m, and `deploy.resources.limits.cpus: "1.5"` — a blast-radius
+cap on the 2-vCPU host, added after rssrn/labro#58.
+
+**Editing the compose file does not deploy it.** No workflow triggers on `deploy/**`
+(`sync-config.yml` fires only on `labro.toml`), so run `labro-restart.yml` manually
+to pick up compose changes.
 
 ### Secrets (stored in `labro-rssrn` repo settings)
 - `TAILSCALE_AUTHKEY`, `DEPLOY_HOST` — SSH access via Tailscale
