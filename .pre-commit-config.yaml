@@ -1,32 +1,42 @@
 repos:
-  # ── ruff: lint + format ──────────────────────────────────────────────────────
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.10
+  # ── Python toolchain: ruff, mypy, bandit ────────────────────────────────────
+  # Run via `uv run` so the versions come from uv.lock — the same ones CI and a
+  # manual `uv run ruff check .` use. Pinning them a second time with pre-commit
+  # `rev:` drifts in both directions: these previously held ruff 0.4.10 and mypy
+  # 1.10 against 0.15/2.1 in the lock, so the hooks blocked commits CI accepted
+  # *and* passed code CI would reject. uv.lock is now the only version pin.
+  # `--no-sync` keeps hooks fast and avoids mutating the venv mid-commit.
+  - repo: local
     hooks:
       - id: ruff
-        args: [--fix]
+        name: ruff
+        entry: uv run --no-sync ruff check --fix
+        language: system
+        types_or: [python, pyi]
+
       - id: ruff-format
+        name: ruff-format
+        entry: uv run --no-sync ruff format
+        language: system
+        types_or: [python, pyi]
 
-  # ── mypy: strict type checking ───────────────────────────────────────────────
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
-    hooks:
+      # Whole-tree rather than per-file: mypy needs the full import graph, and
+      # tests/ is included deliberately — CI checked src/ only, so type errors
+      # in tests reached main unnoticed.
       - id: mypy
-        additional_dependencies:
-          - cryptography>=41.0
-          - pydantic>=2.7
-          - prometheus-client>=0.20
-          - typer>=0.12
-          - pytest>=8.2
-        args: [--config-file=pyproject.toml]
-
-  # ── bandit: SAST (B602 enforced; B404/B603/B607 skipped) ────────────────────
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.9
-    hooks:
-      - id: bandit
-        args: [-c, pyproject.toml, -r, src/]
+        name: mypy
+        entry: uv run --no-sync mypy src/ tests/
+        language: system
         pass_filenames: false
+        files: ^(src|tests)/
+
+      # B602 (shell=True) enforced; B404/B603/B607 skipped in pyproject.
+      - id: bandit
+        name: bandit
+        entry: uv run --no-sync bandit -c pyproject.toml -r src/
+        language: system
+        pass_filenames: false
+        files: ^src/
 
   # ── shellcheck: lint shell scripts ──────────────────────────────────────────
   - repo: https://github.com/shellcheck-py/shellcheck-py
