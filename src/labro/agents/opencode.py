@@ -9,13 +9,13 @@ import contextlib
 import json
 import logging
 import os
-import subprocess
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any, ClassVar
 
 from labro.agents._schema import OUTCOME_SCHEMA_STR, validate_structured_output
-from labro.agents.base import Agent, AgentOutputError, AgentTimeoutError
+from labro.agents._subprocess import run_cli
+from labro.agents.base import Agent, AgentOutputError
 from labro.models import AgentConfig, AgentResult, ItemRef
 
 _log = logging.getLogger(__name__)
@@ -159,7 +159,9 @@ class OpenCodeAgent(Agent):
         cmd.append(augmented)
 
         with _scoped_config(cfg_path, cfg_content):
-            stdout, stderr = _run_subprocess(cmd, config.timeout_s, config.cwd)
+            stdout, stderr, _rc = run_cli(
+                cmd, None, config.timeout_s, config.cwd, label="opencode"
+            )
 
         return _parse_result(stdout, stderr)
 
@@ -177,25 +179,6 @@ def _build_config(config: AgentConfig) -> str:
         env_var = f"{config.provider.upper()}_API_KEY"
         cfg["provider"] = {config.provider: {"options": {"apiKey": f"{{env:{env_var}}}"}}}
     return json.dumps(cfg, indent=2)
-
-
-def _run_subprocess(cmd: list[str], timeout_s: int, cwd: Path | None) -> tuple[bytes, bytes]:
-    """Run opencode with no stdin; return (stdout, stderr)."""
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=cwd,
-        shell=False,
-    )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        raise AgentTimeoutError(f"opencode exceeded timeout of {timeout_s}s") from None
-    return stdout, stderr
 
 
 _BENIGN_STDERR_SUBSTRINGS: tuple[str, ...] = (

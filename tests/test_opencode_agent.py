@@ -339,7 +339,7 @@ def test_invoke_logs_max_turns_ignored(tmp_path: Path, caplog: pytest.LogCapture
     config.cwd = tmp_path
     stream = _make_event_stream(_text_event(json.dumps(_FULL_SO)))
 
-    with patch("labro.agents.opencode._run_subprocess", return_value=(stream, b"")):
+    with patch("labro.agents.opencode.run_cli", return_value=(stream, b"", 0)):
         import logging
 
         with caplog.at_level(logging.DEBUG, logger="labro.agents.opencode"):
