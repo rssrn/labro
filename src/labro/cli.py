@@ -36,6 +36,7 @@ from pathlib import Path
 import labro.logger as logger_mod
 import labro.metrics as metrics_mod
 import labro.post_run as post_run_mod
+import labro.reaper as reaper_mod
 import labro.signals as signals_mod
 import labro.store as store_mod
 from labro.agents.base import AgentOutputError, AgentTimeoutError
@@ -279,6 +280,9 @@ def _cmd_run_live(
         return 0
 
     run_id = str(uuid.uuid4())
+    # Tag every descendant so survivors are attributable to this run and can be
+    # swept in the finally below. Inherited implicitly — nothing to thread through.
+    os.environ["LABRO_RUN_ID"] = run_id
     started_at = _now_utc()
     run_started = time.monotonic()
     _run_outcome = "skipped"  # updated before every return; read in finally for metrics
@@ -620,6 +624,10 @@ def _cmd_run_live(
         return 0 if outcome == "success" else 1
 
     finally:
+        # Kill anything the agent left behind before releasing the lock, so the
+        # next run for this project cannot start alongside the previous one's
+        # strays. Backstops the process-group teardown in agents/_subprocess.
+        reaper_mod.sweep(run_id)
         metrics_mod.push_run(
             project=project_name,
             outcome=_run_outcome,

@@ -323,7 +323,12 @@ def test_timeout_raises() -> None:
         with pytest.raises(AgentTimeoutError):
             run_claude("prompt", _BASE_CONFIG)
 
-    mock_proc.kill.assert_called_once()
+    # Teardown now signals the process *group* rather than calling proc.kill(),
+    # and _signal_group refuses a MagicMock pid outright — so the only thing
+    # observable through a mocked Popen is the bounded post-kill drain. The real
+    # signal escalation is covered against live processes in
+    # tests/test_agent_subprocess_teardown.py.
+    assert mock_proc.communicate.call_count == 2
 
 
 def test_successful_run_returns_agent_result() -> None:
