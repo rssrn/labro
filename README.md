@@ -12,6 +12,7 @@
 [![mypy: strict](https://img.shields.io/badge/mypy-strict-blue)](https://mypy-lang.org/)
 [![bandit](https://img.shields.io/badge/security-bandit-yellow)](https://github.com/PyCQA/bandit)
 [![Claude Code](https://img.shields.io/badge/agent-Claude_Code-8A2BE2?logo=anthropic&logoColor=white)](https://claude.ai/code)
+[![Codex](https://img.shields.io/badge/agent-Codex-000000?logo=openai&logoColor=white)](https://developers.openai.com/codex/cli)
 [![OpenCode](https://img.shields.io/badge/agent-OpenCode-6366f1)](https://opencode.ai)
 [![GitHub](https://img.shields.io/badge/platform-GitHub-181717?logo=github&logoColor=white)](https://github.com)
 
@@ -58,6 +59,33 @@ permitted_actions = ["comment_on_issue", "open_pr"]  # what the agent may do
 With more config, Labro can also review Dependabot PRs (with security-alert cross-referencing) and surface [proactive improvement suggestions](docs/OPERATIONS.md#proactive-improvement--perspectives) — all from the same TOML file.
 
 For a full reference with personas, shared rules, dashboards, and multi-project setups, see [`labro.example.toml`](labro.example.toml) or a [live production config](https://github.com/rssrn/labro-rssrn/blob/main/labro.toml).
+
+## Supported agents
+
+Labro drives three agent CLIs. Each must be on `PATH` (the Docker image bundles them) and authenticated — see [QUICKSTART.md](QUICKSTART.md) for the credential env vars.
+
+| CLI id | Binary | Agent |
+|---|---|---|
+| `claude-code` | `claude` | [Claude Code](https://claude.ai/code) |
+| `codex` | `codex` | [OpenAI Codex CLI](https://developers.openai.com/codex/cli) |
+| `opencode` | `opencode` | [OpenCode](https://opencode.ai) — any model on [models.dev](https://models.dev) |
+
+Every `model = ` field takes a **model slug** in the form `<cli>[:<provider>/<model>][@<effort>]`:
+
+```toml
+model = "claude-code"                                  # CLI default model
+model = "claude-code:anthropic/claude-opus-4-7@high"   # pinned model + reasoning effort
+model = "codex:openai/gpt-5-codex"
+model = "opencode:openrouter/openai/gpt-oss-120b:free" # provider slugs may contain / and :
+```
+
+A list is a fallback chain — Labro tries each slug in order until one succeeds:
+
+```toml
+model = ["claude-code:anthropic/claude-opus-4-7", "codex:openai/gpt-5-codex"]
+```
+
+Slugs resolve in the order: label rule → task source → project → `[defaults]`. See the [Model Selection Guide](docs/MODEL-SELECTION.md) for choosing between them.
 
 ## Getting Started
 
