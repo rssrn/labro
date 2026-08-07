@@ -2,7 +2,7 @@
 
 ## Docker (recommended for production)
 
-The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and the `claude` and `opencode` CLIs.
+The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and the `claude`, `codex`, and `opencode` CLIs.
 
 > **💡 Tip for Claude subscribers:** from June 2026, Pro/Max/Team/Enterprise plans include a [monthly pool of headless Agent SDK credits](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) that expire unused. Labro gives you a concrete, low-risk way to put them to work on your own repos.
 
@@ -12,7 +12,8 @@ The `Dockerfile` bundles everything Labro needs: Python 3.12, the `gh` CLI, and 
 - **GitHub access** — either a **GitHub App** (recommended; bot identity) or a **PAT** (`GH_TOKEN`). See [GitHub Token Setup](docs/DEPLOYMENT.md#github-token-setup) for the full setup guide.
 - **An agent credential** for live runs (not needed for `--dry-run`) — pick one based on which provider you plan to use:
   - **`CLAUDE_CODE_OAUTH_TOKEN`** — OAuth token for Claude Code (Pro/Max subscription). Generate once with `claude setup-token` on your dev machine.
-  - **`OPENAI_API_KEY`** — API key for OpenAI Codex (`codex:openai/...` models).
+  - **`CODEX_API_KEY`** — OpenAI API key for Codex (`codex:openai/...` models), billed pay-per-token. Note that `OPENAI_API_KEY` is *not* recognised by the Codex CLI — see [Codex provider notes](docs/providers/codex.md).
+  - **`CODEX_AUTH_JSON_BASE64`** — alternative Codex credential for CLI subscription billing, which supports headless token refresh. Run `codex auth login` on your dev machine, then `base64 -w 0 ~/.codex/auth.json`; `entrypoint.sh` decodes it to `~/.codex/auth.json` in the container.
   - **`OPENCODE_*` / provider key** — OpenCode supports any model on [models.dev](https://models.dev) (OpenRouter, Anthropic, Mistral, and more); see the [Model Selection Guide](docs/MODEL-SELECTION.md) for per-provider env vars.
 
   See [Deployment Guide](docs/DEPLOYMENT.md#agent-credentials) for the full list of supported env vars and precedence rules.
@@ -82,7 +83,7 @@ docker run --rm \
   labro:latest check
 ```
 
-Replace `<YOUR_AGENT_CREDENTIAL>` with whichever var your provider uses (e.g. `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`). Each output line is prefixed with `OK  `, `WARN`, or `FAIL` — fix any `FAIL` items before continuing.
+Replace `<YOUR_AGENT_CREDENTIAL>` with whichever var your provider uses (e.g. `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY`). Each output line is prefixed with `OK  `, `WARN`, or `FAIL` — fix any `FAIL` items before continuing.
 
 ### 5. Dry-run
 
