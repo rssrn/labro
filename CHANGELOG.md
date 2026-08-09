@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.17.1 — 2026-08-09
+
+### Fixed
+- Agent tool subprocesses could outlive the run that spawned them. Only the
+  direct child was signalled, so grandchildren reparented to PID 1 and kept
+  running — one saturated the host for 36 minutes. Each agent now gets its own
+  process session and the whole group is torn down (SIGTERM → SIGKILL) on
+  timeout *and* on normal exit; a second pass reaps any stray still carrying
+  the run's `LABRO_RUN_ID`, scoped to that run so concurrent projects are
+  unaffected. (#58)
+- Dependency bump: `cryptography` 49.0.0 → 50.0.0 for CVE-2026-69247.
+
+### Changed
+- Dashboard now pins Node 22 via `.nvmrc` and declares `engines`, so an
+  out-of-date Node warns at `npm ci` instead of failing later in the build.
+- Dashboard dependencies updated (12 packages, incl. postcss 8.5.16 → 8.5.25)
+  and `actions/setup-node` 6 → 7.
+
+### Documentation
+- README now documents the supported agents and the
+  `agent:provider/model@effort` slug format — Codex support was previously
+  invisible to a reader evaluating the project.
+- QUICKSTART now names the correct Codex credential env var (the one the live
+  deployment actually uses) and lists codex among the bundled CLIs.
+- Deployment docs describe the compose-based deployment instead of a stale
+  `docker run` block.
+
+### Internal
+- Pre-commit runs ruff/mypy/bandit from `uv.lock` rather than its own pins,
+  ending a drift where hooks and CI enforced different rule sets in both
+  directions. mypy now also covers `tests/`.
+- OpenCode's duplicate subprocess helper collapsed into the shared `run_cli`,
+  so process teardown lives in exactly one place.
+- Test suite fails loudly on any attempt to signal a whole process group or
+  every process — a mocked pid coercing to 1 would otherwise `kill(-1)` the
+  developer's login session.
+- `npm run preview` shares the R2 proxy with `npm run dev`.
+
 ## v0.17.0 — 2026-07-24
 
 ### Added
