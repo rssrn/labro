@@ -179,3 +179,7 @@ to pick up compose changes.
 - **M7 complete** — `proactive-improvement` task source: harness creates issue, randomly selected perspective from `perspectives.toml` injected as 5th prompt section, `chosen_perspective` column in `runs` table. M6 (`grafana-alerts`) skipped for now.
 - **Recently shipped** — multi-provider agent registry (CodexAgent, OpenCodeAgent), GitHub App auth, perspectives feature (42 perspectives in a flat `[perspectives.<name>]` namespace), `gh-dependabot-alert` task source, metrics dashboard.
 - **Next** — M6: `grafana-alerts` task source, or M8: daily digest.
+- **Doc drift warning** — ARCHITECTURE.md, PRD.md, ROADMAP.md and CONTEXT.md still describe
+  `grafana-alerts` and the Slack digest (`digest.py`, `labro digest`, a `digests` table) as if
+  shipped. Neither exists in `src/labro/` yet — treat those sections as aspirational until M6/M8
+  land, and correct them then rather than trusting them now.
