@@ -56,7 +56,7 @@ persona           = "senior-dev"      # which persona prompt to use
 permitted_actions = ["comment_on_issue", "open_pr"]  # what the agent may do
 ```
 
-With more config, Labro can also review Dependabot PRs (with security-alert cross-referencing) and surface [proactive improvement suggestions](docs/OPERATIONS.md#proactive-improvement--perspectives) — all from the same TOML file.
+With more config, Labro can also comment on Dependabot PRs cross-referenced against open security alerts, raise a tracking issue for alerts Dependabot hasn't yet opened a PR for, and surface [proactive improvement suggestions](docs/OPERATIONS.md#proactive-improvement--perspectives) — all from the same TOML file.
 
 For a full reference with personas, shared rules, dashboards, and multi-project setups, see [`labro.example.toml`](labro.example.toml) or a [live production config](https://github.com/rssrn/labro-rssrn/blob/main/labro.toml).
 
