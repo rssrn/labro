@@ -36,7 +36,7 @@ src/labro/
   prompt_builder.py   # 4-section prompt constructor
   store.py            # SQLite (WAL): runs, project_locks, items_touched
   logger.py           # structured run logging
-  repo.py             # repo preparation (clone/reset/checkout)
+  repo.py             # per-run clone, checkout disposal, stale-checkout sweep
   post_run.py         # label transitions, items_touched writes
   github_app.py       # GitHub App auth (installation token minting)
   metrics.py          # Prometheus Pushgateway emission

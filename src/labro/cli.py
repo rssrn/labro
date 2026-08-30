@@ -52,7 +52,14 @@ from labro.config.schema import (
 from labro.models import AgentConfig, AgentResult
 from labro.picker import pick
 from labro.prompt_builder import build_prompt
-from labro.repo import cleanup_working_copy, clear_tool_caches, prepare_repo, preserve_wip
+from labro.repo import (
+    clear_tool_caches,
+    discard_checkout,
+    prepare_repo,
+    preserve_wip,
+    run_checkout_root,
+    sweep_stale_checkouts,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -280,6 +287,9 @@ def _cmd_run_live(
         return 0
 
     run_id = str(uuid.uuid4())
+    # Every run gets its own checkout directory, cloned fresh and deleted in the
+    # finally below. Nothing an agent writes to git state can outlive its run.
+    run_dir = run_checkout_root(repos_dir, run_id)
     # Tag every descendant so survivors are attributable to this run and can be
     # swept in the finally below. Inherited implicitly — nothing to thread through.
     os.environ["LABRO_RUN_ID"] = run_id
@@ -290,6 +300,11 @@ def _cmd_run_live(
     _log.info("run start: repo=%s config=%s", project.repo, config_path)
 
     try:
+        # ── Reclaim checkouts orphaned by earlier runs ─────────────────────────
+        # Runs before the budget check and the picker so it happens on every run,
+        # not just the ~3% that reach repo prep. Never raises.
+        sweep_stale_checkouts(repos_dir, keep=run_dir)
+
         # ── Budget check ───────────────────────────────────────────────────────
         if project.daily_budget_usd is not None and project.daily_budget_usd > 0:
             spend = store_mod.get_daily_spend(conn, project_name)
@@ -402,7 +417,7 @@ def _cmd_run_live(
 
         # ── Prepare repo ───────────────────────────────────────────────────────
         repo_path, checked_out_wip = prepare_repo(
-            task.repo, repos_dir, wip_branch=prior_wip_branch
+            task.repo, repos_dir, run_id, wip_branch=prior_wip_branch
         )
         if prior_wip_branch is not None and checked_out_wip is None:
             _log.warning(
@@ -546,12 +561,6 @@ def _cmd_run_live(
                     repo_path, task.repo, run_id, bot_identity=bot_identity
                 )
 
-        # ── Cleanup working copy ────────────────────────────────────────────────
-        # Strips any build artifacts (.venv, node_modules, ...) the agent left
-        # behind. Anything worth keeping was already committed/pushed above
-        # (WIP branch) or by the agent itself (permitted GitHub actions).
-        cleanup_working_copy(repo_path)
-
         # ── Clear tool caches ───────────────────────────────────────────────────
         # Package-manager caches (pip-tools, pip, uv, ...) live under ~/.cache,
         # outside both the repo checkout and the /data bind mount, and would
@@ -628,6 +637,9 @@ def _cmd_run_live(
         # next run for this project cannot start alongside the previous one's
         # strays. Backstops the process-group teardown in agents/_subprocess.
         reaper_mod.sweep(run_id)
+        # After the reaper, so no stray agent process is still writing inside the
+        # tree as it is removed. A no-op for runs that never cloned anything.
+        discard_checkout(run_dir)
         metrics_mod.push_run(
             project=project_name,
             outcome=_run_outcome,

@@ -72,7 +72,7 @@ Confirm the response contains `type`, `is_error`, and `result` fields at the exp
 | `AgentResult` + `ItemRef` data models | Fully defined |
 | `agents/claude_code.py` | Complete Claude Code CLI agent implementation |
 | `runner.py` | Subprocess invocation; stdin prompt delivery; JSON parse; timeout handling; validates `structured_output` shape and fails loudly if missing |
-| `repo.py` | Clone/pull to default branch; dirty-repo detection; `git reset --hard` + `git clean -fd` recovery |
+| `repo.py` | Fresh clone per run into `run-<run-id>/<slug>`; checkout deleted after the run; stale-checkout sweep |
 | `store.py` | SQLite WAL-mode setup; `runs`, `project_locks`, `items_touched` tables and indexes. `items_touched` written in M3; `digests` table added in M8 |
 | `logger.py` | Write execution records to `runs` table; release lock unconditionally in `finally` block |
 | `cli.py` — `labro run <project>` (non-dry-run) | Full run minus post_run label transitions; `LABRO_DISABLED` lockfile check added here |

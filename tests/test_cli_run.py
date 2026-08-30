@@ -32,6 +32,7 @@ from labro.config.schema import (
     GhLabelSource as GhLabelSourceConfig,
 )
 from labro.models import AgentConfig, AgentResult, Task
+from labro.repo import run_checkout_root
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -246,7 +247,7 @@ def test_successful_agent_run_writes_success_record(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
@@ -290,7 +291,7 @@ def test_partial_outcome_stored_as_partial(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.get_agent") as MockAgent,
@@ -334,7 +335,7 @@ def test_partial_outcome_wip_preservation_attempted(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=wip_url) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,
@@ -379,7 +380,7 @@ def test_runner_timeout_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.get_agent") as MockAgent,
@@ -425,7 +426,7 @@ def test_runner_unexpected_exception_stored_as_failure(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.get_agent") as MockAgent,
@@ -484,6 +485,76 @@ def test_lock_released_on_exception(tmp_path: Path) -> None:
     conn.close()
 
 
+def test_checkout_discarded_when_repo_prep_crashes(tmp_path: Path) -> None:
+    """A crash mid-prep leaves no checkout behind — the finally block deletes it."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+    task = _make_task()
+    agent_cfg = _make_agent_cfg()
+    created: list[Path] = []
+
+    def _half_clone(repo: str, dest_root: Path, run_id: str, **_: object) -> None:
+        """Create a partial checkout the way an interrupted clone would, then fail."""
+        run_dir = run_checkout_root(dest_root, run_id)
+        (run_dir / "repo" / ".git").mkdir(parents=True)
+        created.append(run_dir)
+        raise RuntimeError("clone interrupted")
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(task, agent_cfg)),
+        patch("labro.cli.prepare_repo", side_effect=_half_clone),
+    ):
+        with pytest.raises(RuntimeError, match="clone interrupted"):
+            _cmd_run_live(
+                config_path=Path("labro.toml"),
+                project_name="labro",
+                db_path=db_path,
+                repos_dir=repos_dir,
+            )
+
+    assert created, "prepare_repo stub never ran"
+    assert not created[0].exists()
+
+    conn.close()
+
+
+def test_stale_checkouts_swept_even_when_the_run_skips(tmp_path: Path) -> None:
+    """The sweep runs before the picker, so idle runs still reclaim orphans."""
+    db_path = tmp_path / "labro.db"
+    repos_dir = tmp_path / "repos"
+    conn = _open_mem_db()
+    config = _make_config()
+
+    with (
+        patch("labro.cli.load_config", return_value=config),
+        patch("labro.cli.store_mod.open_db", return_value=conn),
+        patch("labro.cli.store_mod.acquire_lock", return_value=True),
+        patch("labro.cli.store_mod.release_lock"),
+        patch("labro.cli.pick", return_value=(None, None)),
+        patch("labro.cli.sweep_stale_checkouts") as mock_sweep,
+    ):
+        result = _cmd_run_live(
+            config_path=Path("labro.toml"),
+            project_name="labro",
+            db_path=db_path,
+            repos_dir=repos_dir,
+        )
+
+    assert result == 0
+    mock_sweep.assert_called_once()
+    assert mock_sweep.call_args.args[0] == repos_dir
+    # This run's own directory is exempt from its own sweep.
+    assert mock_sweep.call_args.kwargs["keep"].parent == repos_dir
+
+    conn.close()
+
+
 def test_wip_resume_passes_branch_to_prepare_and_prompt(tmp_path: Path) -> None:
     """When a prior partial run exists for the item, harness resumes from its WIP branch."""
     db_path = tmp_path / "labro.db"
@@ -508,7 +579,7 @@ def test_wip_resume_passes_branch_to_prepare_and_prompt(tmp_path: Path) -> None:
         ),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(repo_path, wip_branch)) as mock_prep,
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
         patch("labro.cli.get_agent") as MockAgent,
@@ -527,11 +598,12 @@ def test_wip_resume_passes_branch_to_prepare_and_prompt(tmp_path: Path) -> None:
         )
 
     assert result == 0
-    # prepare_repo must receive the WIP branch
+    # prepare_repo must receive the WIP branch, plus the run id that scopes the checkout
     mock_prep.assert_called_once()
-    assert mock_prep.call_args.kwargs.get("wip_branch") == wip_branch or (
-        len(mock_prep.call_args.args) >= 3 and mock_prep.call_args.args[2] == wip_branch
-    )
+    _, prep_repos_dir, prep_run_id = mock_prep.call_args.args
+    assert prep_repos_dir == repos_dir
+    assert prep_run_id
+    assert mock_prep.call_args.kwargs["wip_branch"] == wip_branch
     # build_prompt must receive wip_branch and prior_summary
     mock_build.assert_called_once()
     build_kwargs = mock_build.call_args.kwargs
@@ -567,7 +639,7 @@ def test_wip_branch_not_found_clears_resume_context(tmp_path: Path) -> None:
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         # prepare_repo returns None for checked_out_wip — branch not found
         patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.build_prompt", return_value="prompt text") as mock_build,
         patch("labro.cli.get_agent") as MockAgent,
@@ -633,7 +705,7 @@ def test_session_limit_zero_tokens_skips_wip_preservation(tmp_path: Path) -> Non
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,
@@ -676,7 +748,7 @@ def test_session_limit_with_output_tokens_and_push_perm_preserves_wip(tmp_path: 
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(repo_path, None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,
@@ -719,7 +791,7 @@ def test_agent_fallback_on_timeout(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
@@ -770,7 +842,7 @@ def test_agent_failure_does_not_trigger_fallback(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.get_agent") as MockAgent,
         patch("labro.cli.logger_mod.write_run") as mock_write,
@@ -815,7 +887,7 @@ def test_all_fallbacks_fail(tmp_path: Path) -> None:
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=None),
         patch("labro.cli.get_agent") as MockAgent,
@@ -874,7 +946,7 @@ def test_session_limit_no_push_perm_skips_wip_preservation(tmp_path: Path) -> No
         patch("labro.cli.store_mod.release_lock"),
         patch("labro.cli.pick", return_value=(task, agent_cfg)),
         patch("labro.cli.prepare_repo", return_value=(tmp_path / "repos" / "org" / "repo", None)),
-        patch("labro.cli.cleanup_working_copy"),
+        patch("labro.cli.discard_checkout"),
         patch("labro.cli.clear_tool_caches"),
         patch("labro.cli.preserve_wip", return_value=None) as mock_preserve,
         patch("labro.cli.get_agent") as MockAgent,

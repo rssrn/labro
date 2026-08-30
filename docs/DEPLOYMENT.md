@@ -144,7 +144,7 @@ Inside the mounted directory:
   labro.toml        ← LABRO_CONFIG=/data/labro.toml
   labro.db          ← SQLite run records
   labro.log         ← structured run log
-  repos/            ← LABRO_REPOS_DIR=/data/repos (cloned repos)
+  repos/            ← LABRO_REPOS_DIR=/data/repos (per-run checkouts, deleted after each run)
   codex/
     auth.json       ← codex CLI auth (symlinked to ~/.codex/auth.json by entrypoint)
 ```
@@ -321,7 +321,7 @@ The codex CLI supports two auth modes:
   labro.toml                ← LABRO_CONFIG=/data/labro.toml
   labro.db                  ← SQLite run records
   labro.log
-  repos/                    ← LABRO_REPOS_DIR=/data/repos
+  repos/                    ← LABRO_REPOS_DIR=/data/repos (per-run checkouts)
   codex/
     auth.json               ← symlinked to ~/.codex/auth.json by entrypoint
 ```

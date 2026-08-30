@@ -10,14 +10,16 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 2. **Check `LABRO_DISABLED`** — if `/data/LABRO_DISABLED` exists, print `skipped: harness disabled` and exit immediately; no lock is acquired and no SQLite record is written
 3. **Acquire run lock** — INSERT into `project_locks`; if a non-stale lock already exists, print `skipped: run in progress` and exit
 4. **Budget check** — if `daily_budget_usd` is configured, query today's spend from `runs`; if the limit is reached, write a skipped record to SQLite and exit
-5. **Pick task** — run the picker over all configured task sources; if nothing is found, write a skipped record and exit
-6. **Prepare repo** — clone or pull the target repo into `/repos/<slug>`; if the working copy is dirty (agent was interrupted mid-edit), log a warning then `git reset --hard && git clean -fd`
-7. **Build prompt** — construct the four-section prompt from the resolved task and project context
-8. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload. If the model slug is a list, each slug is tried in order on infrastructure failure; the first successful or non-infrastructure-failure outcome wins. Fallback attempts are recorded in `fallback_attempts` in the `runs` table. If the agent hits its turn limit (`--max-turns`), the harness recovers gracefully — see [Turn Limits and Partial Runs](#turn-limits-and-partial-runs) below
-9. **Preserve WIP** — on any non-success outcome, if the working copy is dirty the harness commits it to a `labro-wip/<run-id>` branch and pushes it, so no in-progress code edits are silently discarded
-10. **Post-run labels** — apply label transitions and post a comment to the GitHub item (see [Label Transitions](#label-transitions))
-11. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list
-12. **Release lock** — DELETE from `project_locks` (always; in a `finally` block)
+5. **Sweep stale checkouts** — reclaim any per-run checkout directory older than 6 hours, left behind by a run that was killed before its cleanup ran. Best-effort; never fails the run
+6. **Pick task** — run the picker over all configured task sources; if nothing is found, write a skipped record and exit
+7. **Prepare repo** — clone the target repo fresh into `/repos/run-<run-id>/<slug>`. Every run gets a directory that did not exist before it started, so no git state an agent leaves behind — dirty tree, diverged branch, `.git/config` residue — can reach the next run. The clone is full, not shallow: agents read history
+8. **Build prompt** — construct the four-section prompt from the resolved task and project context
+9. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload. If the model slug is a list, each slug is tried in order on infrastructure failure; the first successful or non-infrastructure-failure outcome wins. Fallback attempts are recorded in `fallback_attempts` in the `runs` table. If the agent hits its turn limit (`--max-turns`), the harness recovers gracefully — see [Turn Limits and Partial Runs](#turn-limits-and-partial-runs) below
+10. **Preserve WIP** — on any non-success outcome, if the working copy is dirty the harness commits it to a `labro-wip/<run-id>` branch and pushes it, so no in-progress code edits are silently discarded
+11. **Post-run labels** — apply label transitions and post a comment to the GitHub item (see [Label Transitions](#label-transitions))
+12. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list
+13. **Discard checkout** — delete this run's checkout directory (always; in a `finally` block, after the process reaper so nothing is still writing inside it)
+14. **Release lock** — DELETE from `project_locks` (always; in a `finally` block)
 
 ## Required Environment Variables
 
@@ -43,7 +45,7 @@ At least one agent provider must be configured:
 All optional; sensible defaults for single-mount Docker layout:
 
 - **`LABRO_CONFIG`** — Path to `labro.toml` inside the container (default: `./labro.toml`).
-- **`LABRO_REPOS_DIR`** — Where repos are cloned (default: `/repos`; use `/data/repos` with single-mount layout).
+- **`LABRO_REPOS_DIR`** — Parent directory for per-run checkouts, each at `<dir>/run-<run-id>/<slug>` (default: `/repos`; use `/data/repos` with single-mount layout).
 - **`LABRO_DB_PATH`** — SQLite database path (default: `/data/labro.db`).
 - **`LABRO_LOG_PATH`** — Log file path (default: `/data/labro.log`).
 

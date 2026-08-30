@@ -1,4 +1,4 @@
-"""Repo preparation: clone or update a GitHub repository to a local working copy.
+"""Repo preparation: clone a GitHub repository into a fresh per-run working copy.
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -44,40 +45,49 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def _get_default_branch(repo: str) -> str:
-    """Return the default branch name for the given owner/repo slug."""
-    result = _run(
-        [
-            "gh",
-            "repo",
-            "view",
-            repo,
-            "--json",
-            "defaultBranchRef",
-            "--jq",
-            ".defaultBranchRef.name",
-        ]
-    )
-    return result.stdout.strip()
+# Prefix for the per-run directory holding one run's working copy.
+_RUN_DIR_PREFIX = "run-"
+
+# How long a per-run checkout may sit before ``sweep_stale_checkouts`` reclaims
+# it. Every agent attempt is bounded by ``timeout_s`` (900s at the longest in
+# production) and a run tries at most a handful of fallback tiers, so six hours
+# is far beyond any live run — the sweep cannot race a concurrently-running
+# project's checkout. Do not relax this to days: the only checkouts that reach
+# the sweep are those a SIGKILL'd or OOM'd run failed to delete, and they still
+# carry whatever ``.venv`` / ``node_modules`` the agent built (hundreds of MB
+# for a frontend repo), so the window is also the disk-leak window.
+_STALE_CHECKOUT_S = 6 * 60 * 60
+
+
+def run_checkout_root(repos_dir: Path, run_id: str) -> Path:
+    """Return the per-run directory that holds *run_id*'s working copy.
+
+    One directory per run, so the sweep and the end-of-run delete both operate
+    on a single path regardless of how many repos a run touched.
+
+    @author Claude Opus 5 Anthropic
+    """
+    return repos_dir / f"{_RUN_DIR_PREFIX}{run_id}"
 
 
 def prepare_repo(
-    repo: str, repos_dir: Path, wip_branch: str | None = None
+    repo: str, repos_dir: Path, run_id: str, wip_branch: str | None = None
 ) -> tuple[Path, str | None]:
-    """Clone or update a repository and return the path to the working copy.
+    """Clone a repository into a fresh per-run directory and return its path.
 
     Parameters
     ----------
     repo:
         GitHub ``owner/repo`` slug.
     repos_dir:
-        Directory under which working copies are stored.  The copy will be
-        placed at ``repos_dir/<repo-slug>`` where ``<repo-slug>`` is the
-        repository name portion of the slug (everything after the ``/``).
+        Directory under which per-run working copies are stored.  The copy is
+        placed at ``repos_dir/run-<run_id>/<repo-name>``.
+    run_id:
+        The current run's id, which scopes the checkout to this run.
     wip_branch:
         If provided, try to check out this branch (e.g. ``labro-wip/<run-id>``)
-        after the normal clone/pull.  The second return value reports whether
-        the checkout succeeded.
+        after cloning.  The second return value reports whether the checkout
+        succeeded.
 
     Returns
     -------
@@ -87,56 +97,28 @@ def prepare_repo(
 
     Notes
     -----
+    * The clone target did not exist before this call, so no git state written
+      by a previous run — dirty tree, diverged local branch, ``.git/config``
+      residue, stashes, hooks — can be observed by this one.  Agents have full
+      shell access inside the checkout, so the set of states they can leave
+      behind is unbounded; the only reliable defence is not to reuse it.
+    * The clone is full, not ``--depth 1``: agents genuinely read history
+      (dependency-pin archaeology, several of the perspectives in
+      ``perspectives.toml``), and a shallow clone would degrade that silently.
+    * The caller is responsible for deleting ``run_checkout_root(...)`` when the
+      run ends — see ``discard_checkout``.
     * All subprocess calls use list-form args with ``shell=False`` (bandit B602
       is never violated).
-    * If the working copy is dirty before pulling, a ``git reset --hard``
-      and ``git clean -fd`` are performed first so the pull cannot be blocked
-      by changes left by a previous run.
+
+    @author Claude Opus 5 Anthropic
     """
     repo_name = repo.split("/", 1)[1]
-    dest = repos_dir / repo_name
+    dest = run_checkout_root(repos_dir, run_id) / repo_name
 
-    default_branch = _get_default_branch(repo)
-
-    if not dest.exists():
-        logger.info("Cloning %s into %s", repo, dest)
-        _run(["gh", "repo", "clone", repo, str(dest)])
-        # After a fresh clone we're already on the default branch; no checkout needed.
-    else:
-        logger.info("Updating existing working copy at %s", dest)
-        _run(["git", "-C", str(dest), "checkout", default_branch])
-
-        # Reset any local changes left by a previous run before pulling,
-        # otherwise git pull aborts when tracked files are dirty.
-        status_result = subprocess.run(
-            ["git", "-C", str(dest), "status", "--porcelain"],
-            shell=False,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        dirty_files = status_result.stdout.strip()
-        if dirty_files:
-            logger.warning(
-                "Working copy %s is dirty before pull; resetting. Affected files:\n%s",
-                dest,
-                dirty_files,
-            )
-            _run(["git", "-C", str(dest), "reset", "--hard"])
-            _run(["git", "-C", str(dest), "clean", "-fd"])
-
-        # Pass gh as the credential helper so GH_TOKEN is used for HTTPS auth.
-        # git pull doesn't inherit gh's auth automatically — only gh subcommands do.
-        _run(
-            [
-                "git",
-                "-C",
-                str(dest),
-                "-c",
-                "credential.helper=!gh auth git-credential",
-                "pull",
-            ]
-        )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Cloning %s into %s", repo, dest)
+    _run(["gh", "repo", "clone", repo, str(dest)])
+    # A fresh clone lands on the default branch; no checkout needed.
 
     if wip_branch is not None:
         # Credential helper required — git ls-remote doesn't inherit gh auth automatically.
@@ -187,43 +169,83 @@ def prepare_repo(
             return dest, wip_branch
         if ls_result.returncode == 2:
             logger.warning(
-                "WIP branch %s not found on remote; starting from default branch %s",
+                "WIP branch %s not found on remote; starting from the default branch",
                 wip_branch,
-                default_branch,
             )
         else:
             logger.warning(
                 "ls-remote failed (exit %d) checking for WIP branch %s;"
-                " starting from default branch %s\n%s",
+                " starting from the default branch\n%s",
                 ls_result.returncode,
                 wip_branch,
-                default_branch,
                 ls_result.stderr.strip(),
             )
 
     return dest, None
 
 
-def cleanup_working_copy(repo_path: Path) -> None:
-    """Strip any dirty/untracked state left in *repo_path* after a run.
+def discard_checkout(run_dir: Path) -> None:
+    """Delete a run's per-run checkout directory.
 
-    Best-effort — never raises. Runs after WIP preservation (or a successful
-    agent push), so anything worth keeping has already been committed/pushed;
-    this only removes leftovers such as build artifacts (``.venv``,
-    ``node_modules``) the agent created but didn't commit. Without this, such
-    artifacts persist indefinitely in the reused working copy between runs
-    and can exhaust host disk space.
+    Best-effort — never raises, and a missing directory is not an error (most
+    runs skip at the picker and never clone anything).  Called from the run
+    loop's ``finally`` *after* the process reaper, so a stray agent process
+    cannot still be writing inside the tree while it is being removed.
 
-    ``-x`` (vs. plain ``git clean -fd``) also removes gitignored files, since
-    a ``.gitignore``'d ``.venv`` is exactly the kind of artifact this targets.
-
-    @author Claude Sonnet 4.6 Anthropic
+    @author Claude Opus 5 Anthropic
     """
     try:
-        _run(["git", "-C", str(repo_path), "reset", "--hard"])
-        _run(["git", "-C", str(repo_path), "clean", "-fdx"])
+        shutil.rmtree(run_dir, ignore_errors=True)
     except Exception:
-        logger.warning("cleanup_working_copy failed for %s", repo_path, exc_info=True)
+        logger.warning("discard_checkout failed for %s", run_dir, exc_info=True)
+
+
+def sweep_stale_checkouts(repos_dir: Path, *, keep: Path | None = None) -> None:
+    """Reclaim checkout directories left behind by runs that never cleaned up.
+
+    Best-effort — never raises.  This runs on *every* run, including the ~97%
+    that skip at the picker, so an unreadable leftover or a delete race must
+    never turn into a run failure.
+
+    Anything under *repos_dir* older than ``_STALE_CHECKOUT_S`` is removed,
+    except *keep* (this run's own directory).  The age threshold, not an
+    ownership test, is what makes this safe: runs for different projects
+    execute concurrently and each holds its own ``run-<id>`` directory, so a
+    "delete everything that isn't mine" sweep would destroy a live checkout.
+
+    The rule is deliberately not restricted to ``run-`` prefixed directories:
+    it also reclaims the persistent per-repo working copies left over from the
+    pre-clean-checkout layout (``<repos_dir>/<repo-name>``), which nothing
+    reads any more.
+
+    @author Claude Opus 5 Anthropic
+    """
+    try:
+        entries = sorted(repos_dir.iterdir())
+    except FileNotFoundError:
+        return  # repos_dir absent on a first run — nothing to sweep.
+    except Exception:
+        logger.warning("sweep_stale_checkouts could not list %s", repos_dir, exc_info=True)
+        return
+
+    now = time.time()
+    for entry in entries:
+        try:
+            if keep is not None and entry == keep:
+                continue
+            if not entry.is_dir():
+                continue
+            age_s = now - entry.stat().st_mtime
+            if age_s < _STALE_CHECKOUT_S:
+                continue
+            logger.info(
+                "Sweeping stale checkout %s (age %.1fh)",
+                entry,
+                age_s / 3600,
+            )
+            shutil.rmtree(entry, ignore_errors=True)
+        except Exception:
+            logger.warning("sweep_stale_checkouts failed for %s", entry, exc_info=True)
 
 
 def clear_tool_caches() -> None:
@@ -312,7 +334,10 @@ def preserve_wip(
         if not status_result.stdout.strip():
             return None
 
-        # Reuse the current branch if already on a WIP branch (resume path).
+        # Reuse the current branch if already on a WIP branch. Since checkouts are
+        # cloned fresh per run, the only way HEAD sits on ``labro-wip/*`` is the
+        # resume path in ``prepare_repo`` — a resumed run that fails again keeps
+        # appending to the same branch rather than forking a new one.
         current_result = subprocess.run(
             ["git", "-C", str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"],
             shell=False,

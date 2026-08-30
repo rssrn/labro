@@ -393,11 +393,8 @@ Task selected (or no task → run ends, logged as "skipped")
     │
     ▼
 repo.py prepares working copy
-  ├── repo absent → git clone; read default branch via `gh repo view`
-  └── repo present → checkout default branch + git pull
-      └── dirty? → capture `git status --short` output
-                 → log warning with file list (surfaced in digest)
-                 → git reset --hard + git clean -fd → continue
+  └── git clone into /repos/run-<run-id>/<slug> — a path that did not exist
+      before this run, so there is no prior state to detect or recover from
     │
     ▼
 PromptBuilder constructs prompt
@@ -432,7 +429,7 @@ Host machine (single server or dev machine)
     │   ├── labro.toml     Operator config  (LABRO_CONFIG=/data/labro.toml)
     │   ├── labro.db       SQLite run store
     │   ├── labro.log      Structured run log
-    │   ├── repos/         Cloned project repos (LABRO_REPOS_DIR=/data/repos)
+    │   ├── repos/         Per-run checkouts, run-<run-id>/<slug> (LABRO_REPOS_DIR=/data/repos)
     │   └── codex/
     │       └── auth.json  Codex CLI auth — symlinked to ~/.codex/auth.json by entrypoint
     └── env: GH_APP_PRIVATE_KEY_BASE64, CLAUDE_CODE_OAUTH_TOKEN, OPENROUTER_API_KEY, ...
@@ -587,7 +584,7 @@ See [`docs/config-repo-scaffold/`](../config-repo-scaffold/) for ready-to-copy w
 
 * GitHub token scoped to minimum required permissions per project.
 * Secrets never written to config or execution records. No output sanitisation pass: secrets (`GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`) are consumed by `gh` and the Claude Code CLI as env vars and have no reason to appear in agent output; the risk of accidental leakage into the structured JSON response is negligible.
-* Agent is invoked with its working directory set to the cloned repo under `LABRO_REPOS_DIR/<project-name>` (default `/repos/<project-name>`; `/data/repos/<project-name>` with the single-mount layout), which scopes its default context to the cloned repo. This is a convention, not enforced isolation — Claude Code CLI can navigate to other paths within the container (e.g. `/data/labro.db`). The Docker container boundary is the real filesystem sandbox. See Risks.
+* Agent is invoked with its working directory set to the cloned repo under `LABRO_REPOS_DIR/run-<run-id>/<repo-name>` (default `/repos/run-<run-id>/<repo-name>`; `/data/repos/...` with the single-mount layout), which scopes its default context to the cloned repo. This is a convention, not enforced isolation — Claude Code CLI can navigate to other paths within the container (e.g. `/data/labro.db`). The Docker container boundary is the real filesystem sandbox. See Risks.
 * Action Permissions communicated to the agent via the prompt (v1). No runtime enforcement mechanism; the agent is trusted to follow its instructions. A `gh` wrapper for hard enforcement is a v1.1 candidate. See [ADR-003](adr/0003-prompt-only-action-permissions-enforcement.md).
 
 ### Observability & Logging
@@ -740,7 +737,7 @@ CREATE TABLE digests (
 
 ### Concurrency Control
 
-* Runs for different projects are fully independent and may execute concurrently — each cron invocation is a separate process with its own working directory under `/repos/`.
+* Runs for different projects are fully independent and may execute concurrently — each cron invocation is a separate process with its own checkout directory under `/repos/run-<run-id>/`. Because checkouts are per *run*, not per repo, two concurrent runs against the same repo cannot see each other's working copy either.
 * Per-project locks prevent concurrent runs for the *same* project. Locks are held in a SQLite `project_locks` table (`project`, `locked_at`).
 * A run begins by attempting to INSERT a lock row; if one already exists, the run exits immediately and logs `skipped: run in progress`.
 * Stale locks (process crash, container kill) are detected by age: a lock is treated as stale if its age exceeds `timeout_s + 60` seconds. The 60-second grace period closes the race window where a cron tick fires just as a previous run's subprocess has been killed but its `finally` block has not yet released the lock — without the grace period, the new run would see a lock older than `timeout_s`, overwrite it, and both runs would proceed simultaneously for the same project.
@@ -834,18 +831,22 @@ CREATE TABLE digests (
 - No `ON DELETE CASCADE` — execution records are append-only. `items_touched` rows reference their parent `run_id` for auditability; orphaned rows are not a concern at the current scale.
 - Periodic purge of runs older than N days (see Risks) will require a corresponding delete from `items_touched`.
 
-### Dirty-repo recovery
+### Clean checkout per run
 
-A dirty working copy on run entry means the previous run left uncommitted changes. This happens via two paths:
+Each run clones its target repo into `LABRO_REPOS_DIR/run-<run-id>/<slug>` — a directory that did not exist before the run started — and deletes it in the run loop's `finally` block. No working copy is ever reused.
 
-| Cause | Lock state on next run | How recovery reaches repo.py |
-| :--- | :--- | :--- |
-| **Agent hit `--max-turns` mid-edit** (most common) | Lock released normally by `finally` block | No stale lock; run proceeds directly to `repo.py` |
-| **Container killed / process crash** | Lock is stale (age > `timeout_s`) | Stale lock overwritten first; run then proceeds to `repo.py` |
+This replaces an earlier design that kept one persistent copy per repo and reset it on entry (`git reset --hard && git clean -fd`). That guard only ever covered a dirty *working tree*. Agents hold full shell access inside the checkout, so they can also leave behind a diverged local branch, `.git/config` residue, stashes, rerere state or hooks — none of which a reset touches, and the set of which is unbounded. Reuse was therefore not a bug to patch but a category to eliminate. It had already caused an outage: an agent's `git push -u` left `branch.main.merge` pointing at a deleted remote branch, and every subsequent run for that repo failed in repo prep.
 
-In both cases `repo.py` detects the dirty state via `git status --porcelain`, captures the file list, logs a warning (included in the execution record and surfaced in the digest), then executes `git reset --hard && git clean -fd` before proceeding. The uncommitted changes are discarded — there is no attempt to salvage them, since the previous run was already recorded as a failure and the agent will re-attempt the work on the current task.
+| Property | How it is achieved |
+| :--- | :--- |
+| Run starts from a directory that never existed before | Path is keyed on the run id; the clone creates it |
+| No agent-written git state survives a run | The whole tree is deleted in `finally`, after the process reaper |
+| Orphans are reclaimed after a hard crash | `sweep_stale_checkouts` runs at the top of *every* run — including the ~97% that skip at the picker — and removes any checkout older than 6 hours |
+| Agents keep full history | Full clone, never `--depth 1`: dependency-pin archaeology and several `perspectives.toml` lenses read git history |
 
-Dirty-repo recovery is a **belt-and-suspenders guard**, not the primary recovery mechanism for either cause. The primary mechanisms are: `--max-turns` terminating the agent cleanly (turn limit) and stale-lock detection (container kill). The dirty-repo check is the final safety net that ensures every run starts from a known-clean state.
+The 6-hour sweep threshold, rather than an ownership test, is what makes the sweep safe: runs for different projects execute concurrently and each holds its own `run-<id>` directory, so deleting "everything that isn't mine" would destroy a live checkout. Six hours is far beyond the longest possible run (`timeout_s` per agent attempt across a handful of fallback tiers) while still bounding how long a SIGKILL'd run's leftovers — which may include a `.venv` or `node_modules` the agent built — occupy disk.
+
+The cost is that repo prep becomes a network operation on every task-picking run, so a transient GitHub failure now hits every such run rather than only the first. That is an argument for the crash-handling work tracked in [#60](https://github.com/rssrn/labro/issues/60), not against clean checkout.
 
 ### Error Handling
 
@@ -1140,7 +1141,7 @@ _Testability and quality gates for the architecture._
 | Risk | Likelihood | Impact | Mitigation |
 | :--- | :--- | :--- | :--- |
 | Agent takes actions outside permission envelope | Low–Medium | High | Prompt-only enforcement (v1); audit logs enable detection; `gh` wrapper as hard stop in v1.1 if needed. Risk accepted based on observed Claude Code instruction-following. |
-| Agent accesses files outside the project repo | Low | Low–Medium | Working directory scoping is convention only; Docker is the real boundary. Agent could read `/data/labro.db` or other repos under `/repos/`. Accepted in v1 — single-operator personal tooling. Consider read-only bind mounts for `/config/` and `/data/` in v1.1 if this becomes a concern. |
+| Agent accesses files outside the project repo | Low | Low–Medium | Working directory scoping is convention only; Docker is the real boundary. Agent could read `/data/labro.db` or a concurrent run's checkout under `/repos/`. Accepted in v1 — single-operator personal tooling. Consider read-only bind mounts for `/config/` and `/data/` in v1.1 if this becomes a concern. |
 | Agent completion reporting is unreliable | High | Medium | Accept for v1; track as metric; consider downstream outcome checks in v1.1. |
 | SQLite file grows unboundedly | Low | Low | Add a periodic purge of execution records older than N days before sustained operation. |
 | `gh` CLI auth token expires | Medium | High | Monitor token expiry; surface in daily digest. |
