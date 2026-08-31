@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.17.2 — 2026-08-31
+
+### Changed
+- Each run now clones its target repo into a fresh, run-scoped directory
+  (`repos_dir/run-<run-id>/<slug>`) instead of reusing one persistent working
+  copy per repo, and deletes it when the run ends. The old reset-on-entry
+  guard only covered a dirty working tree — agents have full shell access and
+  can also leave behind a diverged branch, `.git/config` residue, stashes, or
+  hooks, none of which a reset touches. (This had already caused an outage:
+  an agent's `git push -u` left `branch.main.merge` pointing at a deleted
+  remote branch, breaking every subsequent run for that repo.) Orphaned
+  checkouts from a hard-killed run are swept on every run and removed after
+  six hours. Clones are full, not shallow, so agents still see history. (#61)
+
+### Fixed
+- Dependency bump: `pip` 26.1.2 → 26.2.1 for PYSEC-2026-3721 (pulled in
+  transitively via `pip-audit`).
+
+### Documentation
+- README now describes Dependabot handling accurately: Labro comments on
+  Dependabot PRs cross-referenced against open security alerts, and raises a
+  tracking issue for alerts Dependabot hasn't yet opened a PR for — it was
+  previously described as "reviewing" Dependabot PRs.
+
+### Internal
+- `ci-python.yml` now runs `pip-audit` as its own `dependency-audit` job,
+  separate from `ci` (ruff/mypy/bandit/pytest). A dependency advisory landing
+  on an unrelated day used to abort `ci` before pytest ran, misreporting an
+  unrelated commit as having broken tests.
+
 ## v0.17.1 — 2026-08-09
 
 ### Fixed
