@@ -38,8 +38,25 @@ jobs:
       - name: Security lint (bandit)
         run: uv run bandit -r src/ -c pyproject.toml
 
-      - name: Dependency audit (pip-audit)
-        run: uv run pip-audit
-
       - name: Test (pytest)
         run: uv run pytest
+
+  dependency-audit:
+    # Separate job (not a step in `ci`) so that a dependency advisory landing
+    # on an unrelated day fails only this check, instead of aborting the `ci`
+    # job before pytest runs and misreporting "this commit broke CI".
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Dependency audit (pip-audit)
+        run: uv run pip-audit

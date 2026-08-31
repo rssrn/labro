@@ -117,7 +117,7 @@ The manifest at `https://labro.rossarnold.uk/manifest.json` contains a `db_filen
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci-python.yml` | PRs and pushes to `main`, `paths-ignore: dashboard/**` | ruff, mypy, bandit, pytest. Reports as the `ci` check. |
+| `ci-python.yml` | PRs and pushes to `main`, `paths-ignore: dashboard/**` | Two independent jobs so a stale-dependency advisory can't suppress test results: `ci` (ruff, mypy, bandit, pytest) and `dependency-audit` (pip-audit). |
 | `ci-dashboard.yml` | PRs and pushes to `main`, `paths: dashboard/**` | `npm ci` + vitest + `tsc -b && vite build` on Node 22. Reports as the `build` check. |
 | `publish.yml` | Push of a `v*.*.*` tag | Builds the image, pushes the versioned tag and `:latest` to GHCR, then fires `repository_dispatch: labro-release` at `labro-rssrn`. |
 | `dashboard-dispatch.yml` | Push to `main` touching `dashboard/**` | Fires `repository_dispatch: dashboard-publish` at `labro-rssrn`, which rebuilds and republishes the SPA to R2. |
