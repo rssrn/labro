@@ -30,7 +30,6 @@ from labro.task_sources.base import TaskSource
 logger = logging.getLogger(__name__)
 
 _AI_FAILED_LABEL = "ai-failed"
-_AI_HANDOVER_LABEL = "ai-handover"
 
 
 def _run_gh_api(url: str) -> Any:
@@ -175,8 +174,6 @@ class GhLabelTaskSource(TaskSource):
             for item in items:
                 labels = _label_names(item)
                 if _AI_FAILED_LABEL in labels:
-                    continue
-                if _AI_HANDOVER_LABEL in labels:
                     continue
                 if rule.done_label in labels:
                     continue

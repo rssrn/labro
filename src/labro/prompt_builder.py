@@ -103,8 +103,6 @@ def _section_project_context(
     task: Task,
     default_branch: str,
     extra_context: str | None,
-    wip_branch: str | None = None,
-    prior_summary: str | None = None,
 ) -> str:
     lines: list[str] = ["## Project context"]
     lines.append(f"**Repository:** {task.repo}")
@@ -117,23 +115,13 @@ def _section_project_context(
     )
     lines.append("")
     lines.append(
-        "This working copy is reused across runs — avoid creating large build"
-        " artifacts (virtualenvs, `node_modules`, model weights, build caches)"
-        " unless the task genuinely requires executing the code. If you do"
-        " create any, remove them before finishing."
+        "This working copy was cloned fresh for this run and is deleted when the"
+        " run ends — nothing you leave in it survives, so anything worth keeping"
+        " must be pushed or written to the issue before you finish. Disk on the"
+        " host is limited: avoid creating large build artifacts (virtualenvs,"
+        " `node_modules`, model weights, build caches) unless the task genuinely"
+        " requires executing the code."
     )
-    if wip_branch is not None:
-        lines.append("")
-        lines.append(
-            f"**Resuming from a previous partial run.** The working copy has been"
-            f" checked out to branch `{wip_branch}`, which contains code changes"
-            f" from the previous session. Review what was already changed before"
-            f" continuing — do not duplicate work that is already done."
-        )
-        if prior_summary:
-            lines.append("")
-            lines.append("**Previous session summary:**")
-            lines.append(prior_summary.strip())
     if extra_context:
         lines.append("")
         lines.append(extra_context.strip())
@@ -155,8 +143,6 @@ def build_prompt(
     task: Task,
     project_context: str | None = None,
     default_branch: str = "main",
-    wip_branch: str | None = None,
-    prior_summary: str | None = None,
 ) -> str:
     """Construct the agent prompt for *task* (4 sections, or 5 when a perspective is set).
 
@@ -165,10 +151,6 @@ def build_prompt(
         project_context: Optional free-text from ``labro.toml`` ``context`` field;
             appended verbatim to section 4.
         default_branch: Default branch of the managed repo (defaults to ``"main"``).
-        wip_branch: WIP branch checked out for a resume run (e.g. ``labro-wip/<id>``);
-            included in section 4 to inform the agent it is resuming.
-        prior_summary: Summary text from the previous partial run; appended under
-            the resume notice in section 4.
 
     Returns:
         The full prompt string ready to be piped to ``claude -p`` via stdin.
@@ -182,7 +164,7 @@ def build_prompt(
         _section_role(task.persona_prompt, durable_progress=has_item and has_comment),
         _section_task(task),
         _section_permitted_actions(task),
-        _section_project_context(task, default_branch, project_context, wip_branch, prior_summary),
+        _section_project_context(task, default_branch, project_context),
     ]
     if task.perspective_prompt is not None:
         sections.append(_section_perspective(task.perspective_prompt))

@@ -305,31 +305,8 @@ def test_write_run_empty_actions_taken() -> None:
     assert json.loads(row["actions_taken"]) == []
 
 
-def test_write_run_stores_wip_branch_url() -> None:
-    """wip_branch_url is persisted when supplied."""
-    conn = _memory_db()
-    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-wip"
-
-    write_run(
-        conn,
-        run_id="run-wip",
-        project="myproject",
-        task=_make_task(),
-        agent_cfg=_make_agent_cfg(),
-        agent_result=_make_agent_result(outcome="partial"),
-        outcome="partial",
-        failure_reason="error_max_turns",
-        started_at="2026-05-27T10:00:00Z",
-        ended_at="2026-05-27T10:05:00Z",
-        wip_branch_url=wip_url,
-    )
-
-    row = conn.execute("SELECT wip_branch_url FROM runs WHERE run_id = 'run-wip'").fetchone()
-    assert row["wip_branch_url"] == wip_url
-
-
-def test_write_run_wip_branch_url_defaults_to_null() -> None:
-    """wip_branch_url is NULL when not supplied (success / failure paths)."""
+def test_write_run_never_stores_a_wip_branch_url() -> None:
+    """The column survives for historical rows, but no run writes it any more (#62)."""
     conn = _memory_db()
 
     write_run(
@@ -338,11 +315,11 @@ def test_write_run_wip_branch_url_defaults_to_null() -> None:
         project="myproject",
         task=_make_task(),
         agent_cfg=_make_agent_cfg(),
-        agent_result=_make_agent_result(),
-        outcome="success",
-        failure_reason=None,
+        agent_result=_make_agent_result(outcome="partial"),
+        outcome="partial",
+        failure_reason="error_max_turns",
         started_at="2026-05-27T10:00:00Z",
-        ended_at="2026-05-27T10:00:05Z",
+        ended_at="2026-05-27T10:05:00Z",
     )
 
     row = conn.execute("SELECT wip_branch_url FROM runs WHERE run_id = 'run-no-wip'").fetchone()

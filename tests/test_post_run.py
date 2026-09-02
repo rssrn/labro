@@ -304,81 +304,44 @@ def test_no_item_number_no_subprocess(mock_run: MagicMock) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Partial / handover path
+# Partial path — reported as an ordinary failure (#62 removed handover)
 # ---------------------------------------------------------------------------
 
 
 @patch("labro.post_run._ensure_labels")
 @patch("labro.post_run.subprocess.run")
-def test_partial_adds_handover_labels(mock_run: MagicMock, _mock_ensure: MagicMock) -> None:
-    """Partial outcome: ai-handover + ai-contributed applied."""
+def test_partial_adds_failure_labels(mock_run: MagicMock, _mock_ensure: MagicMock) -> None:
+    """Partial outcome: ai-failed + ai-contributed, exactly like a failure."""
     mock_run.return_value = MagicMock(returncode=0, stderr="")
     task = _make_task()
-    result = _make_result(outcome="partial")
+    result = _make_result(outcome="partial", failure_reason="error_max_turns")
     post_run("run-p1", task, result, outcome="partial")
 
     edits = _edit_cmds(mock_run)
     assert len(edits) == 1
-    assert "labels[]=ai-handover" in edits[0]
+    assert "labels[]=ai-failed" in edits[0]
     assert "labels[]=ai-contributed" in edits[0]
+    assert "ai-handover" not in edits[0]
 
 
 @patch("labro.post_run._ensure_labels")
 @patch("labro.post_run.subprocess.run")
-def test_partial_posts_handover_comment_with_wip_url(
+def test_partial_comment_reports_turn_limit_and_no_handover(
     mock_run: MagicMock, _mock_ensure: MagicMock
 ) -> None:
-    """Partial outcome: handover comment includes WIP branch URL and re-trigger instruction."""
+    """Partial comment names the turn limit and the reason — no branch, no re-queue offer."""
     mock_run.return_value = MagicMock(returncode=0, stderr="")
     task = _make_task()
-    result = _make_result(outcome="partial")
-    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-abc"
-    post_run("run-p2", task, result, outcome="partial", wip_branch_url=wip_url)
+    result = _make_result(outcome="partial", failure_reason="error_max_turns")
+    post_run("run-p2", task, result, outcome="partial")
 
     comments = _comment_cmds(mock_run)
     assert len(comments) == 1
     body = comments[0][comments[0].index("--body") + 1]
     assert "ran out of turns" in body
-    assert wip_url in body
-    assert "ai-handover" in body
-    assert "re-queue" in body
-
-
-@patch("labro.post_run._ensure_labels")
-@patch("labro.post_run.subprocess.run")
-def test_partial_posts_handover_comment_without_wip(
-    mock_run: MagicMock, _mock_ensure: MagicMock
-) -> None:
-    """Partial outcome without a WIP branch: no branch link, but re-trigger instruction present."""
-    mock_run.return_value = MagicMock(returncode=0, stderr="")
-    task = _make_task()
-    result = _make_result(outcome="partial")
-    post_run("run-p3", task, result, outcome="partial", wip_branch_url=None)
-
-    comments = _comment_cmds(mock_run)
-    assert len(comments) == 1
-    body = comments[0][comments[0].index("--body") + 1]
-    assert "ran out of turns" in body
-    assert "github.com" not in body
-    assert "ai-handover" in body
-
-
-@patch("labro.post_run._ensure_labels")
-@patch("labro.post_run.subprocess.run")
-def test_failure_with_wip_url_appends_branch_link(
-    mock_run: MagicMock, _mock_ensure: MagicMock
-) -> None:
-    """Failure with a WIP branch URL: branch link appended to the failure comment."""
-    mock_run.return_value = MagicMock(returncode=0, stderr="")
-    task = _make_task()
-    result = _make_result(outcome="failure", failure_reason="unexpected crash")
-    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-xyz"
-    post_run("run-f1", task, result, outcome="failure", wip_branch_url=wip_url)
-
-    comments = _comment_cmds(mock_run)
-    assert len(comments) == 1
-    body = comments[0][comments[0].index("--body") + 1]
-    assert wip_url in body
+    assert "error_max_turns" in body
+    assert "labro-wip" not in body
+    assert "ai-handover" not in body
 
 
 @patch("labro.post_run._ensure_labels")
@@ -386,7 +349,7 @@ def test_failure_with_wip_url_appends_branch_link(
 def test_session_limit_no_output_skips_labels_posts_comment(
     mock_run: MagicMock, _mock_ensure: MagicMock
 ) -> None:
-    """session_limit_hit with no WIP: no ai-failed label, comment posted, issue stays pickable."""
+    """session_limit_hit: no ai-failed label, comment posted, issue stays pickable."""
     mock_run.return_value = MagicMock(returncode=0, stderr="")
     task = _make_task()
     result = _make_result(outcome="failure", failure_reason="session_limit_hit")
@@ -408,59 +371,15 @@ def test_session_limit_no_output_skips_labels_posts_comment(
 
 @patch("labro.post_run._ensure_labels")
 @patch("labro.post_run.subprocess.run")
-def test_session_limit_with_wip_applies_handover_labels(
+def test_session_limit_never_applies_handover(
     mock_run: MagicMock, _mock_ensure: MagicMock
 ) -> None:
-    """session_limit_hit with a WIP branch: ai-handover label applied, handover comment posted."""
+    """session_limit_hit always leaves labels alone — the handover branch is gone (#62)."""
     mock_run.return_value = MagicMock(returncode=0, stderr="")
     task = _make_task()
     result = _make_result(outcome="failure", failure_reason="session_limit_hit")
-    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-sl2"
-    post_run("run-sl2", task, result, outcome="failure", wip_branch_url=wip_url)
+    post_run("run-sl2", task, result, outcome="failure")
 
     edits = _edit_cmds(mock_run)
-    assert any("ai-handover" in " ".join(cmd) for cmd in edits)
+    assert not any("ai-handover" in " ".join(cmd) for cmd in edits)
     assert not any("ai-failed" in " ".join(cmd) for cmd in edits)
-
-    comments = _comment_cmds(mock_run)
-    assert len(comments) == 1
-    body = comments[0][comments[0].index("--body") + 1]
-    assert wip_url in body
-    assert "session limit" in body.lower()
-    assert "ai-handover" in body
-
-
-@patch("labro.post_run._ensure_labels")
-@patch("labro.post_run.subprocess.run")
-def test_partial_fresh_run_uses_new_branch_wording(
-    mock_run: MagicMock, _mock_ensure: MagicMock
-) -> None:
-    """Partial outcome on first run: comment says 'new branch'."""
-    mock_run.return_value = MagicMock(returncode=0, stderr="")
-    task = _make_task()
-    result = _make_result(outcome="partial")
-    wip_url = "https://github.com/owner/repo/tree/labro-wip/run-new"
-    post_run("run-p4", task, result, outcome="partial", wip_branch_url=wip_url, resuming_wip=False)
-
-    comments = _comment_cmds(mock_run)
-    body = comments[0][comments[0].index("--body") + 1]
-    assert "new branch" in body
-    assert wip_url in body
-
-
-@patch("labro.post_run._ensure_labels")
-@patch("labro.post_run.subprocess.run")
-def test_partial_resume_run_uses_existing_branch_wording(
-    mock_run: MagicMock, _mock_ensure: MagicMock
-) -> None:
-    """Partial outcome on a resume run: comment says 'Existing WIP branch updated'."""
-    mock_run.return_value = MagicMock(returncode=0, stderr="")
-    task = _make_task()
-    result = _make_result(outcome="partial")
-    wip_url = "https://github.com/owner/repo/tree/labro-wip/prior-run"
-    post_run("run-p5", task, result, outcome="partial", wip_branch_url=wip_url, resuming_wip=True)
-
-    comments = _comment_cmds(mock_run)
-    body = comments[0][comments[0].index("--body") + 1]
-    assert "Existing WIP branch updated" in body
-    assert wip_url in body

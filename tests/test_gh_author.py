@@ -190,20 +190,6 @@ def test_author_rule_skip_ai_failed() -> None:
     assert result is None
 
 
-def test_author_rule_skip_ai_handover() -> None:
-    """Items with the ``ai-handover`` label are excluded."""
-    src_cfg = _source_config(author_rules=[_author_rule()])
-    proj = _project(source_cfg=src_cfg)
-    cfg = _config(proj)
-    source = GhAuthorTaskSource(src_cfg)
-
-    handover_item = {**_ACTOR_ITEM, "number": 202, "labels": [{"name": "ai-handover"}]}
-    with patch("labro.task_sources.gh_author._run_gh_api", return_value=[handover_item]):
-        result = _fetch(source, proj, cfg)
-
-    assert result is None
-
-
 def test_author_rule_source_label_is_none() -> None:
     """Author-rule items always have source_label=None (no label to remove on success)."""
     src_cfg = _source_config(author_rules=[_author_rule()])

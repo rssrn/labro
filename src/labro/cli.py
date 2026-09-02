@@ -46,7 +46,6 @@ from labro.config.schema import (
     GhAuthorSource,
     GhLabelSource,
     LabroConfig,
-    PermittedAction,
     ProjectConfig,
 )
 from labro.models import AgentConfig, AgentResult
@@ -56,8 +55,8 @@ from labro.repo import (
     clear_tool_caches,
     discard_checkout,
     prepare_repo,
-    preserve_wip,
     run_checkout_root,
+    summarize_dirty_tree,
     sweep_stale_checkouts,
 )
 
@@ -333,7 +332,6 @@ def _cmd_run_live(
         # ── GitHub App: generate per-run installation token ────────────────────
         # Must happen before pick() — the gh CLI needs GH_TOKEN to list issues.
         # Uses project.repo (known at this point) rather than task.repo.
-        bot_identity: tuple[str, str] | None = None
         if config.github_app_id is not None:
             import labro.github_app as gh_app_mod
 
@@ -347,10 +345,6 @@ def _cmd_run_live(
                     project.repo,
                 )
                 os.environ["GH_TOKEN"] = gh_token
-                bot_identity = (
-                    f"{app_name}[bot]",
-                    f"{config.github_app_id}+{app_name}[bot]@users.noreply.github.com",
-                )
             except Exception as exc:
                 ended_at = _now_utc()
                 logger_mod.write_run(
@@ -399,33 +393,8 @@ def _cmd_run_live(
                 item_number=task.item_number,
             )
 
-        # ── Detect prior WIP branch for resume ─────────────────────────────────
-        prior_wip_branch: str | None = None
-        prior_summary: str | None = None
-        if task.item_url:
-            prior = store_mod.get_prior_wip_run(conn, task.item_url)
-            if prior is not None:
-                prior_wip_url, prior_summary = prior
-                # Extract branch name from URL: …/tree/<branch>
-                prior_wip_branch = (
-                    prior_wip_url.split("/tree/", 1)[1] if "/tree/" in prior_wip_url else None
-                )
-                _log.info(
-                    "prior WIP branch found; will attempt to resume %s",
-                    prior_wip_branch,
-                )
-
         # ── Prepare repo ───────────────────────────────────────────────────────
-        repo_path, checked_out_wip = prepare_repo(
-            task.repo, repos_dir, run_id, wip_branch=prior_wip_branch
-        )
-        if prior_wip_branch is not None and checked_out_wip is None:
-            _log.warning(
-                "WIP branch %s not found on remote; agent will start from scratch",
-                prior_wip_branch,
-            )
-            prior_wip_branch = None
-            prior_summary = None
+        repo_path = prepare_repo(task.repo, repos_dir, run_id)
         _log.info("repo ready at %s", repo_path)
         # Set agent working directory to the cloned repo (ARCHITECTURE line 630).
         agent_cfg.cwd = repo_path
@@ -434,8 +403,6 @@ def _cmd_run_live(
         prompt = build_prompt(
             task=task,
             project_context=project.context,
-            wip_branch=prior_wip_branch,
-            prior_summary=prior_summary,
         )
 
         # ── Pre-run comment ────────────────────────────────────────────────────
@@ -544,22 +511,13 @@ def _cmd_run_live(
 
         fallback_attempts_json = json.dumps(failed_attempts) if failed_attempts else None
 
-        # ── WIP preservation (non-success outcomes) ────────────────────────────
-        wip_branch_url: str | None = None
+        # ── Report any work left in the tree (non-success outcomes) ───────────
+        # The checkout is discarded in the ``finally`` below; nothing is pushed.
+        # Recording what was in it is what remains of WIP preservation (#62).
         if outcome != "success":
-            # For session_limit_hit: only attempt WIP preservation if the agent
-            # produced output (it ran at least some turns) AND the task config
-            # permits pushing (so the harness has write access to the repo).
-            if failure_reason == "session_limit_hit" and (
-                agent_result is None
-                or agent_result.output_tokens == 0
-                or PermittedAction.PUSH_DEFAULT not in task.permitted_actions
-            ):
-                pass  # skip WIP preservation — issue will be re-queued as-is
-            else:
-                wip_branch_url = preserve_wip(
-                    repo_path, task.repo, run_id, bot_identity=bot_identity
-                )
+            dirty = summarize_dirty_tree(repo_path)
+            if dirty is not None:
+                _log.warning("run %s ended %s with uncommitted work: %s", run_id, outcome, dirty)
 
         # ── Clear tool caches ───────────────────────────────────────────────────
         # Package-manager caches (pip-tools, pip, uv, ...) live under ~/.cache,
@@ -574,8 +532,6 @@ def _cmd_run_live(
             agent_result,
             outcome=outcome,
             agent_name=agent_cfg.agent,
-            wip_branch_url=wip_branch_url,
-            resuming_wip=prior_wip_branch is not None,
         )
 
         # ── Write run record ───────────────────────────────────────────────────
@@ -601,7 +557,6 @@ def _cmd_run_live(
             failure_reason=failure_reason,
             started_at=started_at,
             ended_at=ended_at,
-            wip_branch_url=wip_branch_url,
             fallback_attempts=fallback_attempts_json,
             task_description_override=proactive_task_description,
         )

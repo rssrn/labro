@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-008](0008-remove-wip-preservation.md) (2026-09-02). The
+`partial` outcome and its salvaged cost data survive; the WIP branch, the
+`ai-handover` label and the resume path do not.
 
 ## Context
 

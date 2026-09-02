@@ -71,8 +71,9 @@ class AgentResult:
 
     Token fields map directly to Claude API usage fields.
     ``partial`` is a valid agent outcome stored as ``partial`` in the SQLite
-    runs table; it indicates the agent was cut short (e.g. by a turn limit)
-    and triggers WIP-branch preservation and a handover comment.
+    runs table; it indicates the agent was cut short (e.g. by a turn limit).
+    The harness reports it as an ordinary failure — the checkout is discarded
+    with everything else, and nothing is handed over (#62).
     """
 
     outcome: str  # "success" | "failure" | "partial"

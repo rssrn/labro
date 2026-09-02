@@ -15,7 +15,7 @@ When you run `labro run <project>` without `--dry-run`, the harness executes the
 7. **Prepare repo** — clone the target repo fresh into `/repos/run-<run-id>/<slug>`. Every run gets a directory that did not exist before it started, so no git state an agent leaves behind — dirty tree, diverged branch, `.git/config` residue — can reach the next run. The clone is full, not shallow: agents read history
 8. **Build prompt** — construct the four-section prompt from the resolved task and project context
 9. **Invoke agent** — run `claude -p` as a subprocess with the prompt on stdin; validate the `structured_output` payload. If the model slug is a list, each slug is tried in order on infrastructure failure; the first successful or non-infrastructure-failure outcome wins. Fallback attempts are recorded in `fallback_attempts` in the `runs` table. If the agent hits its turn limit (`--max-turns`), the harness recovers gracefully — see [Turn Limits and Partial Runs](#turn-limits-and-partial-runs) below
-10. **Preserve WIP** — on any non-success outcome, if the working copy is dirty the harness commits it to a `labro-wip/<run-id>` branch and pushes it, so no in-progress code edits are silently discarded
+10. **Report leftovers** — on any non-success outcome, if the working copy is dirty the harness logs a one-line summary of what was in it (`N uncommitted path(s)` plus a diffstat). Nothing is pushed; the checkout is discarded at step 13 like any other
 11. **Post-run labels** — apply label transitions and post a comment to the GitHub item (see [Label Transitions](#label-transitions))
 12. **Write run record** — INSERT a row into `runs` with outcome, cost, token usage, and action list
 13. **Discard checkout** — delete this run's checkout directory (always; in a `finally` block, after the process reaper so nothing is still writing inside it)
@@ -83,9 +83,8 @@ Labro is designed for budget-conscious use. Low `max_turns` values keep costs pr
 When the agent exhausts its turn budget:
 
 1. **Cost is recorded** — `total_cost_usd` and token counts are salvaged from the CLI response and written to the `runs` table as normal, so daily-budget accounting stays accurate even for incomplete runs.
-2. **Code is preserved** — if the agent made any file edits before being cut off, the harness commits them to a `labro-wip/<run-id>` branch and pushes it to the remote. The branch URL appears in the handover comment.
-3. **Handover comment posted** — Labro comments on the issue/PR with the agent's last message, a link to the WIP branch (if any), and the instruction to remove `ai-handover` to re-queue.
-4. **Item is parked** — the `ai-handover` label is applied. The picker will not re-attempt the item until a human reviews the comment and removes the label — intentional friction to avoid burning the turn budget again without a config change.
+2. **Leftovers are reported, not preserved** — if the agent left uncommitted edits in the checkout, the harness logs a one-line diffstat before deleting the checkout. Agents that hold `push_default` push their own branches as they work; the harness does not push anything on their behalf.
+3. **Reported as a failure** — Labro applies `ai-failed` + `ai-contributed` and comments on the issue/PR saying the agent ran out of turns, with the failure reason. The item is parked exactly like any other failure.
 
 > **Tuning tip:** if an item is repeatedly hitting the turn limit, either raise `max_turns` for that project/rule in `labro.toml`, or break the issue into smaller scoped tasks before re-queuing.
 
@@ -100,7 +99,7 @@ After each live run, Labro updates the GitHub labels on the acted-on item automa
 | Outcome | Labels added | Labels removed |
 |---|---|---|
 | success | `<done_label>` (e.g. `ai-dev-done`), `ai-contributed` | `<source_label>` (e.g. `ai-dev`) |
-| partial (turn limit) | `ai-handover`, `ai-contributed` | _(none — source label kept)_ |
+| partial (turn limit) | `ai-failed`, `ai-contributed` | _(none — source label kept)_ |
 | failure | `ai-failed`, `ai-contributed` | _(none — source label kept)_ |
 
 ### `gh-author` Path (Author-Triggered Tasks, No Source Label)
@@ -108,16 +107,10 @@ After each live run, Labro updates the GitHub labels on the acted-on item automa
 | Outcome | Labels added | Labels removed |
 |---|---|---|
 | success | `<done_label>`, `ai-contributed` | _(none)_ |
-| partial (turn limit) | `ai-handover`, `ai-contributed` | _(none)_ |
+| partial (turn limit) | `ai-failed`, `ai-contributed` | _(none)_ |
 | failure | `ai-failed`, `ai-contributed` | _(none)_ |
 
 ### Re-Queuing Items
-
-**After a partial run (`ai-handover`):** review the handover comment (and WIP branch if present), then remove `ai-handover` to re-queue:
-
-```bash
-gh issue edit <number> --remove-label "ai-handover" --repo <owner/repo>
-```
 
 **After a failure (`ai-failed`):** remove `ai-failed` to re-queue (`ai-contributed` can stay — it's informational and never blocks re-pickup):
 

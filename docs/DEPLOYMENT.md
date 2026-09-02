@@ -20,7 +20,7 @@ A GitHub App gives Labro a proper bot identity (`your-app[bot]`) with scoped per
 
 | Permission | Level | Why |
 |---|---|---|
-| Contents | Read & write | Push WIP branches |
+| Contents | Read & write | Let the agent push branches (`push_default`) |
 | Dependabot alerts | Read-only | Fetch open security alerts (`gh-dependabot-alert` source) |
 | Issues | Read & write | Comment, add/remove labels |
 | Metadata | Read-only | Repo lookup (required by GitHub) |

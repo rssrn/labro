@@ -21,8 +21,6 @@ _GENERIC_FAILURE_MSG = (
     "Remove the `ai-failed` and `ai-contributed` labels to re-queue the item."
 )
 
-_AI_HANDOVER_LABEL = "ai-handover"
-
 
 @dataclass
 class PreRunHandle:
@@ -322,20 +320,18 @@ def post_run(
     *,
     outcome: str,
     agent_name: str = "labro-agent",
-    wip_branch_url: str | None = None,
-    resuming_wip: bool = False,
 ) -> None:
-    """Apply label transitions and post failure/handover comments after a run.
+    """Apply label transitions and post failure comments after a run.
 
     Args:
         run_id: Run identifier (informational; not used in gh calls).
         task: The task that was executed.
         agent_result: Structured result from the agent, or None on timeout/error.
-        outcome: ``"success"``, ``"failure"``, or ``"partial"``.
+        outcome: ``"success"``, ``"failure"``, or ``"partial"``.  ``partial``
+            is treated exactly like ``failure``: the harness has no handover
+            path any more (#62), so a run that ran out of turns is reported as
+            a failure with whatever detail the agent gave.
         agent_name: Agent identifier string (e.g. ``"claude-code"``).
-        wip_branch_url: URL of the preserved WIP branch, if one was created.
-        resuming_wip: True if this run resumed from a prior WIP branch (changes
-            the branch-reference wording in the handover comment).
     """
     if task.source in {"proactive-improvement", "gh-dependabot-alert"}:
         _post_run_harness_issue(task, agent_result, outcome=outcome, agent_name=agent_name)
@@ -355,67 +351,37 @@ def post_run(
         add_labels.append("ai-contributed")
         remove_labels = [task.source_label] if task.source_label else []
         _gh_edit(item_type, item_number, repo, add=add_labels, remove=remove_labels)
-    elif outcome == "partial":
-        _gh_edit(
-            item_type, item_number, repo, add=[_AI_HANDOVER_LABEL, "ai-contributed"], remove=[]
-        )
-        progress = (agent_result.summary or "") if agent_result is not None else ""
-        parts: list[str] = [
-            f"Labro's agent (`{agent_name}`) ran out of turns before completing this {item_type}."
-        ]
-        if progress:
-            parts.append(f"\n\n**Progress so far:**\n{progress}")
-        if wip_branch_url:
-            if resuming_wip:
-                parts.append(
-                    f"\n\nExisting WIP branch updated with latest progress: {wip_branch_url}"
-                )
-            else:
-                parts.append(f"\n\nWork in progress preserved on new branch: {wip_branch_url}")
-        parts.append("\n\nRemove the `ai-handover` label to re-queue this item.")
-        _gh_comment(item_type, item_number, repo, "".join(parts))
     elif agent_result is not None and agent_result.failure_reason == "session_limit_hit":
         # Session limit was hit before (or part-way through) the run.  The issue was
-        # never fully worked on, so we must not block re-queuing with ai-failed.
-        if wip_branch_url:
-            # Agent did partial work before hitting the limit — treat like a partial run.
-            _gh_edit(
-                item_type, item_number, repo, add=[_AI_HANDOVER_LABEL, "ai-contributed"], remove=[]
-            )
-            parts = [
-                f"Labro's agent (`{agent_name}`) hit the session limit"
-                f" mid-run on this {item_type}."
-            ]
-            if agent_result.summary:
-                parts.append(f"\n\n**Progress so far:**\n{agent_result.summary}")
-            parts.append(f"\n\nWork in progress preserved on branch: {wip_branch_url}")
-            parts.append("\n\nRemove the `ai-handover` label to re-queue this item.")
-            _gh_comment(item_type, item_number, repo, "".join(parts))
-        else:
-            # Agent produced no output — issue is untouched, leave labels alone so it
-            # remains eligible for future runs.
-            _gh_comment(
-                item_type,
-                item_number,
-                repo,
-                f"Labro skipped this {item_type}: the agent session limit was reached"
-                f" ({agent_result.summary}). "
-                f"This {item_type} remains eligible to be picked in future runs.",
-            )
+        # never fully worked on, so we must not block re-queuing with ai-failed —
+        # leave the labels alone so it remains eligible for future runs.
+        _gh_comment(
+            item_type,
+            item_number,
+            repo,
+            f"Labro skipped this {item_type}: the agent session limit was reached"
+            f" ({agent_result.summary}). "
+            f"This {item_type} remains eligible to be picked in future runs.",
+        )
     else:
         _gh_edit(item_type, item_number, repo, add=["ai-failed", "ai-contributed"], remove=[])
+        detail = None
         if agent_result is not None:
             detail = agent_result.failure_reason or agent_result.summary
+        if detail is None:
+            body = _GENERIC_FAILURE_MSG
+        elif outcome == "partial":
+            # A turn-limit run is reported as an ordinary failure: the checkout is
+            # discarded at the end of the run, so there is no work to hand over.
+            body = (
+                f"Labro's agent (`{agent_name}`) ran out of turns before completing"
+                f" this {item_type}.\n\n**Reason:** {detail}"
+            )
+        else:
             body = (
                 f"Labro's agent (`{agent_name}`) was assigned this {item_type}"
                 f" but reported failure.\n\n**Reason:** {detail}"
-                if detail
-                else _GENERIC_FAILURE_MSG
             )
-        else:
-            body = _GENERIC_FAILURE_MSG
-        if wip_branch_url:
-            body += f"\n\nWork in progress preserved on branch: {wip_branch_url}"
         _gh_comment(item_type, item_number, repo, body)
 
 

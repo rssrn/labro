@@ -150,20 +150,6 @@ def test_label_rule_skip_ai_failed() -> None:
     assert result is None
 
 
-def test_label_rule_skip_ai_handover() -> None:
-    """Items with the ``ai-handover`` label are excluded."""
-    src_cfg = _source_config(label_rules=[_label_rule()])
-    proj = _project(source_cfg=src_cfg)
-    cfg = _config(proj)
-    source = GhLabelTaskSource(src_cfg)
-
-    handover_item = {**_LABEL_ITEM, "labels": [{"name": "ai-dev"}, {"name": "ai-handover"}]}
-    with patch("labro.task_sources.gh_label._run_gh_api", return_value=[handover_item]):
-        result = _fetch(source, proj, cfg)
-
-    assert result is None
-
-
 def test_label_rule_source_label_set() -> None:
     """source_label is populated with the matched label name."""
     src_cfg = _source_config(label_rules=[_label_rule(label="ai-dev", done_label="ai-dev-done")])

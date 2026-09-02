@@ -282,13 +282,13 @@ class ItemRef:
     item_number: int
 ```
 
-`post_run.py` branches on `"success"`, `"partial"`, and `"failure"`. A `"partial"` outcome (agent cut short by turn limit) triggers a handover path distinct from plain failure — see §error_max_turns recovery below.
+`post_run.py` branches on `"success"` and everything else. A `"partial"` outcome (agent cut short by turn limit) is recorded as `partial` in the `runs` table — it stays distinguishable in the dashboard — but is reported on GitHub exactly like a failure; see §error_max_turns recovery below.
 
 #### `error_max_turns` recovery
 
-When the Claude CLI exits with `subtype == "error_max_turns"` and no `structured_output`, the runner builds an `AgentResult(outcome="partial")` from salvaged fields (`result`, `total_cost_usd`, token counts) rather than raising `RunnerOutputError`. This preserves budget data and feeds the handover path.
+When the Claude CLI exits with `subtype == "error_max_turns"` and no `structured_output`, the agent adapter builds an `AgentResult(outcome="partial")` from salvaged fields (`result`, `total_cost_usd`, token counts) rather than raising `AgentOutputError`. This preserves budget data; the run is then reported as a failure whose reason is `error_max_turns`.
 
-After any non-success outcome, `cli.py` calls `repo.preserve_wip(repo_path, repo, run_id)`, which creates a `labro-wip/<run-id>` branch from any dirty working copy and pushes it to the remote. This is a harness action independent of `permitted_actions` — the user opted into the harness writing WIP branches unconditionally.
+After any non-success outcome, `cli.py` calls `repo.summarize_dirty_tree(repo_path)` and logs a one-line summary of anything the agent left uncommitted. The harness pushes nothing: the checkout is deleted in the run loop's `finally` like any other. Agents that hold `push_default` push their own branches as they work. See [ADR-008](adr/0008-remove-wip-preservation.md).
 
 ### Label State Machine
 
@@ -298,25 +298,24 @@ No in-progress label is used during a run — the project lock (`project_locks` 
 
 #### `gh-label` — label_rules
 
-The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` and `ai-handover` labels gate re-pickup; the source label is kept so the operator need only remove `ai-failed` to retry. For `ai-handover`, removing the label also re-queues the item.
+The trigger label (e.g. `ai-dev`) is the pickup signal. The `ai-failed` label gates re-pickup; the source label is kept so the operator need only remove `ai-failed` to retry.
 
 | Phase | Labels on item | Harness action |
 | :--- | :--- | :--- |
-| **Eligible** | Has source label (e.g. `ai-dev`) AND NOT `ai-failed` AND NOT `ai-handover` | Picker selects item |
+| **Eligible** | Has source label (e.g. `ai-dev`) AND NOT `ai-failed` | Picker selects item |
 | **Skipped — failed** | Has `ai-failed` | Picker ignores; operator removes `ai-failed` to re-enable |
-| **Skipped — handed over** | Has `ai-handover` | Picker ignores; operator removes `ai-handover` to re-queue |
 | **Skipped — done** | Has done label (e.g. `ai-dev-done`) | Picker ignores (source label already removed) |
 | **Success** | — | Remove source label; apply done label; apply `ai-contributed` |
-| **Partial (turn limit)** | — | Apply `ai-handover` + `ai-contributed`; post handover comment (includes WIP branch URL if code was preserved) |
-| **Failure** | — | Keep source label; apply `ai-failed`; apply `ai-contributed`; post failure comment (includes WIP branch URL if any) |
+| **Partial (turn limit)** | — | Keep source label; apply `ai-failed` + `ai-contributed`; post a comment naming the turn limit |
+| **Failure** | — | Keep source label; apply `ai-failed`; apply `ai-contributed`; post failure comment |
 
 #### `gh-author`
 
-No source label to remove — the done label is the "already processed" gate. `ai-failed` and `ai-handover` exclusions apply here too.
+No source label to remove — the done label is the "already processed" gate. The `ai-failed` exclusion applies here too.
 
 | Phase | Labels on item | Harness action |
 | :--- | :--- | :--- |
-| **Eligible** | Opened by configured author AND NOT has done label AND NOT `ai-failed` AND NOT `ai-handover` | Picker selects item |
+| **Eligible** | Opened by configured author AND NOT has done label AND NOT `ai-failed` | Picker selects item |
 | **Skipped — done** | Has done label | Picker ignores |
 | **Skipped — failed** | Has `ai-failed` | Picker ignores |
 | **Success** | — | Apply done label; apply `ai-contributed` |
@@ -1099,9 +1098,10 @@ _Record significant decisions here, or link to individual ADR files in `docs/adr
 | [ADR-002](adr/0002-github-as-state-store.md) | Use GitHub labels as the state store for outcome tracking; universal `ai-contributed` marker label | Accepted | 2026-05-26 |
 | [ADR-003](adr/0003-prompt-only-action-permissions-enforcement.md) | Prompt-only enforcement for action permissions in v1; no `gh` wrapper script | Accepted | 2026-05-26 |
 | [ADR-004](adr/0004-sqlite-persistence.md) | Use SQLite as the persistence layer; no external database service | Accepted | 2026-05-26 |
-| [ADR-005](adr/0005-partial-run-handover.md) | Treat turn-limit exhaustion as a `partial` outcome with WIP-branch handover | Accepted | — |
+| [ADR-005](adr/0005-partial-run-handover.md) | Treat turn-limit exhaustion as a `partial` outcome with WIP-branch handover | Superseded by ADR-008 | — |
 | [ADR-006](adr/0006-multi-provider-agent-registry.md) | Multi-provider agent registry; CLI-prefixed slug grammar | Accepted | 2026-06-01 |
 | [ADR-007](adr/0007-metrics-dashboard.md) | Read-only static metrics dashboard: sql.js SPA over a published `labro.db` snapshot on Cloudflare R2 | Accepted | 2026-06-04 |
+| [ADR-008](adr/0008-remove-wip-preservation.md) | Remove WIP-branch preservation and resume; a cut-short run is an ordinary failure | Accepted | 2026-09-02 |
 
 > _Use `docs/adr/NNN-title.md` for decisions that need more context than a table row._
 

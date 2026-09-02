@@ -15,7 +15,6 @@ import pytest
 from labro.store import (
     acquire_lock,
     get_daily_spend,
-    get_prior_wip_run,
     insert_items_touched,
     open_db,
     release_lock,
@@ -276,123 +275,6 @@ def test_open_db_accepts_partial_outcome() -> None:
     conn.commit()
     row = conn.execute("SELECT outcome FROM runs WHERE run_id = 'run-p'").fetchone()
     assert row["outcome"] == "partial"
-
-
-# ---------------------------------------------------------------------------
-# get_prior_wip_run
-# ---------------------------------------------------------------------------
-
-
-def _insert_run(
-    conn: sqlite3.Connection,
-    run_id: str,
-    item_url: str,
-    outcome: str,
-    started_at: str,
-    summary: str | None = None,
-    wip_branch_url: str | None = None,
-) -> None:
-    conn.execute(
-        "INSERT INTO runs"
-        " (run_id, project, started_at, outcome, item_url, summary, wip_branch_url)"
-        " VALUES (?, 'proj', ?, ?, ?, ?, ?)",
-        (run_id, started_at, outcome, item_url, summary, wip_branch_url),
-    )
-    conn.commit()
-
-
-def test_get_prior_wip_run_no_partial_returns_none() -> None:
-    """Returns None when there are no partial runs for the item URL."""
-    conn = _memory_db()
-    url = "https://github.com/o/r/issues/1"
-    _insert_run(conn, "run-ok", url, "success", "2024-01-01T00:00:00Z")
-    result = get_prior_wip_run(conn, url)
-    assert result is None
-
-
-def test_get_prior_wip_run_returns_most_recent_branch() -> None:
-    """Returns (wip_branch_url, summary) of the most recent partial with a WIP branch."""
-    conn = _memory_db()
-    url = "https://github.com/o/r/issues/7"
-    wip1 = "https://github.com/o/r/tree/labro-wip/run-p1"
-    # run-p2 pushed to the same branch as run-p1 (resume path)
-    wip2 = "https://github.com/o/r/tree/labro-wip/run-p1"
-    _insert_run(
-        conn,
-        "run-p1",
-        url,
-        "partial",
-        "2024-01-01T00:00:00Z",
-        "First attempt.",
-        wip_branch_url=wip1,
-    )
-    _insert_run(
-        conn,
-        "run-p2",
-        url,
-        "partial",
-        "2024-01-02T00:00:00Z",
-        "Second attempt.",
-        wip_branch_url=wip2,
-    )
-    result = get_prior_wip_run(conn, url)
-    assert result is not None
-    branch_url, summary = result
-    assert branch_url == wip2
-    assert summary == "Second attempt."
-
-
-def test_get_prior_wip_run_skips_runs_without_branch() -> None:
-    """Partial runs where preserve_wip returned None are not returned."""
-    conn = _memory_db()
-    url = "https://github.com/o/r/issues/9"
-    _insert_run(
-        conn,
-        "run-no-branch",
-        url,
-        "partial",
-        "2024-01-01T00:00:00Z",
-        "Did stuff.",
-        wip_branch_url=None,
-    )
-    result = get_prior_wip_run(conn, url)
-    assert result is None
-
-
-def test_get_prior_wip_run_null_summary_returns_empty_string() -> None:
-    """When summary is NULL in the DB, returns an empty string (not None)."""
-    conn = _memory_db()
-    url = "https://github.com/o/r/issues/9"
-    wip = "https://github.com/o/r/tree/labro-wip/run-null"
-    _insert_run(
-        conn,
-        "run-null-sum",
-        url,
-        "partial",
-        "2024-01-01T00:00:00Z",
-        summary=None,
-        wip_branch_url=wip,
-    )
-    result = get_prior_wip_run(conn, url)
-    assert result is not None
-    _, summary = result
-    assert summary == ""
-
-
-def test_get_prior_wip_run_ignores_different_url() -> None:
-    """Partial runs for a different item URL are not returned."""
-    conn = _memory_db()
-    wip = "https://github.com/o/r/tree/labro-wip/run-other"
-    _insert_run(
-        conn,
-        "run-other",
-        "https://github.com/o/r/issues/99",
-        "partial",
-        "2024-01-01T00:00:00Z",
-        wip_branch_url=wip,
-    )
-    result = get_prior_wip_run(conn, "https://github.com/o/r/issues/1")
-    assert result is None
 
 
 def test_migration_adds_closed_duplicate_to_constraint(tmp_path: Path) -> None:

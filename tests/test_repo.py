@@ -1,4 +1,4 @@
-"""Tests for labro.repo — per-run clone, checkout disposal, and WIP preservation.
+"""Tests for labro.repo — per-run clone, checkout disposal, and dirty-tree reporting.
 
 @author Claude Sonnet 4.6 Anthropic
 """
@@ -17,8 +17,8 @@ from labro.repo import (
     clear_tool_caches,
     discard_checkout,
     prepare_repo,
-    preserve_wip,
     run_checkout_root,
+    summarize_dirty_tree,
     sweep_stale_checkouts,
 )
 
@@ -53,10 +53,9 @@ class TestCloneIntoPerRunDir:
         dest = tmp_path / "run-run-1" / "cli"
 
         with patch("labro.repo.subprocess.run", side_effect=[_make_completed()]) as mock_run:
-            path, wip = prepare_repo("cli/cli", tmp_path, "run-1")
+            path = prepare_repo("cli/cli", tmp_path, "run-1")
 
         assert path == dest
-        assert wip is None
         assert path.parent == run_checkout_root(tmp_path, "run-1")
         cmds = [c.args[0] for c in mock_run.call_args_list]
         assert cmds == [["gh", "repo", "clone", "cli/cli", str(dest)]]
@@ -66,8 +65,8 @@ class TestCloneIntoPerRunDir:
             "labro.repo.subprocess.run",
             side_effect=[_make_completed(), _make_completed()],
         ):
-            first, _ = prepare_repo("owner/repo", tmp_path, "run-a")
-            second, _ = prepare_repo("owner/repo", tmp_path, "run-b")
+            first = prepare_repo("owner/repo", tmp_path, "run-a")
+            second = prepare_repo("owner/repo", tmp_path, "run-b")
 
         assert first != second
 
@@ -77,7 +76,7 @@ class TestCloneIntoPerRunDir:
         (tmp_path / "run-old" / "repo").mkdir(parents=True)  # earlier run's copy
 
         with patch("labro.repo.subprocess.run", side_effect=[_make_completed()]) as mock_run:
-            path, _ = prepare_repo("owner/repo", tmp_path, "run-new")
+            path = prepare_repo("owner/repo", tmp_path, "run-new")
 
         assert path == run_checkout_root(tmp_path, "run-new") / "repo"
         cmds = [c.args[0] for c in mock_run.call_args_list]
@@ -95,175 +94,6 @@ class TestShellFalseEnforced:
 
         for c in mock_run.call_args_list:
             assert c.kwargs.get("shell", False) is False, f"shell=True found in call: {c}"
-
-    def test_shell_false_enforced_wip_resume(self, tmp_path: Path) -> None:
-        side_effects = [
-            _make_completed(),  # clone
-            _make_completed(stdout="refs/heads/labro-wip/x\n"),  # ls-remote
-            _make_completed(),  # fetch
-            _make_completed(),  # checkout -B
-        ]
-
-        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            prepare_repo("cli/cli", tmp_path, "run-1", wip_branch="labro-wip/x")
-
-        for c in mock_run.call_args_list:
-            assert c.kwargs.get("shell", False) is False, f"shell=True found in call: {c}"
-
-
-# ---------------------------------------------------------------------------
-# preserve_wip
-# ---------------------------------------------------------------------------
-
-
-class TestPreserveWip:
-    """Unit tests for preserve_wip — WIP branch creation and push."""
-
-    def test_clean_repo_returns_none(self, tmp_path: Path) -> None:
-        """Clean working copy → return None without running any git commands."""
-        with patch("labro.repo.subprocess.run") as mock_run:
-            mock_run.return_value = _make_completed(stdout="")  # clean
-            result = preserve_wip(tmp_path, "owner/repo", "run-123")
-
-        assert result is None
-        # Only git status should have been called
-        called_cmds = [c.args[0] for c in mock_run.call_args_list]
-        assert len(called_cmds) == 1
-        assert "status" in called_cmds[0]
-
-    def test_dirty_repo_creates_branch_and_pushes(self, tmp_path: Path) -> None:
-        """Dirty working copy → branch/add/commit/push sequence; returns URL."""
-        dirty_output = " M some_file.py"
-        side_effects = [
-            _make_completed(stdout=dirty_output),  # git status
-            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
-            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
-            _make_completed(),  # git checkout -b
-            _make_completed(),  # git add -A
-            _make_completed(),  # git commit
-            _make_completed(),  # git push
-        ]
-
-        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            url = preserve_wip(tmp_path, "owner/repo", "run-abc")
-
-        assert url == "https://github.com/owner/repo/tree/labro-wip/run-abc"
-        cmds = [c.args[0] for c in mock_run.call_args_list]
-        assert any("checkout" in cmd and "labro-wip/run-abc" in cmd for cmd in cmds)
-        assert any("add" in cmd for cmd in cmds)
-        assert any("commit" in cmd for cmd in cmds)
-        assert any("push" in cmd for cmd in cmds)
-
-    def test_push_failure_returns_none_and_warns(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """If push fails, return None (best-effort) and log a warning."""
-        import subprocess
-
-        dirty_output = " M some_file.py"
-        side_effects = [
-            _make_completed(stdout=dirty_output),  # git status
-            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
-            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
-            _make_completed(),  # git checkout -b
-            _make_completed(),  # git add -A
-            _make_completed(),  # git commit
-            MagicMock(returncode=1, stdout="", stderr="push denied"),  # git push (fails)
-        ]
-
-        def fake_run(args: list[str], **kwargs: object) -> MagicMock:
-            effect = side_effects.pop(0)
-            if isinstance(effect, MagicMock) and effect.returncode != 0:
-                raise subprocess.CalledProcessError(1, args, stderr="push denied")
-            return effect
-
-        with patch("labro.repo.subprocess.run", side_effect=fake_run):
-            with caplog.at_level(logging.WARNING, logger="labro.repo"):
-                result = preserve_wip(tmp_path, "owner/repo", "run-fail")
-
-        assert result is None
-        assert any("preserve_wip" in rec.message for rec in caplog.records)
-
-    def test_shell_false_enforced(self, tmp_path: Path) -> None:
-        """All subprocess calls in preserve_wip must use shell=False."""
-        dirty_output = " M x.py"
-        side_effects = [
-            _make_completed(stdout=dirty_output),  # git status
-            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
-            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
-            _make_completed(),  # git checkout -b
-            _make_completed(),  # git add -A
-            _make_completed(),  # git commit
-            _make_completed(),  # git push
-        ]
-
-        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            preserve_wip(tmp_path, "owner/repo", "run-shell-check")
-
-        for c in mock_run.call_args_list:
-            assert c.kwargs.get("shell", False) is False, f"shell=True in: {c}"
-
-    def test_bot_identity_skips_gh_api_call(self, tmp_path: Path) -> None:
-        """When bot_identity is provided, no gh api user call is made."""
-        dirty_output = " M some_file.py"
-        side_effects = [
-            _make_completed(stdout=dirty_output),  # git status
-            _make_completed(stdout="main\n"),  # git rev-parse --abbrev-ref HEAD
-            # no gh api user call — identity supplied directly
-            _make_completed(),  # git checkout -b
-            _make_completed(),  # git add -A
-            _make_completed(),  # git commit
-            _make_completed(),  # git push
-        ]
-
-        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            url = preserve_wip(
-                tmp_path,
-                "owner/repo",
-                "run-bot",
-                bot_identity=(
-                    "labro-rssrn[bot]",
-                    "12345+labro-rssrn[bot]@users.noreply.github.com",
-                ),
-            )
-
-        assert url == "https://github.com/owner/repo/tree/labro-wip/run-bot"
-        cmds = [c.args[0] for c in mock_run.call_args_list]
-        gh_calls = [cmd for cmd in cmds if cmd[0] == "gh"]
-        assert not gh_calls, f"no gh calls expected when bot_identity is provided, got: {gh_calls}"
-        # Verify bot identity appears in the commit command
-        commit_call = next(c for c in mock_run.call_args_list if "commit" in c.args[0])
-        commit_args_flat = " ".join(commit_call.args[0])
-        assert "labro-rssrn[bot]" in commit_args_flat
-        assert "12345+labro-rssrn[bot]@users.noreply.github.com" in commit_args_flat
-
-    def test_already_on_wip_branch_reuses_it(self, tmp_path: Path) -> None:
-        """If already on a labro-wip/* branch, no new branch is created — commits to existing."""
-        dirty_output = " M some_file.py"
-        side_effects = [
-            _make_completed(stdout=dirty_output),  # git status
-            _make_completed(stdout="labro-wip/prior-run-id\n"),  # git rev-parse (on WIP branch)
-            _make_completed(stdout="mylogin 12345678\n"),  # gh api user (identity)
-            # No checkout -b — already on branch
-            _make_completed(),  # git add -A
-            _make_completed(),  # git commit
-            _make_completed(),  # git push
-        ]
-
-        with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            url = preserve_wip(tmp_path, "owner/repo", "new-run-id")
-
-        assert url == "https://github.com/owner/repo/tree/labro-wip/prior-run-id"
-        cmds = [c.args[0] for c in mock_run.call_args_list]
-        assert not any("checkout" in cmd for cmd in cmds), "should not create new branch"
-        assert any("add" in cmd for cmd in cmds)
-        assert any("commit" in cmd for cmd in cmds)
-        assert any("push" in cmd for cmd in cmds)
-
-
-# ---------------------------------------------------------------------------
-# discard_checkout / sweep_stale_checkouts
-# ---------------------------------------------------------------------------
 
 
 class TestDiscardCheckout:
@@ -394,57 +224,44 @@ class TestClearToolCaches:
 
 
 # ---------------------------------------------------------------------------
-# prepare_repo — WIP branch checkout
+# summarize_dirty_tree
 # ---------------------------------------------------------------------------
 
 
-class TestWipBranchCheckout:
-    """prepare_repo checks out a WIP branch when wip_branch is given and exists on remote."""
+class TestSummarizeDirtyTree:
+    """What is left of WIP preservation: report leftovers, never push them."""
 
-    def test_wip_branch_found_and_checked_out(self, tmp_path: Path) -> None:
-        """WIP branch exists on remote -> fetch + checkout -B; returns (path, branch)."""
-        dest = run_checkout_root(tmp_path, "run-1") / "repo"
-        wip = "labro-wip/prior-run-id"
+    def test_clean_tree_returns_none(self, tmp_path: Path) -> None:
+        with patch("labro.repo.subprocess.run", side_effect=[_make_completed(stdout="")]):
+            assert summarize_dirty_tree(tmp_path) is None
 
+    def test_dirty_tree_reports_paths_and_shortstat(self, tmp_path: Path) -> None:
         side_effects = [
-            _make_completed(),  # clone
-            _make_completed(stdout="refs/heads/labro-wip/prior-run-id\n"),  # ls-remote
-            _make_completed(),  # fetch
-            _make_completed(),  # checkout -B
+            _make_completed(stdout=" M src/a.py\n?? src/b.py\n"),  # status --porcelain
+            _make_completed(stdout=" 1 file changed, 3 insertions(+)\n"),  # diff --shortstat
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects) as mock_run:
-            path, checked_out = prepare_repo("owner/repo", tmp_path, "run-1", wip_branch=wip)
+            summary = summarize_dirty_tree(tmp_path)
 
-        assert path == dest
-        assert checked_out == wip
+        assert summary == "2 uncommitted path(s); 1 file changed, 3 insertions(+)"
+        for c in mock_run.call_args_list:
+            assert c.kwargs.get("shell", False) is False, f"shell=True found in call: {c}"
 
-        # ls-remote and fetch must both use the credential helper
-        cmds = [c.args[0] for c in mock_run.call_args_list]
-        ls_remote_cmd = next(cmd for cmd in cmds if "ls-remote" in cmd)
-        fetch_cmd = next(cmd for cmd in cmds if "fetch" in cmd)
-        assert "credential.helper=!gh auth git-credential" in ls_remote_cmd
-        assert "credential.helper=!gh auth git-credential" in fetch_cmd
-
-    def test_wip_branch_not_found_falls_back(self, tmp_path: Path) -> None:
-        """WIP branch absent on remote -> returns (path, None)."""
-        wip = "labro-wip/stale-run-id"
-
+    def test_dirty_tree_without_shortstat_still_reports(self, tmp_path: Path) -> None:
         side_effects = [
-            _make_completed(),  # clone
-            _make_completed(returncode=2),  # ls-remote — branch not found
+            _make_completed(stdout="?? untracked.txt\n"),
+            _make_completed(stdout=""),
         ]
 
         with patch("labro.repo.subprocess.run", side_effect=side_effects):
-            path, checked_out = prepare_repo("owner/repo", tmp_path, "run-1", wip_branch=wip)
+            assert summarize_dirty_tree(tmp_path) == "1 uncommitted path(s)"
 
-        assert path == run_checkout_root(tmp_path, "run-1") / "repo"
-        assert checked_out is None
+    def test_git_failure_is_swallowed(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with patch("labro.repo.subprocess.run", side_effect=OSError("git missing")):
+            with caplog.at_level(logging.WARNING, logger="labro.repo"):
+                assert summarize_dirty_tree(tmp_path) is None
 
-    def test_no_wip_branch_returns_none(self, tmp_path: Path) -> None:
-        """When wip_branch is not specified, second return value is always None."""
-        with patch("labro.repo.subprocess.run", side_effect=[_make_completed()]):
-            path, checked_out = prepare_repo("owner/repo", tmp_path, "run-1")
-
-        assert path == run_checkout_root(tmp_path, "run-1") / "repo"
-        assert checked_out is None
+        assert any("summarize_dirty_tree" in rec.message for rec in caplog.records)

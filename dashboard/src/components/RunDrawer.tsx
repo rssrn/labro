@@ -208,7 +208,7 @@ export default function RunDrawer({ run, onClose }: Props) {
             </Block>
           )}
           {run.wip_branch_url && (
-            <Block label="wip branch" subtitle="Run was cut short (partial) — in-progress changes were pushed here for handover.">
+            <Block label="wip branch" subtitle="Historical only — the harness no longer preserves work on a branch (ADR-008).">
               <a href={run.wip_branch_url} target="_blank" rel="noreferrer"
                 style={{ color: '#5af', textDecoration: 'none', wordBreak: 'break-all' }}>
                 {run.wip_branch_url}

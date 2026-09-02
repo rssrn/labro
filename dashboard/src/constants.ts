@@ -10,7 +10,7 @@ export const OUTCOME_COLOR: Record<string, string> = {
 export const OUTCOME_TOOLTIP: Record<string, string> = {
   success: 'Agent ran to completion and reported success.',
   failure: 'Agent ran but reported failure, or the run errored out.',
-  partial: 'Agent hit the configured turn limit and was cut short. Work is saved to a WIP branch and a handover comment is posted.',
+  partial: 'Agent hit the configured turn limit and was cut short. Reported as a failure on the issue; the checkout is discarded, so nothing is handed over.',
   skipped: 'Harness did not invoke the agent — see failure reason for why (e.g. no task found, daily budget exceeded, project already locked).',
 };
 

@@ -26,7 +26,6 @@ def write_run(
     failure_reason: str | None,
     started_at: str,
     ended_at: str,
-    wip_branch_url: str | None = None,
     fallback_attempts: str | None = None,
     task_description_override: str | None = None,
 ) -> None:
@@ -49,7 +48,6 @@ def write_run(
         failure_reason: Human-readable failure / skip description, or ``None``.
         started_at: ISO 8601 UTC timestamp for run start.
         ended_at: ISO 8601 UTC timestamp for run end.
-        wip_branch_url: URL of the WIP branch preserved by ``preserve_wip``, if any.
         fallback_attempts: JSON array of failed attempt info, or ``None`` if no fallback occurred.
     """
     # Derive duration_s from agent_result.duration_ms when available.
@@ -124,7 +122,8 @@ def write_run(
                 "summary": ar.summary if ar is not None else None,
                 "actions_taken": actions_taken_json,
                 "failure_reason": failure_reason,
-                "wip_branch_url": wip_branch_url,
+                # Retained as a column for historical rows; nothing writes it any more (#62).
+                "wip_branch_url": None,
                 "chosen_perspective": task.chosen_perspective if task is not None else None,
                 "fallback_attempts": fallback_attempts,
                 "source_description": task.source_description if task is not None else None,

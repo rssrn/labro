@@ -70,9 +70,7 @@ def run_checkout_root(repos_dir: Path, run_id: str) -> Path:
     return repos_dir / f"{_RUN_DIR_PREFIX}{run_id}"
 
 
-def prepare_repo(
-    repo: str, repos_dir: Path, run_id: str, wip_branch: str | None = None
-) -> tuple[Path, str | None]:
+def prepare_repo(repo: str, repos_dir: Path, run_id: str) -> Path:
     """Clone a repository into a fresh per-run directory and return its path.
 
     Parameters
@@ -84,16 +82,11 @@ def prepare_repo(
         placed at ``repos_dir/run-<run_id>/<repo-name>``.
     run_id:
         The current run's id, which scopes the checkout to this run.
-    wip_branch:
-        If provided, try to check out this branch (e.g. ``labro-wip/<run-id>``)
-        after cloning.  The second return value reports whether the checkout
-        succeeded.
 
     Returns
     -------
-    tuple[Path, str | None]
-        ``(repo_path, checked_out_wip)`` where ``checked_out_wip`` is the WIP
-        branch name if it was successfully checked out, else ``None``.
+    Path
+        The path of the cloned working copy.
 
     Notes
     -----
@@ -119,69 +112,44 @@ def prepare_repo(
     logger.info("Cloning %s into %s", repo, dest)
     _run(["gh", "repo", "clone", repo, str(dest)])
     # A fresh clone lands on the default branch; no checkout needed.
+    return dest
 
-    if wip_branch is not None:
-        # Credential helper required — git ls-remote doesn't inherit gh auth automatically.
-        # Exit code 2 means "no matching refs"; other non-zero codes mean auth/network error.
-        ls_result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(dest),
-                "-c",
-                "credential.helper=!gh auth git-credential",
-                "ls-remote",
-                "--exit-code",
-                "origin",
-                wip_branch,
-            ],
+
+def summarize_dirty_tree(repo_path: Path) -> str | None:
+    """Return a one-line description of uncommitted changes, or ``None`` if clean.
+
+    Best-effort — never raises; an unreadable or missing checkout is reported as
+    clean.  This is all that remains of WIP-branch preservation (removed in #62):
+    the harness no longer pushes an agent's leftovers anywhere, but a run that
+    ends badly still records whether the agent had real work in the tree when it
+    was discarded, which is the only question the WIP branches ever answered.
+
+    @author Claude Opus 5 Anthropic
+    """
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(repo_path), "status", "--porcelain"],
+            shell=False,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        entries = [line for line in status.stdout.splitlines() if line.strip()]
+        if not entries:
+            return None
+        shortstat = subprocess.run(
+            ["git", "-C", str(repo_path), "diff", "--shortstat", "HEAD"],
             shell=False,
             check=False,
             capture_output=True,
             text=True,
         )
-        if ls_result.returncode == 0:
-            logger.info("Checking out WIP branch %s for resume", wip_branch)
-            _run(
-                [
-                    "git",
-                    "-C",
-                    str(dest),
-                    "-c",
-                    "credential.helper=!gh auth git-credential",
-                    "fetch",
-                    "origin",
-                    wip_branch,
-                ]
-            )
-            # -B creates the local branch if absent, or resets it to the remote ref.
-            _run(
-                [
-                    "git",
-                    "-C",
-                    str(dest),
-                    "checkout",
-                    "-B",
-                    wip_branch,
-                    f"origin/{wip_branch}",
-                ]
-            )
-            return dest, wip_branch
-        if ls_result.returncode == 2:
-            logger.warning(
-                "WIP branch %s not found on remote; starting from the default branch",
-                wip_branch,
-            )
-        else:
-            logger.warning(
-                "ls-remote failed (exit %d) checking for WIP branch %s;"
-                " starting from the default branch\n%s",
-                ls_result.returncode,
-                wip_branch,
-                ls_result.stderr.strip(),
-            )
-
-    return dest, None
+        detail = shortstat.stdout.strip()
+        summary = f"{len(entries)} uncommitted path(s)"
+        return f"{summary}; {detail}" if detail else summary
+    except Exception:
+        logger.warning("summarize_dirty_tree failed for %s", repo_path, exc_info=True)
+        return None
 
 
 def discard_checkout(run_dir: Path) -> None:
@@ -272,117 +240,3 @@ def clear_tool_caches() -> None:
         shutil.rmtree(Path.home() / ".cache", ignore_errors=True)
     except Exception:
         logger.warning("clear_tool_caches failed", exc_info=True)
-
-
-def _gh_user_identity(
-    bot_identity: tuple[str, str] | None = None,
-) -> tuple[str, str]:
-    """Return (name, email) for commit authorship.
-
-    If *bot_identity* is provided (GitHub App mode), it is returned directly.
-    Otherwise queries ``gh api user`` and falls back to a generic identity on
-    any error.
-    """
-    if bot_identity is not None:
-        return bot_identity
-    try:
-        result = subprocess.run(
-            ["gh", "api", "user", "--jq", '[.login, .id] | join(" ")'],
-            shell=False,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        parts = result.stdout.strip().split()
-        login = parts[0]
-        uid = parts[1] if len(parts) > 1 else ""
-        email = (
-            f"{uid}+{login}@users.noreply.github.com"
-            if uid
-            else f"{login}@users.noreply.github.com"
-        )
-        return login, email
-    except Exception:
-        return "Labro", "labro@users.noreply.github.com"
-
-
-def preserve_wip(
-    repo_path: Path,
-    repo: str,
-    run_id: str,
-    *,
-    bot_identity: tuple[str, str] | None = None,
-) -> str | None:
-    """Push any dirty working copy to a ``labro-wip/<run-id>`` branch.
-
-    Best-effort — never raises. Returns the branch web URL on success, or
-    ``None`` if the copy is clean or if any git/push step fails.
-
-    Pass *bot_identity* as ``(name, email)`` when using GitHub App auth to
-    override the default ``gh api user`` identity lookup.
-
-    @author Claude Sonnet 4.6 Anthropic
-    """
-    try:
-        status_result = subprocess.run(
-            ["git", "-C", str(repo_path), "status", "--porcelain"],
-            shell=False,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        if not status_result.stdout.strip():
-            return None
-
-        # Reuse the current branch if already on a WIP branch. Since checkouts are
-        # cloned fresh per run, the only way HEAD sits on ``labro-wip/*`` is the
-        # resume path in ``prepare_repo`` — a resumed run that fails again keeps
-        # appending to the same branch rather than forking a new one.
-        current_result = subprocess.run(
-            ["git", "-C", str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"],
-            shell=False,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        current_branch = current_result.stdout.strip()
-
-        git_name, git_email = _gh_user_identity(bot_identity)
-
-        if current_branch.startswith("labro-wip/"):
-            branch = current_branch
-        else:
-            branch = f"labro-wip/{run_id}"
-            _run(["git", "-C", str(repo_path), "checkout", "-b", branch])
-        _run(["git", "-C", str(repo_path), "add", "-A"])
-        _run(
-            [
-                "git",
-                "-C",
-                str(repo_path),
-                "-c",
-                f"user.name={git_name}",
-                "-c",
-                f"user.email={git_email}",
-                "commit",
-                "-m",
-                f"WIP: labro run {run_id}",
-            ]
-        )
-        _run(
-            [
-                "git",
-                "-C",
-                str(repo_path),
-                "-c",
-                "credential.helper=!gh auth git-credential",
-                "push",
-                "--set-upstream",
-                "origin",
-                branch,
-            ]
-        )
-        return f"https://github.com/{repo}/tree/{branch}"
-    except Exception:
-        logger.warning("preserve_wip failed for run %s", run_id, exc_info=True)
-        return None
