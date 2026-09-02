@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.18.0 — 2026-09-02
+
+### Removed
+- **WIP-branch preservation and resume are gone** (#62). The harness no longer
+  pushes a dirty working copy to `labro-wip/<run-id>`, no longer applies the
+  `ai-handover` label, and no longer resumes a later run from a preserved
+  branch. In 1,999 runs the loop never completed once: four branches were ever
+  created — three from the same dead-agent provider error, and one holding a
+  scratch file whose contents the agent had already posted to the PR — and no
+  run ever resumed from one. Agents that hold `push_default` push their own
+  branches as they work, which is what actually preserved every piece of real
+  work to date.
+
+### Changed
+- **A turn-limit run is now reported as an ordinary failure.** A `partial`
+  outcome gets `ai-failed` + `ai-contributed` and a comment naming the turn
+  limit and the failure reason, instead of `ai-handover` and a handover
+  comment. `partial` is still recorded as its own outcome in the `runs` table
+  and still shown separately in the dashboard.
+- **The agent prompt no longer claims the working copy is reused across runs**
+  — untrue since v0.17.2. It now says the checkout is cloned fresh and deleted
+  when the run ends, so anything worth keeping must be pushed or written to
+  the issue.
+
+### Added
+- On any non-success outcome, the harness logs a one-line summary of whatever
+  the agent left uncommitted (`N uncommitted path(s)` plus a diffstat) before
+  discarding the checkout — the one diagnostic WIP branches used to provide.
+
+### Operator note
+- **`ai-handover` no longer gates re-pickup.** If any item still carries the
+  label it is now ignored, and the item is eligible again. The three PRs that
+  were parked when this shipped had their labels removed by hand.
+
+### Internal
+- `repo.prepare_repo` returns a plain `Path`; `repo.preserve_wip`,
+  `store.get_prior_wip_run`, and the `wip_branch_url` / `resuming_wip`
+  arguments of `post_run` and `write_run` are deleted. The
+  `runs.wip_branch_url` column is retained, nullable and never written, so the
+  four historical rows still render in the dashboard. ADR-005 is superseded in
+  part by ADR-008.
+
 ## v0.17.2 — 2026-08-31
 
 ### Changed
